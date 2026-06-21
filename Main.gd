@@ -3,9 +3,12 @@ extends Node
 ##
 ## Boot modes (pass after `--`, e.g. `godot -- --online`):
 ##   (none)          ACCOUNT → single-player LOCAL world as your character (Phase 3).
-##   --online [ip]   ACCOUNT → join the shared persistent ZONE (Phase 4, default 127.0.0.1).
-##   --server        Dedicated shared ZONE server (Phase 4, headless authoritative host).
+##   --online [ip]   ACCOUNT → join the shared persistent ZONE (default 127.0.0.1).
+##   --server        Dedicated shared ZONE server (headless authoritative host).
 ##   --practice      Phase 1 LOCAL sandbox — no account, free class cycling + bots.
+##   --port <n>      bind/connect port (default 7777).
+##   --dtls          encrypt the ENet transport (self-signed). Use it on BOTH server and clients
+##                   for any internet-exposed host. (Not needed over a VPN like Tailscale.)
 ##
 ## The zone server owns the world + combat (shared/Sim.gd) and persistence; clients authenticate
 ## with their Supabase token, the server loads their account's character, and input flows through
@@ -22,12 +25,14 @@ const SERVER_PORT := 7777
 func _ready() -> void:
 	var args := OS.get_cmdline_args()
 	args.append_array(OS.get_cmdline_user_args())
+	var port := int(_arg_value(args, "--port", str(SERVER_PORT)))
+	var dtls := "--dtls" in args
 	if "--server" in args:
-		print("[boot] ZONE SERVER")
-		_make_zone_server()
+		print("[boot] ZONE SERVER (port %d%s)" % [port, " · DTLS" if dtls else ""])
+		_make_zone_server(port, dtls)
 	elif "--online" in args:
 		var ip := _arg_value(args, "--online", "127.0.0.1")
-		print("[boot] ONLINE — account → shared zone @ ", ip)
+		print("[boot] ONLINE — account → shared zone @ %s:%d%s" % [ip, port, " · DTLS" if dtls else ""])
 		var tok := _arg_value(args, "--token", "")
 		if tok != "":                              # debug: skip the login UI, use a provided token
 			var supa := SupaScript.new()
@@ -35,10 +40,10 @@ func _ready() -> void:
 			add_child(supa)
 			supa.access_token = tok
 			supa.refresh_token = _arg_value(args, "--refresh", "")
-			_enter_online(supa, {}, ip)
+			_enter_online(supa, {}, ip, port, dtls)
 		else:
 			var acct := AccountScript.new()
-			acct.entered.connect(func(supa, character): _enter_online(supa, character, ip))
+			acct.entered.connect(func(supa, character): _enter_online(supa, character, ip, port, dtls))
 			add_child(acct)
 	elif "--practice" in args:
 		print("[boot] PRACTICE sandbox (local, no account)")
@@ -50,7 +55,7 @@ func _ready() -> void:
 		add_child(acct)
 
 # ---- Phase 4: dedicated shared zone ----
-func _make_zone_server() -> void:
+func _make_zone_server(port: int, dtls: bool) -> void:
 	var net := NetScript.new()
 	net.name = "Net"
 	add_child(net)
@@ -63,9 +68,9 @@ func _make_zone_server() -> void:
 	server.supa = supa
 	net.server = server
 	add_child(server)
-	server.start()
+	server.start(port, dtls)
 
-func _enter_online(supa, character, ip: String) -> void:
+func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := false) -> void:
 	var net := NetScript.new()
 	net.name = "Net"
 	add_child(net)
@@ -87,10 +92,15 @@ func _enter_online(supa, character, ip: String) -> void:
 	client.add_child(supa)
 	Engine.max_fps = 60
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_client(ip, SERVER_PORT)
+	var err := peer.create_client(ip, port)
 	if err != OK:
 		client.net_error("Could not start client (%d)" % err)
 		return
+	if dtls:                                       # encrypt the link (server self-signed; client encrypts, doesn't verify)
+		var derr := peer.host.dtls_client_setup(ip, TLSOptions.client_unsafe())
+		if derr != OK:
+			client.net_error("DTLS setup failed (%d)" % derr)
+			return
 	multiplayer.multiplayer_peer = peer
 	multiplayer.connected_to_server.connect(client._on_connected)
 	multiplayer.connection_failed.connect(func() -> void: client.net_error("Connection failed — is the zone server running? (godot -- --server)"))

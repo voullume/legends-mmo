@@ -1,0 +1,8 @@
+.git
+.godot/imported
+.godot/editor
+*.import.md5
+TESTING.md
+HANDOFF.md
+README.md
+docs

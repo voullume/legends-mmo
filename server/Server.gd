@@ -9,9 +9,10 @@ extends Node
 ##   and level/xp/position persist to the account.
 ## - Per-client snapshots are interest-managed (only entities near the client's fighter).
 ##
-## SECURITY NOTE: ENet here is UNENCRYPTED. Only the short-lived access token crosses the wire
-## (never the refresh token — the client re-issues fresh access tokens via reauth). Production
-## must enable ENet DTLS before exposing this publicly.
+## SECURITY NOTE: pass --dtls (on the server AND clients) to encrypt the ENet transport; without
+## it the link is plaintext. Only the short-lived access token crosses the wire (the refresh token
+## stays on the client, re-issued via reauth). DTLS here encrypts but does not verify the server
+## identity (no MITM protection yet), so prefer a VPN or a host you control.
 
 const Sim := preload("res://shared/Sim.gd")
 const GameData := preload("res://shared/GameData.gd")
@@ -87,12 +88,20 @@ var _snap_count := 0
 static func _xp_to_next(level: int) -> int:
 	return level * 100
 
-func start() -> bool:
+func start(port := PORT, use_dtls := false) -> bool:
 	var peer := ENetMultiplayerPeer.new()
-	var err := peer.create_server(PORT)
+	var err := peer.create_server(port)
 	if err != OK:
-		push_error("[zone] create_server(%d) failed: %d" % [PORT, err])
+		push_error("[zone] create_server(%d) failed: %d" % [port, err])
 		return false
+	if use_dtls:                                 # encrypt the transport with a fresh self-signed cert
+		var crypto := Crypto.new()
+		var key := crypto.generate_rsa(2048)
+		var cert := crypto.generate_self_signed_certificate(key, "CN=legends-zone,O=Legends,C=US")
+		var derr := peer.host.dtls_server_setup(TLSOptions.server(key, cert))
+		if derr != OK:
+			push_error("[zone] DTLS setup failed: %d" % derr)
+			return false
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
@@ -107,7 +116,7 @@ func start() -> bool:
 		f["mobLevel"] = int(m["level"])
 		f["mobTier"] = str(m["tier"])
 		_scale_mob(f)
-	print("[zone] online on UDP %d  (map=%s, %d mobs)" % [PORT, MAP_ID, MOBS.size()])
+	print("[zone] online on UDP %d  (map=%s, %d mobs%s)" % [port, MAP_ID, MOBS.size(), "  · DTLS" if use_dtls else ""])
 	return true
 
 # ---- connection / auth ----

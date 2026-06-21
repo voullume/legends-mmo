@@ -42,16 +42,36 @@ Each player signs up their own account in their client.
 ## 4. A remote user over the internet
 There is **no matchmaking/relay** — clients connect straight to the host over ENet/UDP. Two options:
 
-- **VPN (recommended, and required for safety):** put both machines on a mesh VPN like
-  [Tailscale](https://tailscale.com) or ZeroTier, then have the remote player
-  `--online <host-tailscale-ip>`. Simple and private.
-- **Port forwarding:** forward UDP **7777** on the host's router to the host machine, give the
-  remote player your public IP: `--online <public-ip>`.
+- **VPN (simplest):** put both machines on a mesh VPN like [Tailscale](https://tailscale.com) or
+  ZeroTier, then `--online <host-tailscale-ip>`. The VPN encrypts everything; no `--dtls` needed.
+- **Public host + DTLS:** if you expose a port to the internet, **encrypt the transport** by
+  passing `--dtls` on the server **and** every client. The server self-generates a certificate;
+  clients encrypt but don't verify it (stops passive snooping of the auth token — see the note).
+  ```
+  # host (forward UDP 7777 to this machine, or run on a cloud VM):
+  godot --headless --path . -- --server --dtls
+  # remote player:
+  godot --path . -- --online <public-ip> --dtls
+  ```
 
-> ⚠️ **Security:** the ENet transport is **unencrypted** in this prototype, and the auth token
-> crosses it (short-lived; the refresh token stays on the client). Only play over a **trusted
-> network or VPN** — do **not** expose the server on the public internet as-is. Production needs
-> ENet DTLS.
+> ⚠️ **Security:** `--dtls` encrypts the link. It does **not** verify the server identity (no MITM
+> protection yet), so prefer a VPN or a host you control. The short-lived access token crosses the
+> wire; the refresh token never leaves the client. Don't run a wide-open public server long-term.
+
+## 5. Hosting the server (Docker / cloud)
+A `Dockerfile` builds a self-contained headless server (downloads Godot, imports assets, runs `--server --dtls`):
+```
+docker build -t legends-zone .
+docker run -p 7777:7777/udp legends-zone          # or -e PORT=8000 -p 8000:8000/udp
+```
+Deploy that image anywhere that runs containers with a **UDP** port:
+- **Fly.io** — `fly launch` from this repo (add a `[[services]]` UDP handler on 7777), global regions.
+- **A VPS** (Hetzner / Oracle Cloud free ARM / DigitalOcean) — `docker run` it, open UDP 7777.
+- **Scale-up:** the same image runs on a game-server orchestrator (Hathora, Edgegap, or Agones/K8s).
+  Run several zone instances and put a small lobby/gateway in front — the engine, netcode, and
+  Supabase persistence don't change.
+
+Common flags: `--port <n>` (bind/connect port), `--dtls` (encrypt), `--online <ip>` (client target).
 
 ## In-world controls (zone)
 `WASD` move · `1`–`5` abilities · `LMB` basic · `RMB`-drag camera · wheel zoom ·
