@@ -77,6 +77,8 @@ var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
 var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
+var _equipping := {}               # peer ids with an equip() toggle in flight (race guard)
+var _equip_next := {}              # peer id → earliest ms it may equip again (rate limit)
 var _fseq := 0
 var _acc := 0.0
 var _save_t := 0.0
@@ -126,6 +128,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_last_aseq.erase(pid)
 	_intent_age.erase(pid)
 	_chat_next.erase(pid)
+	_equipping.erase(pid)
+	_equip_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -348,11 +352,10 @@ func _revive(f) -> void:
 	var sp = _spawn_pos.get(orig_id, Vector2(f["x"], f["y"]))
 	f["x"] = sp.x
 	f["y"] = sp.y
-	if f["team"] == 0:                            # re-apply the player's level HP bonus
+	if f["team"] == 0:                            # re-derive from base stats + level + equipped gear
 		var s = _session_by_fid(orig_id)
 		if s != null:
-			f["maxHP"] += (int(s["level"]) - 1) * LEVEL_HP
-			f["hp"] = f["maxHP"]
+			_recompute_player_stats(f, int(s["level"]), s.get("equip_bonus", {}))
 	elif f["team"] == 1:                          # re-apply mob level/tier scaling (mobLevel/Tier survive the copy)
 		_scale_mob(f)
 
@@ -418,25 +421,28 @@ func _roll_rarity(elite: bool) -> Dictionary:
 # ---- equipment ----
 # client → server: toggle an item equipped (one item per slot). Re-derives the fighter's stats.
 func equip(pid: int, item_id: String, _slot: String) -> void:
-	if not _session.has(pid):
+	if not _session.has(pid) or _equipping.has(pid):
 		return
+	var now := Time.get_ticks_msec()
+	if now < int(_equip_next.get(pid, 0)):           # rate limit rapid clicks
+		return
+	_equip_next[pid] = now + 300
+	_equipping[pid] = true                           # serialize: one toggle at a time per player
 	var s = _session[pid]
 	var inv = await supa.get_inventory_as(s["access"])
-	if not inv.get("ok"):
-		return
 	var item = null
-	for it in inv["items"]:
-		if str(it["id"]) == item_id:
-			item = it
-			break
-	if item == null:                                 # not this player's item
-		return
-	var islot: String = str(item["slot"])
-	var was: bool = bool(item["equipped"])
-	await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s" % [s["char_id"], islot], false)
-	if not was:                                      # toggle: equip unless it was already equipped
-		await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)
-	await _apply_equipment(pid)
+	if inv.get("ok"):
+		for it in inv["items"]:
+			if str(it["id"]) == item_id:
+				item = it
+				break
+	if item != null:                                 # only if it's this player's item
+		var islot: String = str(item["slot"])
+		await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s" % [s["char_id"], islot], false)
+		if not bool(item["equipped"]):               # toggle: equip unless it was already equipped
+			await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)
+		await _apply_equipment(pid)
+	_equipping.erase(pid)
 	if net != null and _session.has(pid):
 		net.recv_inventory_changed.rpc_id(pid)
 
@@ -464,6 +470,7 @@ func _apply_equipment(pid: int) -> void:
 			continue
 		var cap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
 		bonus[st] = int(bonus.get(st, 0)) + min(int(it.get("bonus_amt", 0)), cap)
+	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_recompute_player_stats(_find(_session[pid]["fid"]), int(_session[pid]["level"]), bonus)
 
 # re-derive maxHP/dmgMult/crit/ms/… from base stats + equipped bonuses, preserving HP fraction

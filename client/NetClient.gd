@@ -180,6 +180,16 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 
 # input runs at the fixed physics rate (bounded), independent of render fps
 var _aw_t := 0
+var _auto_equipped := false
+func _auto_equip() -> void:                          # debug: equip the first looted item
+	if supa == null:
+		return
+	var r = await supa.get_inventory()
+	if r.get("ok") and r.get("items", []).size() > 0:
+		var it = r["items"][0]
+		print("[equip] auto-equipping %s" % str(it.get("name")))
+		net.equip.rpc_id(1, str(it["id"]), str(it["slot"]))
+
 func _physics_process(_delta: float) -> void:
 	if _player == null or _player_id == "":
 		return
@@ -199,6 +209,9 @@ func _physics_process(_delta: float) -> void:
 				_player.intent["ability"] = ks[0]
 		if _aw_t == 30 and net != null and _connected:   # debug: exercise the chat path once
 			net.send_chat.rpc_id(1, "hello from the test bot")
+		if _aw_t == 720 and not _auto_equipped:          # debug: equip a looted item (~12s in)
+			_auto_equipped = true
+			_auto_equip()
 	else:
 		_player.poll(_yaw)
 	_send_movement()                                 # unreliable, latest-wins
