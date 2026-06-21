@@ -19,6 +19,7 @@ var _create: Control
 var _enter: Control
 var _enter_label: RichTextLabel
 var _class_desc: RichTextLabel
+var _cstatus: Label
 var _picked := ""
 var _class_btns := {}
 var _character = null
@@ -38,12 +39,12 @@ func _bg() -> void:
 	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(cr)
 
-func _panel(title: String) -> CenterContainer:
+func _panel(title: String, width := 460) -> CenterContainer:
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(460, 0)
+	pc.custom_minimum_size = Vector2(width, 0)
 	center.add_child(pc)
 	var m := MarginContainer.new()
 	for s in ["left", "right", "top", "bottom"]:
@@ -93,32 +94,47 @@ func _build() -> void:
 	_status.add_theme_color_override("font_color", Color(0.7, 0.78, 0.9))
 	avb.add_child(_status)
 
-	# --- create-character panel ---
-	_create = _panel("Create Your Character")
+	# --- character SELECTION (first login): choose a class, preview its abilities ---
+	_create = _panel("Choose Your Class", 780)
 	var cvb: VBoxContainer = _create.get_meta("vb")
-	cvb.add_child(_label("Your class is permanent — choose once."))
-	_cname = _edit("character name")
-	cvb.add_child(_cname)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 8)
-	grid.add_theme_constant_override("v_separation", 8)
+	cvb.add_child(_label("Your class is permanent — choose carefully."))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	cvb.add_child(row)
+	# left column: the eight classes (one selectable)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 6)
+	row.add_child(list)
 	for cid in PLAYABLE:
 		var c: Dictionary = GameData.CLASSES[cid]
 		var b := Button.new()
-		b.text = "%s (%s)" % [c["name"], c["sport"]]
+		b.text = "  %s — %s" % [c["name"], c["sport"]]
 		b.toggle_mode = true
-		b.custom_minimum_size = Vector2(210, 34)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size = Vector2(196, 38)
 		b.pressed.connect(_on_pick.bind(cid))
 		_class_btns[cid] = b
-		grid.add_child(b)
-	cvb.add_child(grid)
+		list.add_child(b)
+	# right column: the selected class's role, stats, and full ability kit
 	_class_desc = RichTextLabel.new()
 	_class_desc.bbcode_enabled = true
-	_class_desc.fit_content = true
-	_class_desc.custom_minimum_size = Vector2(412, 44)
-	cvb.add_child(_class_desc)
-	cvb.add_child(_button("Create & Enter World", _on_create))
+	_class_desc.scroll_active = true
+	_class_desc.custom_minimum_size = Vector2(540, 360)
+	_class_desc.text = "[color=#7f93a8]Select a class on the left to preview its kit.[/color]"
+	row.add_child(_class_desc)
+	# bottom: name + confirm/create
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 10)
+	cvb.add_child(brow)
+	_cname = _edit("character name")
+	_cname.custom_minimum_size = Vector2(420, 38)
+	brow.add_child(_cname)
+	brow.add_child(_button("Confirm & Create", _on_create))
+	_cstatus = Label.new()
+	_cstatus.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_cstatus.custom_minimum_size = Vector2(760, 0)
+	_cstatus.add_theme_color_override("font_color", Color(1.0, 0.6, 0.6))
+	cvb.add_child(_cstatus)
 
 	# --- returning-player panel ---
 	_enter = _panel("Welcome Back")
@@ -190,28 +206,51 @@ func _on_pick(cid: String) -> void:
 	_picked = cid
 	for k in _class_btns:
 		_class_btns[k].button_pressed = (k == cid)
-	var c: Dictionary = GameData.CLASSES[cid]
-	_class_desc.text = "[b]%s[/b] — [color=#9fb4c8]%s · %s[/color]\n%s" % [c["name"], c["sport"], c["role"], _kit_line(c)]
+	_class_desc.text = _class_detail(cid)
 
-func _kit_line(c: Dictionary) -> String:
+func _class_detail(cid: String) -> String:
+	var c: Dictionary = GameData.CLASSES[cid]
 	var s: Dictionary = c["stats"]
-	return "[color=#7f93a8]PWR %d · END %d · SPD %d[/color]" % [s["PWR"], s["END"], s["SPD"]]
+	var col: String = c.get("color", "#cccccc")
+	var t := "[color=%s][font_size=22][b]%s[/b][/font_size][/color]   [color=#9fb4c8]%s · %s[/color]\n" % [col, c["name"], c["sport"], c["role"]]
+	t += "[color=#7f93a8]PWR %d   PRE %d   SPD %d   END %d   INS %d   CLU %d[/color]\n\n" % [s["PWR"], s["PRE"], s["SPD"], s["END"], s["INS"], s["CLU"]]
+	t += "[b]Abilities[/b]\n"
+	for ab in c["abilities"]:
+		var tag := ""
+		if ab.get("basic", false): tag = "  [color=#9fe8a0][b]BASIC[/b][/color]"
+		elif ab.get("ult", false): tag = "  [color=#ffd24d][b]ULT[/b][/color]"
+		t += "• [b]%s[/b]%s  [color=#7f93a8](%s)[/color]\n    [color=#8aa0b4]%s[/color]\n" % [ab["name"], tag, ab["type"], _ability_nums(ab)]
+	return t
+
+func _ability_nums(ab: Dictionary) -> String:
+	var parts := []
+	if ab.has("dmg"): parts.append("%d dmg" % int(ab["dmg"]))
+	if ab.has("count"): parts.append("x%d" % int(ab["count"]))
+	if ab.has("healPct"): parts.append("heal %d%%" % int(ab["healPct"] * 100.0))
+	if ab.has("shieldPct"): parts.append("shield %d%%" % int(ab["shieldPct"] * 100.0))
+	if ab.has("range"): parts.append("range %d" % int(ab["range"]))
+	if ab.has("dist"): parts.append("dist %d" % int(ab["dist"]))
+	if ab.has("radius"): parts.append("radius %d" % int(ab["radius"]))
+	if ab.has("stun"): parts.append("stun %ss" % str(ab["stun"]))
+	if ab.has("cast"): parts.append("cast %ss" % str(ab["cast"]))
+	if ab.has("cd"): parts.append("%ss cd" % str(ab["cd"]))
+	return " · ".join(parts) if parts.size() > 0 else "utility"
 
 func _on_create() -> void:
 	if _busy:
 		return
 	var nm := _cname.text.strip_edges()
 	if nm.length() < 1 or nm.length() > 24:
-		_class_desc.text = "[color=#ff8a8a]Enter a name (1–24 characters).[/color]"
+		_cstatus.text = "Enter a name (1–24 characters)."
 		return
 	if _picked == "":
-		_class_desc.text = "[color=#ff8a8a]Pick a class — it's permanent.[/color]"
+		_cstatus.text = "Select a class first — it's permanent."
 		return
 	_busy = true
-	_class_desc.text = "Creating…"
+	_cstatus.text = "Creating %s the %s…" % [nm, GameData.CLASSES[_picked]["name"]]
 	var r = await supa.create_character(nm, _picked)
 	if not r.get("ok"):
-		_class_desc.text = "[color=#ff8a8a]Create failed: " + str(r.get("error", "")) + "[/color]"
+		_cstatus.text = "Create failed: " + str(r.get("error", ""))
 		_busy = false
 		return
 	_character = r.get("character")
