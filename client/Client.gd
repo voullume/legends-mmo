@@ -54,6 +54,18 @@ var _player: Node
 var _player_id := "0-0"
 var _player_class_idx := 0
 
+# Phase 3 — account-bound character: class is locked (no cycling) and position persists.
+var class_locked := false
+var locked_class := ""
+var start_pos := Vector2.ZERO
+var has_start_pos := false
+var supa = null
+var char_id := ""
+var char_name := ""
+var _save_t := 0.0
+var _save_note := ""
+var _quitting := false
+
 var _world_root: Node3D
 var _fx_root: Node3D
 var _proj_pool := []
@@ -83,8 +95,21 @@ func _ready() -> void:
 # Phase-1 LOCAL sandbox. NetClient (Phase 2) overrides this to connect to a server instead,
 # reusing every rendering helper below.
 func _enter_mode() -> void:
-	_setup_match(PLAYABLE[_player_class_idx])
-	print("[client] Phase 1 arena ready — WASD move, 1-5 abilities, C cycle class, R reset.")
+	if locked_class != "":
+		# Phase 3: enter as the account's character (class fixed, position restored)
+		if not GameData.CLASSES.has(locked_class):
+			push_warning("[client] unknown class '%s' — falling back to default" % locked_class)
+			locked_class = PLAYABLE[0]
+		_player_class_idx = max(0, PLAYABLE.find(locked_class))
+		_setup_match(locked_class)
+		if has_start_pos:
+			_place_player_at(start_pos)
+		if class_locked:
+			get_tree().set_auto_accept_quit(false)   # save on window close
+		print("[client] entered as %s the %s (class locked)" % [char_name, locked_class])
+	else:
+		_setup_match(PLAYABLE[_player_class_idx])
+		print("[client] Phase 1 arena ready — WASD move, 1-5 abilities, C cycle class, R reset.")
 
 # ============================================================ assets / characters
 func _load_meshy() -> void:
@@ -344,6 +369,13 @@ func _process(delta: float) -> void:
 		_acc = 0.0
 
 	_render_world(delta)
+
+	# Phase 3: persist position to the account's character every 10s
+	if supa != null and char_id != "" and not _quitting:
+		_save_t += delta
+		if _save_t >= 10.0:
+			_save_t = 0.0
+			_save_progress()
 
 # Render the current _state — shared by the LOCAL sandbox and the networked client (which
 # fills _state from server snapshots instead of ticking the sim locally).
@@ -674,6 +706,38 @@ func _enemy_dir(f: Dictionary) -> Vector2:
 		return Vector2.ZERO
 	return Vector2(best["x"] - f["x"], best["y"] - f["y"])
 
+# ============================================================ Phase 3 persistence
+func _place_player_at(pos: Vector2) -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null:
+		return
+	pf["x"] = pos.x
+	pf["y"] = pos.y
+	_spawn_pos[_player_id] = pos
+	var n = _nodes.get(_player_id)
+	if n != null:
+		n["holder"].position = _world(pf)
+		n["last"] = n["holder"].position
+	_focus = _world(pf)
+
+func _save_progress() -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null or not pf["alive"] or supa == null or char_id == "":
+		return                          # don't persist a corpse's death-spot
+	var r = await supa.save_character(char_id, {"last_x": pf["x"], "last_y": pf["y"], "last_map": MAP_ID})
+	if r.get("ok"):
+		_save_note = "progress saved"
+	elif r.get("expired"):
+		_save_note = "session expired — relog to save"
+	else:
+		_save_note = "save failed"
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and supa != null and char_id != "" and not _quitting:
+		_quitting = true
+		await _save_progress()
+		get_tree().quit()
+
 # ============================================================ input (camera + meta)
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventMouseButton:
@@ -692,10 +756,14 @@ func _unhandled_input(e: InputEvent) -> void:
 			if _state != null:
 				_state["botsFrozen"] = _bots_frozen
 		elif e.physical_keycode == KEY_C:
+			if class_locked:
+				return                              # one class per account — no cycling
 			_player_class_idx = (_player_class_idx + 1) % PLAYABLE.size()
 			_setup_match(PLAYABLE[_player_class_idx])
 		elif e.physical_keycode == KEY_R:
 			_setup_match(PLAYABLE[_player_class_idx])
+			if has_start_pos:
+				_place_player_at(start_pos)
 
 # ============================================================ HUD
 func _build_hud() -> void:
@@ -724,8 +792,13 @@ func _update_hud() -> void:
 	var c: Dictionary = GameData.CLASSES[pf["classId"]]
 	var alive_txt := "[color=#ff6b6b](respawning…)[/color]" if not pf["alive"] else ""
 	var bots_txt := "[color=#7fd4ff][b]BOTS PAUSED[/b] — press P to engage[/color]" if _bots_frozen else "[color=#ff8a8a][b]BOTS ACTIVE[/b] — press P to pause[/color]"
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   HP %d/%d %s   %s\n[color=#7f93a8]WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom · [b]P[/b] pause bots · [b]C[/b] class · [b]R[/b] reset[/color]" % [
-		c["name"], c["sport"], c["role"], int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, bots_txt]
+	var title: String = ("%s the %s" % [char_name, c["name"]]) if char_name != "" else c["name"]
+	var controls := "WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom · [b]P[/b] pause bots · [b]R[/b] reset"
+	if not class_locked:
+		controls += " · [b]C[/b] class"
+	var save_txt := ("   [color=#7fd4ff]%s[/color]" % _save_note) if _save_note != "" else ""
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   HP %d/%d %s   %s%s\n[color=#7f93a8]%s[/color]" % [
+		title, c["sport"], c["role"], int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, bots_txt, save_txt, controls]
 	var parts := []
 	var keys: Array = _player.ability_keys()
 	for i in keys.size():
