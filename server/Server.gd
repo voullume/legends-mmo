@@ -75,6 +75,7 @@ var _intent_age := {}
 var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
+var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
 var _fseq := 0
 var _acc := 0.0
 var _save_t := 0.0
@@ -92,7 +93,8 @@ func start() -> bool:
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ 0x9E3779B9)   # vary loot per launch
+	# vary loot per launch with process-unique, high-res entropy (no same-second seed collisions)
+	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ Time.get_ticks_usec() ^ (OS.get_process_id() << 13))
 	Engine.max_fps = 60
 	_state = Sim.create_match([], [], SEED, MAP_ID)
 	_state["zone"] = true                        # persistent: no match-end / no overtime ramp
@@ -122,6 +124,7 @@ func _on_peer_disconnected(pid: int) -> void:
 	_pending_ability.erase(pid)
 	_last_aseq.erase(pid)
 	_intent_age.erase(pid)
+	_chat_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -157,6 +160,10 @@ func reauth(pid: int, access: String) -> void:
 func chat(pid: int, text: String) -> void:
 	if not _session.has(pid):
 		return
+	var now := Time.get_ticks_msec()             # rate limit ~1.4 msgs/sec/player (anti-flood)
+	if now < int(_chat_next.get(pid, 0)):
+		return
+	_chat_next[pid] = now + 700
 	var msg := text.strip_edges().replace("\n", " ").replace("\r", " ")
 	if msg.is_empty():
 		return
@@ -368,9 +375,13 @@ func _grant_loot(pid: int, mob) -> void:
 	if item.is_empty():
 		return
 	var s = _session[pid]
-	supa.add_item_as(s["access"], s["char_id"], item)    # persist to the account (fire-and-forget)
-	net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
-	print("[loot] %s looted [%s] %s (+%d %s)" % [s["name"], item["rarity"], item["name"], item["bonus_amt"], item["bonus_stat"]])
+	var r = await supa.add_item_as(s["access"], s["char_id"], item)
+	if not r.get("ok"):                                  # never tell the client it looted something we didn't save
+		print("[loot] %s drop NOT saved (code %s)" % [s["name"], r.get("code", "?")])
+		return
+	if _session.has(pid):                                # still connected after the write
+		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+		print("[loot] %s looted [%s] %s (+%d %s)" % [s["name"], item["rarity"], item["name"], item["bonus_amt"], item["bonus_stat"]])
 
 func _roll_loot(mob) -> Dictionary:
 	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"

@@ -27,6 +27,9 @@ var _chat_input: LineEdit
 var _chat_lines := []
 var _inv_panel: Control
 var _inv_label: RichTextLabel
+var _chat_grace := 0          # frames after closing chat where input stays suppressed
+var _inv_loading := false     # an inventory GET is in flight
+var _inv_pending := false     # a refresh was requested while loading
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -67,6 +70,9 @@ func _close_chat(_arg := "") -> void:
 	if not _chatting:
 		return
 	_chatting = false
+	_chat_grace = 2                          # a click that dismissed chat must not also fire an ability
+	if _player != null:
+		_player.intent["ability"] = ""
 	_chat_input.text = ""
 	_chat_input.visible = false
 	_chat_input.release_focus()
@@ -121,8 +127,17 @@ func _toggle_inventory() -> void:
 func _load_inventory() -> void:
 	if supa == null:
 		return
+	if _inv_loading:                         # coalesce concurrent loads → always show the latest result
+		_inv_pending = true
+		return
+	_inv_loading = true
 	_inv_label.text = "[color=#7f93a8]loading…[/color]"
 	var r = await supa.get_inventory()
+	_inv_loading = false
+	if _inv_pending:
+		_inv_pending = false
+		_load_inventory()
+		return
 	if not r.get("ok"):
 		_inv_label.text = "[color=#ff8a8a]couldn't load inventory[/color]"
 		return
@@ -155,9 +170,11 @@ var _aw_t := 0
 func _physics_process(_delta: float) -> void:
 	if _player == null or _player_id == "":
 		return
-	if _chatting:
-		_player.intent["mx"] = 0.0                   # hold still while typing
-		_player.intent["my"] = 0.0
+	if _chat_grace > 0:
+		_chat_grace -= 1
+	if _chatting or _chat_grace > 0:
+		_player.intent["mx"] = 0.0                   # hold still while typing (and the frame after, so
+		_player.intent["my"] = 0.0                   # the click that dismissed chat doesn't fire an ability)
 		_player.intent["ability"] = ""
 	elif autowalk:
 		_player.intent["mx"] = 0.0                   # debug: stand and fight (combat / XP tests)
