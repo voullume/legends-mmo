@@ -1,6 +1,5 @@
 .git
-.godot/imported
-.godot/editor
+.godot
 *.import.md5
 TESTING.md
 HANDOFF.md
