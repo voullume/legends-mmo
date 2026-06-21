@@ -1,0 +1,5 @@
+CC0 (public domain — no attribution required) environment assets, noted for credit:
+- Kenney "Nature Kit"          https://kenney.nl/assets/nature-kit            (CC0)
+- Kenney "City Kit (Industrial)" https://kenney.nl/assets/city-kit-industrial (CC0)
+A curated subset (trees/rocks/bushes/fences, industrial buildings/chimneys/tank)
+is used for procedural venue decoration in scripts/Arena.gd (_build_map).

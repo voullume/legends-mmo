@@ -1,0 +1,15 @@
+; Legends MMO — Godot project.
+; Runs as a dedicated server with `--server`, otherwise as a client.
+
+config_version=5
+
+[application]
+
+config/name="Legends MMO"
+config/description="MMORPG built on the Legends of the Arena combat engine (shared/)."
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.6")
+
+[debug]
+
+gdscript/warnings/unassigned_variable=0
