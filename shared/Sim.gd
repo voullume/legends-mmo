@@ -201,6 +201,20 @@ static func sim_tick(state, dt) -> void:
 				f["casting"] = null
 			continue
 
+		# PLAYER-CONTROLLED FIGHTER (Phase 1 seam): if an external controller has injected an
+		# intent for this fighter, drive movement + abilities from it and skip the AI brain.
+		# Inert for AI-only matches (state has no "controlled" key) — determinism preserved.
+		var controlled: Dictionary = state.get("controlled", {})
+		if controlled.has(f["id"]):
+			_player_step(state, f, controlled[f["id"]], dt)
+			continue
+
+		# PRACTICE FREEZE (Phase 1): when set, non-controlled fighters hold position — no
+		# targeting, offense, or movement — so the player can explore controls unrushed.
+		# Absent in headless/AI-only matches, so determinism is unaffected.
+		if state.get("botsFrozen", false):
+			continue
+
 		# support routing (does not block offense/movement)
 		AI.support_tick(state, f, dt)
 
@@ -390,3 +404,159 @@ static func win_prob(state) -> float:
 		else: b += ehp
 	if a + b == 0: return 0.5
 	return a / (a + b)
+
+# --- Player control (Phase 1) ---------------------------------------------------
+# A controlled fighter is driven by an `intent` Dictionary:
+#   { "mx": float, "my": float, "ability": String }
+# `mx/my` is a movement direction in sim space (magnitude <= 1); `ability` is the key
+# of an ability to attempt this tick (consumed once). All resolution reuses the SAME
+# Abilities/AI/Combat helpers the bots use — the human just replaces the AI driver.
+
+static func _ability_by_key(c, key):
+	for ab in c["abilities"]:
+		if ab["key"] == key:
+			return ab
+	return null
+
+static func _lowest_ally_or_self(state, f) -> Dictionary:
+	var best: Dictionary = f
+	var best_frac: float = f["hp"] / f["maxHP"]
+	for a in state["fighters"]:
+		if a["team"] == f["team"] and a["alive"] and a["id"] != f["id"]:
+			var fr = a["hp"] / a["maxHP"]
+			if fr < best_frac:
+				best_frac = fr
+				best = a
+	return best
+
+# Support abilities (allybuff/allyheal/teamheal) aren't handled by Abilities.try_cast
+# (the bots route them through AI.support_tick). For a human we resolve them directly,
+# self/lowest-ally targeted, no AI gating.
+static func _player_support_cast(state, f, ab) -> void:
+	var c = GameData.CLASSES[f["classId"]]
+	var cd_mult: float = 1.0 - f["cdr"]
+	match ab["type"]:
+		"allyheal":
+			var t := _lowest_ally_or_self(state, f)
+			Combat.apply_heal(state, f, t, t["maxHP"] * ab["healPct"])
+			var e_heal := AI._echo(c, f)   # Six-Pack echo parity (Setter)
+			if e_heal > 0.0:
+				Combat.apply_heal(state, f, t, t["maxHP"] * ab["healPct"] * e_heal)
+		"teamheal":
+			for a in state["fighters"]:
+				if a["team"] == f["team"] and a["alive"]:
+					Combat.apply_heal(state, f, a, a["maxHP"] * ab["healPct"])
+					if ab.get("cleanse", false):
+						a["stun"] = 0.0
+						a["slowT"] = 0.0
+		"allybuff":
+			var t := _lowest_ally_or_self(state, f)
+			if ab.has("shieldPct"):
+				Combat.apply_shield(state, f, t, t["maxHP"] * ab["shieldPct"], ab["dur"])
+				var e_shield := AI._echo(c, f)   # Six-Pack echo parity (Setter)
+				if e_shield > 0.0:
+					Combat.apply_shield(state, f, t, t["maxHP"] * ab["shieldPct"] * e_shield, ab["dur"])
+			elif ab.has("buff"):
+				var b = ab["buff"]
+				if b.has("nextdmg"): t["buffs"]["nextdmg"] = b["nextdmg"]
+				if b.has("crit"):
+					t["buffs"]["crit"] = b["crit"]
+					t["buffs"]["critT"] = b["dur"]
+				if b.has("atkspd"):
+					t["buffs"]["atkspd"] = b["atkspd"]
+					t["buffs"]["atkspdT"] = b.get("dur", 2.2)
+				if b.has("ms"):
+					t["buffs"]["ms"] = b["ms"]
+					t["buffs"]["msT"] = b["dur"]
+				AI._echo(c, f)   # advance the echo counter (parity with AI.support_tick)
+	f["cds"][ab["key"]] = ab["cd"] * cd_mult
+	f["lastCastKey"] = ab["key"]
+
+# Self-buff / barrier for a human: apply the effect UNCONDITIONALLY. try_cast gates these on
+# the AI's defensive heuristics (only when pressured / low HP), which would silently swallow a
+# human's button press at full HP — so player control resolves them directly.
+static func _player_self_cast(_state, f, ab) -> void:
+	match ab["type"]:
+		"selfbuff":
+			var b = ab["buff"]
+			if b.has("dr"):
+				f["buffs"]["dr"] = b["dr"]
+				f["buffs"]["drT"] = b["dur"]
+			if b.has("ms"):
+				f["buffs"]["ms"] = b["ms"]
+				f["buffs"]["msT"] = b["dur"]
+			if b.has("bypass"): f["buffs"]["bypass"] = b["dur"]
+			if b.has("reflect"): f["buffs"]["reflect"] = b["dur"]
+		"barrier":
+			f["barrier"] = ab["dr"]
+			f["barrierT"] = ab["dur"]
+			f["barrierStored"] = 0.0
+			f["_barrierAb"] = ab
+	f["cds"][ab["key"]] = ab["cd"] * (1.0 - f["cdr"])
+	f["lastCastKey"] = ab["key"]
+
+# Dash for a human: lunge in the steering/aim direction (the AI dash picks gap-close vs escape
+# from heuristics and needs an enemy nearby; a player dashes where they're pointing).
+static func _player_dash(_state, f, ab, mvx, mvy) -> void:
+	var dx: float = mvx
+	var dy: float = mvy
+	var dl := Vector2(dx, dy).length()
+	if dl < 0.001:                       # no steering input → dash along current heading
+		dx = f["hx"]
+		dy = f["hy"]
+		dl = Vector2(dx, dy).length()
+	if dl < 0.001:
+		dx = float(f["facing"])
+		dy = 0.0
+		dl = 1.0
+	f["x"] += (dx / dl) * ab["dist"]
+	f["y"] += (dy / dl) * ab["dist"]
+	Geom.clamp_arena(f)
+	if ab.has("evade"): f["evade"] = ab["evade"]
+	f["cds"][ab["key"]] = ab["cd"] * (1.0 - f["cdr"])
+	f["lastCastKey"] = ab["key"]
+
+static func _player_step(state, f, intent, dt) -> void:
+	var c = GameData.CLASSES[f["classId"]]
+	# movement: steer toward a point in the intent direction (reuses obstacle steering,
+	# turn-rate facing, slow/buff/atk-commit speed modifiers).
+	var mvx: float = intent.get("mx", 0.0)
+	var mvy: float = intent.get("my", 0.0)
+	var ml := Vector2(mvx, mvy).length()
+	if ml > 0.001:
+		# Direct, responsive movement for a human (no AI turn-rate steering — that exists for
+		# bot "feel" and would stick a player who reverses against their spawn heading). Same
+		# speed modifiers as AI.step_toward: slow, ms-buff, post-fire commit, hat-trick chain.
+		var dirx := mvx / ml
+		var diry := mvy / ml
+		var spd: float = f["ms"]
+		if f["slowT"] > 0: spd *= (1.0 - f["slowAmt"])
+		if f["buffs"]["msT"] > 0: spd *= f["buffs"]["ms"]
+		if f["atkCommitT"] > 0: spd *= 0.45
+		if f["hatChainT"] > 0 and c.has("chainMS"): spd *= c["chainMS"]
+		f["x"] += dirx * spd * dt
+		f["y"] += diry * spd * dt
+		f["hx"] = dirx
+		f["hy"] = diry
+		f["facing"] = 1 if dirx >= 0 else -1
+		Geom.clamp_arena(f)
+	# ability: attempt the queued key once (auto-target nearest enemy for offense).
+	var key: String = intent.get("ability", "")
+	if key != "":
+		var ab: Variant = _ability_by_key(c, key)
+		if ab != null and f["cds"].get(key, 0.0) <= 0.0 and f["casting"] == null:
+			# Self/utility/support resolve through dedicated player paths (apply unconditionally);
+			# offensive abilities use try_cast so range/LOS still gate them honestly.
+			match ab["type"]:
+				"allybuff", "allyheal", "teamheal":
+					_player_support_cast(state, f, ab)
+				"selfbuff", "barrier":
+					_player_self_cast(state, f, ab)
+				"dash":
+					_player_dash(state, f, ab, mvx, mvy)
+				_:
+					var tgt = _nearest_enemy(state, f)
+					if tgt != null:
+						Abilities.try_cast(state, f, ab, tgt)
+		intent["ability"] = ""
+	AI.separation(state, f, dt)

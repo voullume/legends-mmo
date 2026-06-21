@@ -1,21 +1,741 @@
 extends Node
-## CLIENT (skeleton). Input + rendering.
+## CLIENT — Phase 1: a single, local, player-controlled fighter in a practice arena.
 ##
-## PHASE 1 GOAL: spawn ONE local, player-controlled fighter in a small world — no networking.
-## Reuse from the prototype (../legends-arena/scripts/Arena.gd is the reference renderer):
-##   - the character kit: load models/meshy/<sport>_rigged.glb + merge clips/ onto its
-##     AnimationPlayer (idle/run/attack/throw/kick/hit/death/cast)
-##   - animation driving, impact/skill FX, orbit/follow camera
-## Class + ability definitions live in shared/GameData.gd.
+## Architecture: the shared deterministic engine (shared/Sim.gd) is authoritative and ticks
+## the WHOLE world at 30 Hz. The player's fighter is driven through the Sim's controlled
+## seam (Player.gd → intent → Sim._player_step); sparring bots run the ported team AI. The
+## client only RENDERS sim state (character kit + animations + FX, ported from the prototype
+## ~/legends-arena/scripts/Arena.gd) and feeds input. No win/lose — dead fighters respawn.
 ##
-## Later phases: connect to the server (ENetMultiplayerPeer.create_client), send input,
-## render server snapshots; Supabase login + character select before entering the world.
+## Controls: WASD move (camera-relative) · 1-5 abilities (1=basic … 5=ult) · LMB basic
+##           RMB-drag orbit camera · wheel zoom · C cycle class · R reset arena
 
 const GameData := preload("res://shared/GameData.gd")
+const Sim := preload("res://shared/Sim.gd")
+const Geom := preload("res://shared/Geom.gd")
+const PlayerCtl := preload("res://client/Player.gd")
+
+# --- world scale / look ---
+const SCALE := 0.05                       # sim units → world units (960×540 → 48×27)
+const MESHY_SCALE := 1.9
+const MESHY_FLIP := false
+const CHAR_Y := 0.0
+const SIM_DT := 1.0 / 30.0
+const BAR_W := 2.2
+const BAR_H := 0.26
+const UI_Y := 3.6
+const DMG_NUM_Y := 4.4
+const HIT_Y := 1.7
+const RESPAWN_DELAY := 3.0
+const MAP_ID := "stadium"                 # open field; obstacle rendering supports any venue
+
+# --- camera (3rd-person follow + orbit) ---
+const FOV := 60.0
+const ORBIT_SENS := 0.006
+const ZOOM_STEP := 1.12
+const DIST_MIN := 10.0
+const DIST_MAX := 55.0
+const PITCH_MIN := 0.62        # keep it overhead — no dropping to a flat free-cam angle
+const PITCH_MAX := 1.45        # up to near top-down
+
+const TEAM_COLOR := [Color(0.26, 0.74, 0.98), Color(0.98, 0.46, 0.52)]
+const PLAYABLE := ["striker", "batter", "spiker", "linebacker", "pitcher", "quarterback", "setter", "goalkeeper"]
+const BOTS := ["linebacker", "setter"]
+
+# Meshy clip-name map (sport → renderer anim roles). Soccer throws by kicking.
+const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"}}
+
+var _state: Dictionary
+var _meshy := {}
+var _nodes := {}                          # fighter id → render node dict
+var _spawn_pos := {}                      # fighter id → Vector2 (sim) spawn for respawn
+var _respawn := {}                        # fighter id → seconds until revive
+var _player: Node
+var _player_id := "0-0"
+var _player_class_idx := 0
+
+var _world_root: Node3D
+var _fx_root: Node3D
+var _proj_pool := []
+var _fx_active := []                       # {node, t, life, vel}
+var _num_pool := []
+var _pop_pool := []
+
+var _cam: Camera3D
+var _focus := Vector3.ZERO
+var _yaw := 0.0
+var _pitch := 1.12             # high, MMO-style overhead angle by default
+var _dist := 26.0
+var _dragging := false
+var _acc := 0.0
+var _bots_frozen := true        # start paused so the player can feel out controls unrushed
+
+var _hud: CanvasLayer
+var _info: RichTextLabel
+var _bar: RichTextLabel
 
 func _ready() -> void:
-	print("[client] ready. TODO Phase 1: world + camera + a player-controlled character.")
-	# Suggested first build:
-	#   1. a ground/world node + light + camera
-	#   2. add_child(preload("res://client/Player.gd").new()) with a chosen class_id
-	#   3. wire input -> movement + ability animations + FX
+	_load_meshy()
+	_build_world()
+	_build_hud()
+	_enter_mode()
+
+# Phase-1 LOCAL sandbox. NetClient (Phase 2) overrides this to connect to a server instead,
+# reusing every rendering helper below.
+func _enter_mode() -> void:
+	_setup_match(PLAYABLE[_player_class_idx])
+	print("[client] Phase 1 arena ready — WASD move, 1-5 abilities, C cycle class, R reset.")
+
+# ============================================================ assets / characters
+func _load_meshy() -> void:
+	var configs := {
+		"Baseball": {"prefix": "baseball", "ranged": "throw"},
+		"Football": {"prefix": "football", "ranged": "throw"},
+		"Volleyball": {"prefix": "volleyball", "ranged": "throw"},
+		"Soccer": {"prefix": "soccer", "ranged": "kick"},
+	}
+	for sport in configs:
+		var prefix: String = configs[sport]["prefix"]
+		var base_path := "res://models/meshy/%s_rigged.glb" % prefix
+		if not ResourceLoader.exists(base_path):
+			continue
+		var entry := {"base": load(base_path), "clips": {},
+			"anims": {"idle": "idle", "run": "run", "melee": "attack", "ranged": configs[sport]["ranged"],
+				"hit": "hit", "death": "death", "cast": "cast"}}
+		for cn in ["idle", "run", "walk", "attack", "hit", "death", "throw", "kick", "cast"]:
+			var p := "res://models/meshy/clips/%s_%s.res" % [prefix, cn]
+			if ResourceLoader.exists(p):
+				entry["clips"][cn] = load(p)
+		if entry["clips"].has("idle") and entry["clips"].has("attack"):
+			_meshy[sport] = entry
+	print("[client] Meshy characters loaded: ", _meshy.keys(), " (", _meshy.size(), "/4 sports)")
+
+func _find_anim(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		return node
+	for c in node.get_children():
+		var r := _find_anim(c)
+		if r != null:
+			return r
+	return null
+
+func _find_skeleton(node: Node) -> Skeleton3D:
+	if node is Skeleton3D:
+		return node
+	for c in node.get_children():
+		var r := _find_skeleton(c)
+		if r != null:
+			return r
+	return null
+
+# Returns {model, anim, anims, scale} for a fighter's sport (Meshy, or capsule fallback).
+func _make_character(f: Dictionary) -> Dictionary:
+	var sport: String = GameData.CLASSES[f["classId"]]["sport"]
+	if _meshy.has(sport):
+		var entry = _meshy[sport]
+		var inst = entry["base"].instantiate()
+		var ap := _find_anim(inst)
+		if ap != null:
+			var lib := ap.get_animation_library("")
+			if lib == null:
+				lib = AnimationLibrary.new()
+				ap.add_animation_library("", lib)
+			for cn in entry["clips"]:
+				if not lib.has_animation(cn):
+					lib.add_animation(cn, entry["clips"][cn])
+		return {"model": inst, "anim": ap, "anims": entry["anims"], "scale": MESHY_SCALE}
+	# fallback: a colored capsule (assets missing) so the arena still runs
+	var cap := MeshInstance3D.new()
+	var cm := CapsuleMesh.new()
+	cm.radius = 0.4
+	cm.height = 1.8
+	cap.mesh = cm
+	cap.position.y = 0.9
+	cap.material_override = _mat(GameData.CLASSES[f["classId"]].get("color", "#cccccc"))
+	return {"model": cap, "anim": null, "anims": {}, "scale": 1.0}
+
+# ============================================================ world / camera
+func _mat(col) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = (Color(col) if col is String else col)
+	return m
+
+func _quad(w: float, h: float, col: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(w, h)
+	mi.mesh = qm
+	var mt := StandardMaterial3D.new()
+	mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mt.albedo_color = col
+	mi.material_override = mt
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return mi
+
+func _world(f: Dictionary) -> Vector3:
+	return Vector3((f["x"] - GameData.ARENA_W / 2.0) * SCALE, 0.0, (f["y"] - GameData.ARENA_H / 2.0) * SCALE)
+
+func _build_world() -> void:
+	_world_root = Node3D.new()
+	add_child(_world_root)
+	_fx_root = Node3D.new()
+	add_child(_fx_root)
+
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-58, -42, 0)
+	sun.light_energy = 1.25
+	sun.shadow_enabled = true
+	add_child(sun)
+
+	var we := WorldEnvironment.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.05, 0.07, 0.11)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.46, 0.52, 0.64)
+	env.ambient_light_energy = 0.75
+	env.fog_enabled = true
+	env.fog_density = 0.004
+	env.fog_light_color = Color(0.06, 0.08, 0.12)
+	we.environment = env
+	add_child(we)
+
+	# ground + field
+	var ground := MeshInstance3D.new()
+	var gp := PlaneMesh.new()
+	gp.size = Vector2(GameData.ARENA_W * SCALE + 24.0, GameData.ARENA_H * SCALE + 24.0)
+	ground.mesh = gp
+	ground.material_override = _mat(Color(0.10, 0.13, 0.10))
+	add_child(ground)
+	var field := MeshInstance3D.new()
+	var fp := PlaneMesh.new()
+	fp.size = Vector2(GameData.ARENA_W * SCALE, GameData.ARENA_H * SCALE)
+	field.mesh = fp
+	field.position.y = 0.01
+	field.material_override = _mat(Color(0.16, 0.30, 0.18))
+	add_child(field)
+
+	# obstacles (rigs) for the chosen map — cylinders
+	for o in GameData.MAPS[MAP_ID]["obstacles"]:
+		var rig := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = o["r"] * SCALE
+		cyl.bottom_radius = o["r"] * SCALE
+		cyl.height = 2.2
+		rig.mesh = cyl
+		rig.position = Vector3((o["x"] - GameData.ARENA_W / 2.0) * SCALE, 1.1, (o["y"] - GameData.ARENA_H / 2.0) * SCALE)
+		rig.material_override = _mat(Color(0.30, 0.32, 0.38))
+		add_child(rig)
+
+	_cam = Camera3D.new()
+	_cam.fov = FOV
+	add_child(_cam)
+	_update_cam()
+
+func _update_cam() -> void:
+	var dir := Vector3(cos(_pitch) * sin(_yaw), sin(_pitch), cos(_pitch) * cos(_yaw))
+	_cam.position = _focus + dir * _dist
+	_cam.look_at(_focus, Vector3.UP)
+
+# ============================================================ match setup
+func _setup_match(player_class: String) -> void:
+	_teardown()
+	_state = Sim.create_match([player_class], BOTS.duplicate(), 20260620, MAP_ID)
+	_state["botsFrozen"] = _bots_frozen
+	for f in _state["fighters"]:
+		_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])
+		_spawn(f)
+	# wire the player controller into the controlled seam (shared intent dict reference)
+	_player = PlayerCtl.new()
+	_player.class_id = player_class
+	add_child(_player)
+	_state["controlled"] = {_player_id: _player.intent}
+	_focus = _world(_state["fighters"][0])
+
+func _teardown() -> void:
+	if _player != null and is_instance_valid(_player):
+		_player.queue_free()
+		_player = null
+	for id in _nodes:
+		var n = _nodes[id]
+		if is_instance_valid(n["holder"]):
+			n["holder"].queue_free()
+	_nodes.clear()
+	_spawn_pos.clear()
+	_respawn.clear()
+	for p in _proj_pool:
+		if is_instance_valid(p):
+			p.queue_free()
+	_proj_pool.clear()
+	for fx in _fx_active:
+		if is_instance_valid(fx["node"]):
+			fx["node"].visible = false
+			if fx["kind"] == "num":
+				_num_pool.append(fx["node"])
+			else:
+				_pop_pool.append(fx["node"])   # re-pool in-flight FX so a mid-anim reset doesn't strand nodes
+	_fx_active.clear()
+	_acc = 0.0
+
+func _spawn(f: Dictionary) -> void:
+	var holder := Node3D.new()
+	_world_root.add_child(holder)
+	holder.position = _world(f)
+
+	var ring := MeshInstance3D.new()
+	var rcyl := CylinderMesh.new()
+	rcyl.top_radius = 1.25
+	rcyl.bottom_radius = 1.25
+	rcyl.height = 0.05
+	ring.mesh = rcyl
+	ring.position.y = 0.05
+	var rmat := _mat(TEAM_COLOR[f["team"]])
+	rmat.emission_enabled = true
+	rmat.emission = TEAM_COLOR[f["team"]]
+	rmat.emission_energy_multiplier = 0.5
+	ring.material_override = rmat
+	holder.add_child(ring)
+
+	var kit := _make_character(f)
+	var model = kit["model"]
+	var msc: float = kit["scale"]
+	model.scale = Vector3(msc, msc, msc)
+	model.position.y = CHAR_Y
+	holder.add_child(model)
+	var ap = kit["anim"]
+	if ap != null:
+		ap.playback_default_blend_time = 0.12
+		_safe_play(ap, kit["anims"].get("idle", "idle"))
+
+	var ui := Node3D.new()
+	ui.position.y = UI_Y
+	holder.add_child(ui)
+	ui.add_child(_quad(BAR_W + 0.08, BAR_H + 0.08, Color(0, 0, 0, 0.6)))
+	var fill := _quad(BAR_W, BAR_H, Color(0.3, 0.85, 0.4))
+	fill.position.z = 0.01
+	ui.add_child(fill)
+
+	_nodes[f["id"]] = {
+		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"],
+		"ui": ui, "fill": fill, "last": holder.position, "vel": Vector2.ZERO,
+		"pcds": {}, "busy": "", "atk_clip": "", "died": false, "hit_cd": 0.0, "pflash": 0.0,
+	}
+
+# ============================================================ main loop
+func _process(delta: float) -> void:
+	if _state.is_empty():
+		return
+	# 1) input → intent (before the tick, zero-lag)
+	if _player != null:
+		_player.poll(_yaw)
+
+	# 2) fixed-step authoritative sim. Practice arena: never let a winner latch.
+	_acc += delta
+	var steps := 0
+	while _acc >= SIM_DT and steps < 5:
+		_state["winner"] = null
+		Sim.sim_tick(_state, SIM_DT)
+		_acc -= SIM_DT
+		steps += 1
+		_handle_events()
+		_tick_respawns(SIM_DT)
+	if steps == 5:
+		_acc = 0.0
+
+	_render_world(delta)
+
+# Render the current _state — shared by the LOCAL sandbox and the networked client (which
+# fills _state from server snapshots instead of ticking the sim locally).
+func _render_world(delta: float) -> void:
+	_sync_projectiles()
+	_update_fx(delta)
+	var pf = _find_fighter(_player_id)
+	if pf != null:
+		var tf := _world(pf)
+		tf.y = 1.4
+		_focus = _focus.lerp(tf, clampf(delta * 5.0, 0.0, 1.0))
+	_update_cam()
+
+	for f in _state["fighters"]:
+		var n = _nodes.get(f["id"])
+		if n == null:
+			continue
+		_detect_cast(n, f)
+		n["hit_cd"] = maxf(0.0, n["hit_cd"] - delta)
+		if not f["alive"]:
+			_drive_anim(n, f, false)
+			n["pflash"] = f["flash"]
+			continue
+		var holder: Node3D = n["holder"]
+		var target := _world(f)
+		var tvel := Vector2(target.x - n["last"].x, target.z - n["last"].z)
+		n["last"] = target
+		n["vel"] = n["vel"].lerp(tvel, clampf(delta * 5.0, 0.0, 1.0))
+		holder.position = holder.position.lerp(target, clampf(delta * 14.0, 0.0, 1.0))
+		var moving: bool = n["vel"].length() > 0.0016
+		# face heading while moving, else the nearest enemy
+		var flip: float = PI if MESHY_FLIP else 0.0
+		var model: Node3D = n["model"]
+		var tgt_yaw: float = model.rotation.y
+		if moving:
+			tgt_yaw = atan2(n["vel"].x, n["vel"].y) + flip
+		else:
+			var ed := _enemy_dir(f)
+			if ed != Vector2.ZERO:
+				tgt_yaw = atan2(ed.x, ed.y) + flip
+		model.rotation.y = lerp_angle(model.rotation.y, tgt_yaw, clampf(delta * 9.0, 0.0, 1.0))
+		_drive_anim(n, f, moving)
+		_update_ui(n, f)
+		n["pflash"] = f["flash"]
+
+	_update_hud()
+
+func _handle_events() -> void:
+	for ev in _state["events"]:
+		if ev["type"] == "dmg":
+			_spawn_num(ev["tgt"], ev["amt"], ev["crit"])
+			_spawn_pop(ev["tgt"])
+	_state["events"].clear()
+
+func _tick_respawns(dt: float) -> void:
+	for f in _state["fighters"]:
+		if not f["alive"] and not _respawn.has(f["id"]):
+			_respawn[f["id"]] = RESPAWN_DELAY
+	var done := []
+	for id in _respawn:
+		_respawn[id] -= dt
+		if _respawn[id] <= 0.0:
+			done.append(id)
+	for id in done:
+		_respawn.erase(id)
+		_revive(_find_fighter(id))
+
+# Reset a dead fighter to a fresh combat state at its spawn (training-arena respawn).
+func _revive(f) -> void:
+	if f == null:
+		return
+	f["hp"] = f["maxHP"]
+	f["alive"] = true
+	f["shield"] = 0.0
+	f["shieldT"] = 0.0
+	f["casting"] = null
+	f["stun"] = 0.0
+	f["slowT"] = 0.0
+	f["slowAmt"] = 0.0
+	f["evade"] = 0.0
+	f["untarget"] = 0.0
+	f["flash"] = 0.0
+	f["buffs"] = {"nextdmg": 0.0, "crit": 0.0, "critT": 0.0, "atkspd": 1.0, "atkspdT": 0.0,
+		"dr": 0.0, "drT": 0.0, "ms": 1.0, "msT": 0.0, "bypass": 0.0, "reflect": 0.0}
+	f["momentum"] = 0.0
+	f["momentumT"] = 0.0
+	f["barrier"] = 0.0
+	f["barrierT"] = 0.0
+	f["barrierStored"] = 0.0
+	f["_barrierAb"] = null
+	f["hatTarget"] = null
+	f["hatCount"] = 0
+	f["hatChainT"] = 0.0
+	f["noDmgT"] = 0.0
+	f["atkCommitT"] = 0.0
+	f["chaseT"] = 0.0
+	for k in f["cds"]:
+		f["cds"][k] = 0.0
+	# restore the remaining create_fighter fields so a respawn == a fresh spawn (port parity)
+	f["supportCasts"] = 0
+	f["deathT"] = 0.0
+	f["_pocketDR"] = 0.0
+	f["lastCastKey"] = ""
+	f["dmgDealt"] = 0.0
+	f["dmgTaken"] = 0.0
+	f["healing"] = 0.0
+	f["mitigated"] = 0.0
+	f["kills"] = 0
+	f["hx"] = float(1 if f["team"] == 0 else -1)
+	f["hy"] = 0.0
+	f["facing"] = 1 if f["team"] == 0 else -1
+	f["strafeDir"] = 1 if (f["team"] + f["slot"]) % 2 == 0 else -1
+	f["moveMode"] = "approach"
+	f["flipT"] = 0.0
+	# drop any input queued while dead so it doesn't auto-fire on the first revived tick
+	if _player != null and f["id"] == _player_id:
+		_player.intent["ability"] = ""
+	var sp: Vector2 = _spawn_pos[f["id"]]
+	f["x"] = sp.x
+	f["y"] = sp.y
+	var n = _nodes.get(f["id"])
+	if n != null:
+		n["died"] = false
+		n["busy"] = ""
+		n["ui"].visible = true
+		n["holder"].position = _world(f)
+		n["last"] = n["holder"].position
+		n["vel"] = Vector2.ZERO
+		if n["anim"] != null:
+			_safe_play(n["anim"], n["anims"].get("idle", "idle"))
+
+# ============================================================ animation
+func _safe_play(ap: AnimationPlayer, clip: String) -> void:
+	if ap != null and ap.has_animation(clip):
+		ap.play(clip)
+
+func _ability_type(class_id: String, key) -> String:
+	if key == null or key == "":
+		return ""
+	for ab in GameData.CLASSES[class_id]["abilities"]:
+		if ab["key"] == key:
+			return ab["type"]
+	return ""
+
+# Detect a fresh cast by a cooldown rising, then queue the right one-shot clip.
+func _detect_cast(n: Dictionary, f: Dictionary) -> void:
+	var atk := ""
+	for k in f["cds"]:
+		# derive the clip from the specific ability whose cooldown rose this frame (not the
+		# global lastCastKey, which can mismatch when two casts land in one render frame).
+		if f["cds"][k] > float(n["pcds"].get(k, 0.0)) + 0.05:
+			var t := _ability_type(f["classId"], k)
+			var am: Dictionary = n["anims"]
+			if ANIM_OVERRIDE.has(f["classId"]) and ANIM_OVERRIDE[f["classId"]].has(k):
+				atk = ANIM_OVERRIDE[f["classId"]][k]
+			elif t == "projectile" or t == "barrage":
+				atk = am.get("ranged", "")
+			elif t == "melee" or t == "meleeAoe" or t == "dashAttack" or t == "leapAttack":
+				atk = am.get("melee", "")
+			elif t == "selfbuff" or t == "allybuff" or t == "allyheal" or t == "teamheal" or t == "zone" or t == "barrier":
+				atk = am.get("cast", "")
+			break
+	n["pcds"] = f["cds"].duplicate()
+	n["atk_clip"] = atk
+
+func _drive_anim(n: Dictionary, f: Dictionary, moving: bool) -> void:
+	var ap: AnimationPlayer = n["anim"]
+	if ap == null:
+		return
+	var am: Dictionary = n["anims"]
+	if not f["alive"]:
+		if not n["died"]:
+			n["died"] = true
+			n["ui"].visible = false
+			_safe_play(ap, am.get("death", "death"))
+		return
+	# never interrupt a one-shot (attack/cast/hit) still playing
+	if n["busy"] != "" and ap.is_playing() and ap.current_animation == n["busy"]:
+		return
+	n["busy"] = ""
+	if n["atk_clip"] != "":
+		n["busy"] = n["atk_clip"]
+		_safe_play(ap, n["atk_clip"])
+	elif f["flash"] > 0.0 and n["pflash"] <= 0.0 and n["hit_cd"] <= 0.0:
+		n["busy"] = am.get("hit", "hit")
+		n["hit_cd"] = 0.7
+		_safe_play(ap, am.get("hit", "hit"))
+	else:
+		var clip: String = am.get("run", "run") if moving else am.get("idle", "idle")
+		if ap.current_animation != clip or not ap.is_playing():
+			_safe_play(ap, clip)
+
+func _update_ui(n: Dictionary, f: Dictionary) -> void:
+	var ui: Node3D = n["ui"]
+	ui.look_at(2.0 * ui.global_position - _cam.global_position, Vector3.UP)
+	var frac: float = clampf(f["hp"] / f["maxHP"], 0.0, 1.0)
+	var fill: MeshInstance3D = n["fill"]
+	fill.scale.x = max(frac, 0.001)
+	fill.position.x = -BAR_W / 2.0 * (1.0 - frac)
+	(fill.material_override as StandardMaterial3D).albedo_color = (Color(0.9, 0.3, 0.3) if frac < 0.35 else Color(0.3, 0.85, 0.4))
+
+# ============================================================ FX
+func _spawn_num(tgt_id, amt: int, crit: bool) -> void:
+	var f = _find_fighter(tgt_id)
+	if f == null:
+		return
+	var l: Label3D
+	if _num_pool.is_empty():
+		l = Label3D.new()
+		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		l.no_depth_test = true
+		l.fixed_size = true
+		l.pixel_size = 0.0011
+		l.font_size = 96
+		l.outline_size = 22
+		l.outline_modulate = Color(0, 0, 0, 0.9)
+		_fx_root.add_child(l)
+	else:
+		l = _num_pool.pop_back()
+	l.visible = true
+	l.text = str(amt)
+	l.modulate = (Color(1.0, 0.82, 0.3) if crit else Color(1, 1, 1))
+	l.scale = Vector3.ONE * (1.5 if crit else 1.0)
+	var pos := _world(f)
+	pos.y = DMG_NUM_Y
+	l.position = pos
+	_fx_active.append({"node": l, "t": 0.0, "life": 0.85, "vel": 2.6, "kind": "num"})
+
+func _spawn_pop(tgt_id) -> void:
+	var f = _find_fighter(tgt_id)
+	if f == null:
+		return
+	var p: MeshInstance3D
+	if _pop_pool.is_empty():
+		p = MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.45
+		sm.height = 0.9
+		sm.radial_segments = 8
+		sm.rings = 5
+		p.mesh = sm
+		var mt := StandardMaterial3D.new()
+		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mt.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		mt.albedo_color = Color(1, 0.95, 0.7)
+		p.material_override = mt
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_fx_root.add_child(p)
+	else:
+		p = _pop_pool.pop_back()
+	p.visible = true
+	var pos := _world(f)
+	pos.y = HIT_Y
+	p.position = pos
+	p.scale = Vector3.ONE * 0.5
+	_fx_active.append({"node": p, "t": 0.0, "life": 0.22, "vel": 0.0, "kind": "pop"})
+
+func _update_fx(delta: float) -> void:
+	var keep := []
+	for fx in _fx_active:
+		fx["t"] += delta
+		var k: float = fx["t"] / fx["life"]
+		var node = fx["node"]
+		if k >= 1.0:
+			node.visible = false
+			if fx["kind"] == "num":
+				_num_pool.append(node)
+			else:
+				_pop_pool.append(node)
+			continue
+		if fx["kind"] == "num":
+			node.position.y += fx["vel"] * delta
+			(node as Label3D).modulate.a = 1.0 - k
+		else:
+			var s: float = 0.5 + k * 2.4
+			node.scale = Vector3.ONE * s
+			(node.material_override as StandardMaterial3D).albedo_color.a = 1.0 - k
+		keep.append(fx)
+	_fx_active = keep
+
+func _sync_projectiles() -> void:
+	var shown := 0
+	for p in _state["projectiles"]:
+		if p.get("delay", 0.0) > 0.0:
+			continue
+		var pm: MeshInstance3D
+		if shown < _proj_pool.size():
+			pm = _proj_pool[shown]
+		else:
+			pm = MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = 0.32
+			sm.height = 0.64
+			pm.mesh = sm
+			var mt := StandardMaterial3D.new()
+			mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mt.emission_enabled = true
+			mt.albedo_color = Color(1, 0.92, 0.6)
+			mt.emission = Color(1, 0.85, 0.4)
+			pm.material_override = mt
+			pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_fx_root.add_child(pm)
+			_proj_pool.append(pm)
+		pm.visible = true
+		pm.position = Vector3((p["x"] - GameData.ARENA_W / 2.0) * SCALE, 1.4, (p["y"] - GameData.ARENA_H / 2.0) * SCALE)
+		shown += 1
+	for i in range(shown, _proj_pool.size()):
+		_proj_pool[i].visible = false
+
+# ============================================================ helpers
+func _find_fighter(id) -> Variant:
+	for f in _state["fighters"]:
+		if f["id"] == id:
+			return f
+	return null
+
+func _enemy_dir(f: Dictionary) -> Vector2:
+	var best = null
+	var bd := INF
+	for e in _state["fighters"]:
+		if e["team"] != f["team"] and e["alive"]:
+			var d := Geom.dist(f, e)
+			if d < bd:
+				bd = d
+				best = e
+	if best == null:
+		return Vector2.ZERO
+	return Vector2(best["x"] - f["x"], best["y"] - f["y"])
+
+# ============================================================ input (camera + meta)
+func _unhandled_input(e: InputEvent) -> void:
+	if e is InputEventMouseButton:
+		if e.button_index == MOUSE_BUTTON_RIGHT:
+			_dragging = e.pressed
+		elif e.button_index == MOUSE_BUTTON_WHEEL_UP and e.pressed:
+			_dist = clampf(_dist / ZOOM_STEP, DIST_MIN, DIST_MAX)
+		elif e.button_index == MOUSE_BUTTON_WHEEL_DOWN and e.pressed:
+			_dist = clampf(_dist * ZOOM_STEP, DIST_MIN, DIST_MAX)
+	elif e is InputEventMouseMotion and _dragging:
+		_yaw -= e.relative.x * ORBIT_SENS
+		_pitch = clampf(_pitch + e.relative.y * ORBIT_SENS, PITCH_MIN, PITCH_MAX)  # drag up = look down (MMO-natural)
+	elif e is InputEventKey and e.pressed and not e.echo:
+		if e.physical_keycode == KEY_P:
+			_bots_frozen = not _bots_frozen
+			if _state != null:
+				_state["botsFrozen"] = _bots_frozen
+		elif e.physical_keycode == KEY_C:
+			_player_class_idx = (_player_class_idx + 1) % PLAYABLE.size()
+			_setup_match(PLAYABLE[_player_class_idx])
+		elif e.physical_keycode == KEY_R:
+			_setup_match(PLAYABLE[_player_class_idx])
+
+# ============================================================ HUD
+func _build_hud() -> void:
+	_hud = CanvasLayer.new()
+	add_child(_hud)
+	_info = RichTextLabel.new()
+	_info.bbcode_enabled = true
+	_info.fit_content = true
+	_info.scroll_active = false
+	_info.position = Vector2(16, 12)
+	_info.custom_minimum_size = Vector2(520, 0)
+	_hud.add_child(_info)
+	_bar = RichTextLabel.new()
+	_bar.bbcode_enabled = true
+	_bar.fit_content = true
+	_bar.scroll_active = false
+	_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_bar.position = Vector2(16, -120)
+	_bar.custom_minimum_size = Vector2(900, 0)
+	_hud.add_child(_bar)
+
+func _update_hud() -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null or _player == null:
+		return
+	var c: Dictionary = GameData.CLASSES[pf["classId"]]
+	var alive_txt := "[color=#ff6b6b](respawning…)[/color]" if not pf["alive"] else ""
+	var bots_txt := "[color=#7fd4ff][b]BOTS PAUSED[/b] — press P to engage[/color]" if _bots_frozen else "[color=#ff8a8a][b]BOTS ACTIVE[/b] — press P to pause[/color]"
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   HP %d/%d %s   %s\n[color=#7f93a8]WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom · [b]P[/b] pause bots · [b]C[/b] class · [b]R[/b] reset[/color]" % [
+		c["name"], c["sport"], c["role"], int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, bots_txt]
+	var parts := []
+	var keys: Array = _player.ability_keys()
+	for i in keys.size():
+		var ab = Sim._ability_by_key(c, keys[i])
+		var cd: float = pf["cds"].get(keys[i], 0.0)
+		var col := "#4dd4ff"
+		if ab.get("ult", false): col = "#ffd24d"
+		elif ab.get("basic", false): col = "#9fe8a0"
+		var label: String = ab["name"]
+		if cd > 0.05:
+			label = "%s [color=#ff8a8a]%.1f[/color]" % [ab["name"], cd]
+		parts.append("[color=%s][b]%d[/b][/color] %s" % [col, i + 1, label])
+	_bar.text = "   ".join(parts)

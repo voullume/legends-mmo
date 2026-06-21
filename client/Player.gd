@@ -1,29 +1,60 @@
-extends CharacterBody3D
-## PLAYER-CONTROLLED FIGHTER (skeleton — the heart of Phase 1).
+extends Node
+## PLAYER INPUT CONTROLLER (Phase 1 — the human driver for one fighter).
 ##
-## Drive a Meshy character with real-time input: move with WASD/click, fire the class's
-## abilities (from shared/GameData.gd) which play the matching animation + FX.
+## Produces an `intent` Dictionary that the shared Sim's controlled-fighter seam consumes
+## (see shared/Sim.gd::_player_step). It does NOT render or own a body — the Client renders
+## every fighter uniformly from sim state; this node only translates input → intent.
 ##
-## Asset wiring (proven in the prototype):
-##   - base model:  res://models/meshy/<sport>_rigged.glb  (sport from GameData.CLASSES[class_id].sport, lowercased)
-##   - animations:  res://models/meshy/clips/<sport>_<clip>.res  -> merge into one AnimationPlayer
-##     clips: idle, run, walk, attack, hit, death, throw, cast (+ kick for soccer)
-##   - the Meshy rig hand bone is "RightHand" (note its ~0.02 internal scale — see HANDOFF.md)
+##   movement : WASD, camera-relative (Client passes the live camera yaw to poll()).
+##   abilities: keys 1..5 = the class's abilities in GameData order (1=basic … 5=ult);
+##              left mouse = the basic (ability 1).
+##
+## Phase 2 swaps this driver for network input feeding the same intent shape server-side.
 
 const GameData := preload("res://shared/GameData.gd")
 
-@export var class_id: String = "striker"
-@export var move_speed: float = 6.0
+var class_id: String = "striker"
+# Shared by reference with state["controlled"][fighter_id]; the Sim reads & consumes it.
+var intent := {"mx": 0.0, "my": 0.0, "ability": ""}
 
-var _anim: AnimationPlayer = null
+func ability_keys() -> Array:
+	var ks := []
+	for ab in GameData.CLASSES[class_id]["abilities"]:
+		ks.append(ab["key"])
+	return ks
 
-func _ready() -> void:
-	# TODO: instantiate the Meshy character for this class_id, merge its .res clips, play "idle".
-	print("[player] class=", class_id, " sport=", GameData.CLASSES.get(class_id, {}).get("sport", "?"))
+# Called by the Client each frame (before the sim tick) with the current camera yaw,
+# so input maps to where the player is looking.
+func poll(cam_yaw: float) -> void:
+	var sx := 0.0
+	var sy := 0.0
+	if Input.is_physical_key_pressed(KEY_W): sy += 1.0
+	if Input.is_physical_key_pressed(KEY_S): sy -= 1.0
+	if Input.is_physical_key_pressed(KEY_D): sx += 1.0
+	if Input.is_physical_key_pressed(KEY_A): sx -= 1.0
+	# camera-relative basis on the ground plane, expressed in sim space (sim x = world X,
+	# sim y = world Z). Derived from the orbit camera's look_at basis.
+	var fwd := Vector2(-sin(cam_yaw), -cos(cam_yaw))   # W = away from camera
+	var right := Vector2(cos(cam_yaw), -sin(cam_yaw))  # D = camera-right
+	var m := fwd * sy + right * sx
+	if m.length() > 1.0:
+		m = m.normalized()
+	intent["mx"] = m.x
+	intent["my"] = m.y
 
-func _physics_process(_delta: float) -> void:
-	# TODO Phase 1:
-	#   - read movement input -> velocity -> move_and_slide(); face travel direction
-	#   - play "run" while moving, "idle" when still
-	#   - on ability input: resolve via shared/Abilities logic, play attack/throw/kick/cast, spawn FX
-	pass
+# Ability presses are event-driven (queued, consumed by the next tick).
+func _unhandled_input(e: InputEvent) -> void:
+	var keys := ability_keys()
+	if e is InputEventKey and e.pressed and not e.echo:
+		var idx := -1
+		match e.physical_keycode:
+			KEY_1: idx = 0
+			KEY_2: idx = 1
+			KEY_3: idx = 2
+			KEY_4: idx = 3
+			KEY_5: idx = 4
+		if idx >= 0 and idx < keys.size():
+			intent["ability"] = keys[idx]
+	elif e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+		if keys.size() > 0:
+			intent["ability"] = keys[0]

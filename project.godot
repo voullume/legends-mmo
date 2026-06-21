@@ -1,5 +1,10 @@
-; Legends MMO — Godot project.
-; Runs as a dedicated server with `--server`, otherwise as a client.
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
