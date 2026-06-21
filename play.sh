@@ -11,6 +11,10 @@ set -e
 GODOT="${GODOT:-$HOME/.local/bin/godot}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Load local secrets (SUPABASE_SERVICE_KEY for server-side inventory writes) if present.
+# Put `SUPABASE_SERVICE_KEY=...` in a gitignored .env next to this script — see .env.example.
+[ -f "$DIR/.env" ] && set -a && . "$DIR/.env" && set +a
+
 case "${1:-local}" in
   local)
     exec "$GODOT" --path "$DIR" ;;

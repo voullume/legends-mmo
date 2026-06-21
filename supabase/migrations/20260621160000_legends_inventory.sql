@@ -1,8 +1,7 @@
 -- Legends MMO: per-character item inventory (loot). RLS scopes rows to characters the user owns.
--- NOTE: RLS prevents cross-account access, but a client can still forge rows for its OWN character
--- via direct REST (the policies allow it). Acceptable while loot is collection-only; BEFORE loot
--- affects stats (equip), make inventory writes server-authoritative — revoke client INSERT and write
--- only from the zone server with a service-role key.
+-- NOTE: the client write policies below were later REVOKED (see
+-- 20260621180000_legends_inventory_server_only_writes.sql) — only the zone server (service_role)
+-- writes this table now; clients keep read-only access to their own items.
 create table if not exists public.inventory (
   id uuid primary key default gen_random_uuid(),
   character_id uuid not null references public.characters(id) on delete cascade,

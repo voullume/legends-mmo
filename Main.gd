@@ -61,6 +61,9 @@ func _make_zone_server(port: int, dtls: bool, bind_ip := "") -> void:
 	add_child(net)
 	var supa := SupaScript.new()
 	supa.name = "Supa"
+	supa.service_key = OS.get_environment("SUPABASE_SERVICE_KEY")   # server-only; bypasses RLS for inventory writes
+	if supa.service_key == "":
+		print("[zone] ⚠ SUPABASE_SERVICE_KEY not set — loot/equip persistence will fail against the locked-down inventory table. See TESTING.md.")
 	add_child(supa)
 	var server := ServerScript.new()
 	server.name = "Server"

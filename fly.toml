@@ -2,6 +2,7 @@
 #
 #   fly apps create legends-zone        # pick a unique name, set it below
 #   fly ips allocate-v4                 # UDP needs a DEDICATED IPv4 (shared IPs are TCP-only)
+#   fly secrets set SUPABASE_SERVICE_KEY=<service_role>   # required for loot/equip persistence
 #   fly deploy
 #
 # Players connect to the allocated IP (`fly ips list`):

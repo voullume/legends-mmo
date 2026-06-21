@@ -1,9 +1,11 @@
 # Headless Legends MMO zone server — a self-contained dedicated server image.
 #
 #   docker build -t legends-zone .
-#   docker run -p 7777:7777/udp legends-zone           # DTLS-encrypted server on :7777
-#   docker run -e PORT=8000 -p 8000:8000/udp legends-zone
+#   docker run -e SUPABASE_SERVICE_KEY=<service_role> -p 7777:7777/udp legends-zone
+#   docker run -e SUPABASE_SERVICE_KEY=<key> -e PORT=8000 -p 8000:8000/udp legends-zone
 #
+# SUPABASE_SERVICE_KEY is required for loot/equipment to persist (the server writes the inventory
+# table; clients can't). Without it the server still runs but warns and loot won't save.
 # Players connect with:  godot --path . -- --online <host-ip> --dtls
 # (Override the engine version if 4.6.3 isn't the right asset: --build-arg GODOT_VERSION=4.6.2-stable)
 FROM debian:bookworm-slim

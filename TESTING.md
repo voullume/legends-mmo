@@ -62,8 +62,13 @@ There is **no matchmaking/relay** — clients connect straight to the host over 
 A `Dockerfile` builds a self-contained headless server (downloads Godot, imports assets, runs `--server --dtls`):
 ```
 docker build -t legends-zone .
-docker run -p 7777:7777/udp legends-zone          # or -e PORT=8000 -p 8000:8000/udp
+docker run -e SUPABASE_SERVICE_KEY=<service_role> -p 7777:7777/udp legends-zone
 ```
+**`SUPABASE_SERVICE_KEY`** (Supabase → Settings → API → `service_role`) is required for loot and
+equipment to persist: the server is the only writer of the `inventory` table — clients are denied
+direct writes, so items can't be forged. Without the key the server still runs but warns and loot
+won't save. On Fly: `fly secrets set SUPABASE_SERVICE_KEY=<key>`. Locally: put it in a gitignored
+`.env` (see `.env.example`) — `play.sh` loads it.
 Deploy that image anywhere that runs containers with a **UDP** port:
 - **A VPS** (Hetzner / Oracle Cloud free ARM / DigitalOcean) — `docker run -p 7777:7777/udp` it,
   open UDP 7777. Simplest and most reliable (binds `0.0.0.0`, no special config).
@@ -89,7 +94,7 @@ server-authoritative position/XP/loot/equipment persistence to Supabase.
 
 ## Notes & known limits (prototype)
 - One character per account (class is permanent).
-- Loot/inventory writes use the player's token + per-rarity stat caps; full server-only writes
-  (service-role) are deferred production hardening.
+- Inventory is **server-authoritative**: only the zone server writes it (service_role via
+  `SUPABASE_SERVICE_KEY`) — clients can't forge items. Set that env var or loot/equip won't persist.
 - No chat rate abuse (1.4 msg/s/player) and equip is rate-limited + serialized.
 - `--autowalk` is a debug flag (a bot that fights, chats, and equips) used by the test scripts.

@@ -17,6 +17,7 @@ var access_token := ""
 var refresh_token := ""
 var user_id := ""
 var email := ""
+var service_key := ""   # service_role JWT (zone server only, from env) — bypasses RLS for inventory writes
 
 func _headers(token := "") -> PackedStringArray:
 	var t: String = token if token != "" else access_token
@@ -139,12 +140,16 @@ func save_character_as(token: String, char_id: String, fields: Dictionary) -> Di
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields), PackedStringArray(), token)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
+# inventory WRITES go out as service_role (bypasses RLS) when the server has the key, so clients
+# can be denied direct write access; falls back to the player token if no service key is configured.
 func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary:
 	var body := item.duplicate()
 	body["character_id"] = char_id
-	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/inventory", JSON.stringify(body), PackedStringArray(), token)
+	var auth: String = service_key if service_key != "" else token
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/inventory", JSON.stringify(body), PackedStringArray(), auth)
 	return {"ok": r["code"] == 201, "code": r["code"]}
 
+# READ stays on the player's token (RLS-scoped to their own items)
 func get_inventory_as(token: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,equipped", "", PackedStringArray(), token)
 	if r["code"] == 200 and r["data"] is Array:
@@ -152,7 +157,8 @@ func get_inventory_as(token: String) -> Dictionary:
 	return {"ok": false, "items": []}
 
 func inv_set_equipped_as(token: String, filter: String, val: bool) -> Dictionary:
-	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory?" + filter, JSON.stringify({"equipped": val}), PackedStringArray(), token)
+	var auth: String = service_key if service_key != "" else token
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory?" + filter, JSON.stringify({"equipped": val}), PackedStringArray(), auth)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
 func refresh_as(rtoken: String) -> Dictionary:

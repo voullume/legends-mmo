@@ -1,5 +1,6 @@
 .git
 .godot
+.env
 *.import.md5
 TESTING.md
 HANDOFF.md

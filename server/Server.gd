@@ -13,6 +13,8 @@ extends Node
 ## it the link is plaintext. Only the short-lived access token crosses the wire (the refresh token
 ## stays on the client, re-issued via reauth). DTLS here encrypts but does not verify the server
 ## identity (no MITM protection yet), so prefer a VPN or a host you control.
+## Inventory is server-authoritative: the server writes the inventory table with the service_role
+## key (SUPABASE_SERVICE_KEY env var) — clients are denied direct writes, so items can't be forged.
 
 const Sim := preload("res://shared/Sim.gd")
 const GameData := preload("res://shared/GameData.gd")
