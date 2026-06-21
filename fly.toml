@@ -1,0 +1,29 @@
+# Fly.io deploy for the Legends MMO zone server (UDP). Starting template — adjust `app`.
+#
+#   fly apps create legends-zone        # pick a unique name, set it below
+#   fly ips allocate-v4                 # UDP needs a DEDICATED IPv4 (shared IPs are TCP-only)
+#   fly deploy
+#
+# Players connect to the allocated IP (`fly ips list`):
+#   godot --path . -- --online <that-ipv4> --dtls
+#
+# NOTE: Fly UDP requires the app to bind the special `fly-global-services` address — that's why
+# BIND is set below (the Dockerfile passes it as --bind). If UDP routing misbehaves, a plain VPS
+# with `docker run -p 7777:7777/udp` is the simpler, no-special-bind option (see TESTING.md).
+
+app = "legends-zone"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "7777"
+  BIND = "fly-global-services"
+
+[[services]]
+  protocol = "udp"
+  internal_port = 7777
+
+  [[services.ports]]
+    port = 7777

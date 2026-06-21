@@ -65,13 +65,17 @@ docker build -t legends-zone .
 docker run -p 7777:7777/udp legends-zone          # or -e PORT=8000 -p 8000:8000/udp
 ```
 Deploy that image anywhere that runs containers with a **UDP** port:
-- **Fly.io** — `fly launch` from this repo (add a `[[services]]` UDP handler on 7777), global regions.
-- **A VPS** (Hetzner / Oracle Cloud free ARM / DigitalOcean) — `docker run` it, open UDP 7777.
+- **A VPS** (Hetzner / Oracle Cloud free ARM / DigitalOcean) — `docker run -p 7777:7777/udp` it,
+  open UDP 7777. Simplest and most reliable (binds `0.0.0.0`, no special config).
+- **Fly.io** — a starting `fly.toml` is included (`fly apps create … && fly ips allocate-v4 && fly
+  deploy`). UDP on Fly needs a **dedicated IPv4** and the `fly-global-services` bind (the toml sets
+  `BIND` for that). If routing misbehaves, fall back to the VPS path.
 - **Scale-up:** the same image runs on a game-server orchestrator (Hathora, Edgegap, or Agones/K8s).
   Run several zone instances and put a small lobby/gateway in front — the engine, netcode, and
   Supabase persistence don't change.
 
-Common flags: `--port <n>` (bind/connect port), `--dtls` (encrypt), `--online <ip>` (client target).
+Common flags: `--port <n>` (bind/connect port), `--dtls` (encrypt), `--bind <ip>` (server bind
+address, for hosts that need one), `--online <ip>` (client target).
 
 ## In-world controls (zone)
 `WASD` move · `1`–`5` abilities · `LMB` basic · `RMB`-drag camera · wheel zoom ·

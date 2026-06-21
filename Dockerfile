@@ -32,4 +32,5 @@ ENV PORT=7777
 EXPOSE 7777/udp
 
 # DTLS is on by default for an exposed/container deploy; clients must also pass --dtls.
-CMD ["sh", "-c", "godot --headless --path /app -- --server --dtls --port ${PORT}"]
+# Set BIND (e.g. fly-global-services) for platforms that require a specific UDP bind address.
+CMD ["sh", "-c", "godot --headless --path /app -- --server --dtls --port ${PORT} ${BIND:+--bind ${BIND}}"]

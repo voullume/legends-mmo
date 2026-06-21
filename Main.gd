@@ -29,7 +29,7 @@ func _ready() -> void:
 	var dtls := "--dtls" in args
 	if "--server" in args:
 		print("[boot] ZONE SERVER (port %d%s)" % [port, " · DTLS" if dtls else ""])
-		_make_zone_server(port, dtls)
+		_make_zone_server(port, dtls, _arg_value(args, "--bind", ""))
 	elif "--online" in args:
 		var ip := _arg_value(args, "--online", "127.0.0.1")
 		print("[boot] ONLINE — account → shared zone @ %s:%d%s" % [ip, port, " · DTLS" if dtls else ""])
@@ -55,7 +55,7 @@ func _ready() -> void:
 		add_child(acct)
 
 # ---- Phase 4: dedicated shared zone ----
-func _make_zone_server(port: int, dtls: bool) -> void:
+func _make_zone_server(port: int, dtls: bool, bind_ip := "") -> void:
 	var net := NetScript.new()
 	net.name = "Net"
 	add_child(net)
@@ -68,7 +68,7 @@ func _make_zone_server(port: int, dtls: bool) -> void:
 	server.supa = supa
 	net.server = server
 	add_child(server)
-	server.start(port, dtls)
+	server.start(port, dtls, bind_ip)
 
 func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := false) -> void:
 	var net := NetScript.new()

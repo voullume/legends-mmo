@@ -88,8 +88,10 @@ var _snap_count := 0
 static func _xp_to_next(level: int) -> int:
 	return level * 100
 
-func start(port := PORT, use_dtls := false) -> bool:
+func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	var peer := ENetMultiplayerPeer.new()
+	if bind_ip != "":                            # some UDP hosts (e.g. Fly) need a specific bind addr
+		peer.set_bind_ip(bind_ip)
 	var err := peer.create_server(port)
 	if err != OK:
 		push_error("[zone] create_server(%d) failed: %d" % [port, err])
