@@ -145,6 +145,16 @@ func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/inventory", JSON.stringify(body), PackedStringArray(), token)
 	return {"ok": r["code"] == 201, "code": r["code"]}
 
+func get_inventory_as(token: String) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,equipped", "", PackedStringArray(), token)
+	if r["code"] == 200 and r["data"] is Array:
+		return {"ok": true, "items": r["data"]}
+	return {"ok": false, "items": []}
+
+func inv_set_equipped_as(token: String, filter: String, val: bool) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory?" + filter, JSON.stringify({"equipped": val}), PackedStringArray(), token)
+	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
+
 func refresh_as(rtoken: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))
 	if r["code"] == 200 and r["data"] is Dictionary and r["data"].has("access_token"):

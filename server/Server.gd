@@ -59,6 +59,7 @@ const RARITIES := [
 	{"name": "epic", "weight": 2, "mult": 8},
 ]
 const LOOT_STATS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]
+const RARITY_CAP := {"common": 4, "uncommon": 10, "rare": 20, "epic": 40}   # caps an equipped bonus (anti-forge)
 
 var net: Node = null
 var supa: Node = null
@@ -150,6 +151,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
+	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	print("[zone] %s (%s, lvl %d) joined as %s — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _peers.size()])
 
 func reauth(pid: int, access: String) -> void:
@@ -412,6 +414,83 @@ func _roll_rarity(elite: bool) -> Dictionary:
 	if elite:
 		idx = min(idx + 2, RARITIES.size() - 1)
 	return RARITIES[idx]
+
+# ---- equipment ----
+# client → server: toggle an item equipped (one item per slot). Re-derives the fighter's stats.
+func equip(pid: int, item_id: String, _slot: String) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	var inv = await supa.get_inventory_as(s["access"])
+	if not inv.get("ok"):
+		return
+	var item = null
+	for it in inv["items"]:
+		if str(it["id"]) == item_id:
+			item = it
+			break
+	if item == null:                                 # not this player's item
+		return
+	var islot: String = str(item["slot"])
+	var was: bool = bool(item["equipped"])
+	await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s" % [s["char_id"], islot], false)
+	if not was:                                      # toggle: equip unless it was already equipped
+		await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)
+	await _apply_equipment(pid)
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
+# read the player's equipped items and re-derive its fighter's stats (one item per slot, capped)
+func _apply_equipment(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var f = _find(_session[pid]["fid"])
+	if f == null:
+		return
+	var inv = await supa.get_inventory_as(_session[pid]["access"])
+	if not inv.get("ok") or not _session.has(pid):
+		return
+	var bonus := {}
+	var used := {}
+	for it in inv["items"]:
+		if not bool(it["equipped"]):
+			continue
+		var slot := str(it["slot"])
+		if used.has(slot):                           # defensive: only one item per slot counts
+			continue
+		used[slot] = true
+		var st := str(it.get("bonus_stat", ""))
+		if st == "":
+			continue
+		var cap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
+		bonus[st] = int(bonus.get(st, 0)) + min(int(it.get("bonus_amt", 0)), cap)
+	_recompute_player_stats(_find(_session[pid]["fid"]), int(_session[pid]["level"]), bonus)
+
+# re-derive maxHP/dmgMult/crit/ms/… from base stats + equipped bonuses, preserving HP fraction
+func _recompute_player_stats(f, level: int, bonus: Dictionary) -> void:
+	if f == null:
+		return
+	var c = GameData.CLASSES[f["classId"]]
+	var stats: Dictionary = c["stats"].duplicate()
+	for st in LOOT_STATS:
+		if bonus.has(st):
+			stats[st] = int(stats[st]) + int(bonus[st])
+	var d = GameData.derive(stats)
+	var bm: Dictionary = GameData.FORMAT_MODS.get(ZONE_TEAM_SIZE, {}).get(f["classId"], {})
+	var maxhp: float = d["maxHP"]
+	var dmg: float = d["dmgMult"]
+	if bm.has("dmg"): dmg *= bm["dmg"]
+	if bm.has("hp"): maxhp = round(maxhp * bm["hp"])
+	var frac: float = clampf(f["hp"] / f["maxHP"], 0.0, 1.0) if f["maxHP"] > 0 else 1.0
+	f["maxHP"] = maxhp + (level - 1) * LEVEL_HP
+	f["dmgMult"] = dmg
+	f["crit"] = d["crit"]
+	f["critMult"] = d["critMult"]
+	f["ms"] = d["ms"]
+	f["cdr"] = d["cdr"]
+	f["clutchDmg"] = d["clutchDmg"]
+	f["clutchDR"] = d["clutchDR"]
+	f["hp"] = f["maxHP"] * frac
 
 func _find(id) -> Variant:
 	for f in _state["fighters"]:

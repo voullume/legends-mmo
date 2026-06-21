@@ -50,6 +50,17 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 	if client != null:
 		client.recv_loot(item, rarity, slot, amt, stat)
 
+# equip/unequip an item (client → server); server pushes back a refresh
+@rpc("any_peer", "call_remote", "reliable")
+func equip(item_id: String, slot: String) -> void:
+	if server != null:
+		server.equip(multiplayer.get_remote_sender_id(), item_id, slot)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_inventory_changed() -> void:
+	if client != null:
+		client.recv_inventory_changed()
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

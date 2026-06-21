@@ -117,6 +117,7 @@ func _build_inventory() -> void:
 	_inv_label.bbcode_enabled = true
 	_inv_label.scroll_active = true
 	_inv_label.custom_minimum_size = Vector2(440, 380)
+	_inv_label.meta_clicked.connect(_on_item_clicked)
 	vb.add_child(_inv_label)
 
 func _toggle_inventory() -> void:
@@ -145,14 +146,26 @@ func _load_inventory() -> void:
 	if items.is_empty():
 		_inv_label.text = "[color=#7f93a8]empty — kill mobs to find loot[/color]"
 		return
-	var lines := ["[color=#7f93a8]%d items[/color]\n" % items.size()]
+	var lines := ["[color=#7f93a8]%d items · click to equip / unequip[/color]\n" % items.size()]
 	for it in items:
 		var col: String = RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
+		var eq: bool = bool(it.get("equipped", false))
+		var mark: String = "[color=#ffd24d]★ [/color]" if eq else "[color=#5a6472]○ [/color]"
 		var bonus := ""
 		if int(it.get("bonus_amt", 0)) != 0:
 			bonus = "   [color=#9fe8a0]+%d %s[/color]" % [int(it["bonus_amt"]), str(it.get("bonus_stat", ""))]
-		lines.append("[color=%s]● %s[/color]  [color=#7f93a8](%s · %s)[/color]%s" % [col, _esc(str(it.get("name", "?"))), str(it.get("rarity", "")), str(it.get("slot", "")), bonus])
+		var meta: String = "%s|%s" % [str(it.get("id", "")), str(it.get("slot", ""))]
+		lines.append("%s[url=%s][color=%s]%s[/color][/url]  [color=#7f93a8](%s · %s)[/color]%s" % [mark, meta, col, _esc(str(it.get("name", "?"))), str(it.get("rarity", "")), str(it.get("slot", "")), bonus])
 	_inv_label.text = "\n".join(lines)
+
+func _on_item_clicked(meta) -> void:
+	var parts := str(meta).split("|")
+	if parts.size() >= 2 and net != null and _connected:
+		net.equip.rpc_id(1, parts[0], parts[1])
+
+func recv_inventory_changed() -> void:
+	if _inv_panel != null and _inv_panel.visible:
+		_load_inventory()
 
 func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: String) -> void:
 	print("[loot] %s [%s] +%d %s" % [item, rarity, amt, stat])
