@@ -347,7 +347,7 @@ static func sim_tick(state, dt) -> void:
 		if f["alive"]:
 			if f["team"] == 0: a_alive = true
 			else: b_alive = true
-	if not a_alive or not b_alive or state["t"] > GameData.TIME_LIMIT:
+	if not state.get("zone", false) and (not a_alive or not b_alive or state["t"] > GameData.TIME_LIMIT):
 		if not a_alive and not b_alive:
 			state["winner"] = 0 if state["rng"].next() < 0.5 else 1
 		elif not a_alive:

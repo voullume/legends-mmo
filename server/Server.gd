@@ -1,134 +1,141 @@
 extends Node
-## AUTHORITATIVE SERVER (Phase 2). Owns the world + combat tick using the deterministic shared
-## engine, and syncs it to clients over Godot high-level multiplayer (ENet).
+## SHARED ZONE SERVER (Phase 4). One persistent, server-authoritative overworld that several
+## accounts' characters share. Combines Phase 2 (authoritative ENet world tick) with Phase 3
+## (accounts): a joining client authenticates with its Supabase access token, the server loads
+## that account's character (class + saved position) and spawns it, and persists position back.
 ##
-## Each connected player drives ONE fighter through the exact same Sim "controlled" seam the
-## Phase-1 keyboard used — input now arrives over the network. Clients have NO authority: they
-## send intents, the server validates them, runs the sim, and broadcasts snapshots.
+## - Players are team 0 (they coexist — abilities target enemies, so they don't hit each other).
+## - A few neutral training-dummy mobs (team 1) populate the zone (botsFrozen = passive).
+## - Per-client snapshots are interest-managed: a client only receives entities near its fighter.
 ##
-## Roster is INCREMENTAL: joining, leaving, or changing class touches only the affected fighter
-## — it never recreates the live match, so a disconnect or late join can't reset/teleport/heal
-## the other duelist or wipe in-flight projectiles.
+## SECURITY NOTE: ENet here is UNENCRYPTED. Only the short-lived access token crosses the wire
+## (never the long-lived refresh token — the client keeps that and re-issues fresh access tokens
+## via reauth()). A production deployment must enable ENet DTLS before exposing this publicly.
 
 const Sim := preload("res://shared/Sim.gd")
 const GameData := preload("res://shared/GameData.gd")
+const Geom := preload("res://shared/Geom.gd")
 const Rng := preload("res://shared/Rng.gd")
 
 const PORT := 7777
 const MAP_ID := "stadium"
-const MATCH_SEED := 20260620
+const SEED := 20260621
 const SIM_DT := 1.0 / 30.0
-const DUEL_TEAM_SIZE := 1            # 1v1 bracket tuning
-const RESPAWN_DELAY := 3.0
-const DEFAULT_CLASS := "striker"
-const STALE_INTENT_TICKS := 30       # ~1s without a fresh intent → stop drifting
+const ZONE_TEAM_SIZE := 5
+const RESPAWN_DELAY := 4.0
+const SAVE_INTERVAL := 15.0
+const INTEREST_RADIUS := 450.0
+const STALE_INTENT_TICKS := 30
+const MOBS := [
+	{"class": "linebacker", "x": 620.0, "y": 200.0},
+	{"class": "goalkeeper", "x": 620.0, "y": 340.0},
+]
 
-var net: Node = null                 # the RPC bridge
-var local_client: Node = null        # the host's own renderer (HOST mode); null when dedicated
+var net: Node = null
+var supa: Node = null
 
 var _state: Dictionary = {}
-var _peers: Array = []               # ordered peer ids
-var _peer_class := {}               # peer id → class id
-var _peer_fid := {}                # peer id → fighter id
-var _move := {}                    # peer id → {mx,my}     (movement, unreliable channel)
-var _pending_ability := {}         # peer id → key to fire next tick (consumed once)
-var _last_aseq := {}               # peer id → last ability sequence id (de-dup)
-var _intent_age := {}              # peer id → ticks since last movement packet
-var _spawn_pos := {}               # fighter id → Vector2 spawn (authoritative respawn point)
-var _respawn := {}                 # fighter id → seconds until revive
-var _fseq := 0                     # monotonic seed source for spawn jitter
+var _peers: Array = []
+var _authing := {}                  # peer ids with an authenticate() in flight (race guard)
+var _session := {}                  # peer id → {fid, access, char_id, name}
+var _move := {}
+var _pending_ability := {}
+var _last_aseq := {}
+var _intent_age := {}
+var _spawn_pos := {}
+var _respawn := {}
+var _fseq := 0
 var _acc := 0.0
+var _save_t := 0.0
 var _snap_count := 0
 
-func start(host_class := "") -> bool:
+func start() -> bool:
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_server(PORT)
 	if err != OK:
-		push_error("[server] create_server(%d) failed: %d (port in use?)" % [PORT, err])
-		if local_client != null:
-			local_client.net_error("Server failed to start on UDP %d (port in use?)" % PORT)
+		push_error("[zone] create_server(%d) failed: %d" % [PORT, err])
 		return false
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
-	Engine.max_fps = 60                 # don't busy-spin the headless main loop
-	# start from a valid but empty world; players are added incrementally
-	_state = Sim.create_match([], [], MATCH_SEED, MAP_ID)
-	if local_client != null:            # HOST: the host plays as peer id 1
-		var hc: String = host_class if host_class in GameData.class_ids() else DEFAULT_CLASS
-		_add_player(1, hc)
-	print("[server] listening on UDP %d  (map=%s)" % [PORT, MAP_ID])
+	Engine.max_fps = 60
+	_state = Sim.create_match([], [], SEED, MAP_ID)
+	_state["zone"] = true                        # persistent: no match-end / no overtime ramp
+	_state["botsFrozen"] = true                  # mobs are passive training dummies
+	for m in MOBS:
+		_spawn_fighter(m["class"], 1, Vector2(m["x"], m["y"]))
+	print("[zone] online on UDP %d  (map=%s, %d mobs)" % [PORT, MAP_ID, MOBS.size()])
 	return true
 
-# ---- roster (incremental — never recreates the live match) ----
+# ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
-	print("[server] peer %d connected" % pid)
-	_add_player(pid, DEFAULT_CLASS)
+	print("[zone] peer %d connected — awaiting auth" % pid)
 
 func _on_peer_disconnected(pid: int) -> void:
-	print("[server] peer %d disconnected" % pid)
-	var fid: String = _peer_fid.get(pid, "")
+	_authing.erase(pid)
+	if not _session.has(pid):
+		return
+	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
+	var f = _find(s["fid"])
+	if f != null and f["alive"]:
+		_save_one(s, f)                          # final save (fire-and-forget; uses captured session)
+	_remove_fighter(s["fid"])
 	_peers.erase(pid)
-	_peer_class.erase(pid)
-	_peer_fid.erase(pid)
+	_session.erase(pid)
 	_move.erase(pid)
 	_pending_ability.erase(pid)
 	_last_aseq.erase(pid)
 	_intent_age.erase(pid)
-	if fid != "":
-		_remove_fighter(fid)            # only the leaver's fighter — survivor is untouched
+	print("[zone] peer %d left" % pid)
 
-func _add_player(pid: int, cls: String) -> void:
-	if pid in _peers:
+# client → server: prove identity with the access token; the server loads the real character.
+func authenticate(pid: int, access: String, _refresh: String = "") -> void:
+	if pid in _peers or _authing.has(pid) or supa == null:
 		return
+	_authing[pid] = true                         # reserve synchronously, BEFORE the await (race guard)
+	var res = await supa.get_character_as(access)
+	_authing.erase(pid)
+	if not (pid in multiplayer.get_peers()) or pid in _peers:
+		return                                   # peer left or got authenticated meanwhile
+	if not res.get("ok") or res.get("character") == null:
+		print("[zone] peer %d auth failed (%s) — kicking" % [pid, res.get("error", "no character")])
+		multiplayer.multiplayer_peer.disconnect_peer(pid)
+		return
+	var ch = res["character"]
+	var fid := _spawn_player(ch)
 	_peers.append(pid)
-	_peer_class[pid] = cls
+	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]), "name": str(ch.get("name", "?"))}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
-	var team := _team_for_new()
-	var fid := _spawn_fighter(pid, cls, team)
-	_assign_fighter(pid, fid)
-	print("[server] +player %d as %s → fighter %s (%d total)" % [pid, cls, fid, _peers.size()])
+	net.assign_fighter.rpc_id(pid, fid)
+	print("[zone] %s (%s) joined as %s — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), fid, _peers.size()])
 
-# client handshake: pick a class. Recreates ONLY this player's own fighter (resets just them,
-# normally pre-combat at connect) — it does NOT touch the opponent.
-func set_peer_class(pid: int, cls: String) -> void:
-	if not (cls in GameData.class_ids()) or _peer_class.get(pid, "") == cls:
-		return
-	_peer_class[pid] = cls
-	if not _peer_fid.has(pid):
-		return
-	var old_fid: String = _peer_fid[pid]
-	var of = _find(old_fid)
-	var team: int = of["team"] if of != null else _team_for_new()
-	if of != null:
-		_remove_fighter(old_fid)
-	var fid := _spawn_fighter(pid, cls, team)
-	_move[pid] = {"mx": 0.0, "my": 0.0}
-	_pending_ability[pid] = ""
-	_assign_fighter(pid, fid)
+# client periodically re-issues a fresh access token (the refresh token never leaves the client)
+func reauth(pid: int, access: String) -> void:
+	if _session.has(pid) and access != "":
+		_session[pid]["access"] = access
 
-func _team_for_new() -> int:
-	var c0 := 0
-	var c1 := 0
-	for f in _state["fighters"]:
-		if f["team"] == 0:
-			c0 += 1
-		else:
-			c1 += 1
-	return 0 if c0 <= c1 else 1
+func _spawn_player(ch) -> String:
+	var cls: String = str(ch.get("class", "striker"))
+	if not GameData.CLASSES.has(cls):
+		cls = "striker"
+	var pos := Vector2(float(ch.get("last_x", 480.0)), float(ch.get("last_y", 270.0)))
+	return _spawn_fighter(cls, 0, pos)
 
-func _spawn_fighter(pid: int, cls: String, team: int) -> String:
+func _spawn_fighter(cls: String, team: int, pos: Vector2) -> String:
 	var slot := 0
 	for f in _state["fighters"]:
 		if f["team"] == team:
 			slot += 1
 	_fseq += 1
-	var f := GameData.create_fighter(cls, team, slot, Rng.new(MATCH_SEED + _fseq), DUEL_TEAM_SIZE)
+	var f := GameData.create_fighter(cls, team, slot, Rng.new(SEED + _fseq), ZONE_TEAM_SIZE)
+	f["id"] = ("p" if team == 0 else "m") + str(_fseq)   # unique, monotonic — no slot-reuse collisions
+	f["x"] = pos.x
+	f["y"] = pos.y
+	Geom.clamp_arena(f)
 	_state["fighters"].append(f)
-	_peer_fid[pid] = f["id"]
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])
 	return f["id"]
 
@@ -141,14 +148,7 @@ func _remove_fighter(fid: String) -> void:
 	_spawn_pos.erase(fid)
 	_respawn.erase(fid)
 
-func _assign_fighter(pid: int, fid: String) -> void:
-	if pid == 1 and local_client != null:
-		local_client.assign_fighter(fid)
-	elif net != null:
-		net.assign_fighter.rpc_id(pid, fid)
-
 # ---- intents (client → server) ----
-# movement on the unreliable channel: validated + clamped, latest wins
 func submit_intent(pid: int, mv: Dictionary) -> void:
 	if not _move.has(pid):
 		return
@@ -158,48 +158,43 @@ func submit_intent(pid: int, mv: Dictionary) -> void:
 	_move[pid] = {"mx": v.x, "my": v.y}
 	_intent_age[pid] = 0
 
-# abilities on the reliable channel: de-duplicated by sequence id, fired once
 func submit_ability(pid: int, key, seq) -> void:
-	if not _peer_fid.has(pid) or typeof(key) != TYPE_STRING:
+	if not _session.has(pid) or typeof(key) != TYPE_STRING:
 		return
 	if int(seq) > int(_last_aseq.get(pid, 0)):
 		_last_aseq[pid] = int(seq)
 		_pending_ability[pid] = key
 
-func submit_intent_local(pid: int, mv: Dictionary) -> void:   # host's own movement
-	submit_intent(pid, mv)
-
-func submit_ability_local(pid: int, key, seq) -> void:        # host's own ability
-	submit_ability(pid, key, seq)
-
 # ---- authoritative tick ----
 func _physics_process(delta: float) -> void:
-	if _state.is_empty() or _state["fighters"].is_empty():
+	if _state.is_empty():
 		return
 	_acc += delta
 	var steps := 0
 	while _acc >= SIM_DT and steps < 5:
-		_state["winner"] = null                       # duel arena: never latch a winner
+		_state["winner"] = null
 		_state["controlled"] = {}
 		for pid in _peers:
-			if not _peer_fid.has(pid):
-				continue
+			var fid: String = _session[pid]["fid"]
 			_intent_age[pid] = int(_intent_age.get(pid, 0)) + 1
 			var mv = _move.get(pid, {"mx": 0.0, "my": 0.0})
 			var mx: float = mv["mx"]
 			var my: float = mv["my"]
-			if _intent_age[pid] > STALE_INTENT_TICKS:  # client went silent → stop drifting
+			if _intent_age[pid] > STALE_INTENT_TICKS:
 				mx = 0.0
 				my = 0.0
-			# fresh intent dict each tick (never alias _move) — the seam consumes .ability
-			_state["controlled"][_peer_fid[pid]] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, "")}
-			_pending_ability[pid] = ""                 # one-shot, consumed
+			_state["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, "")}
+			_pending_ability[pid] = ""
 		Sim.sim_tick(_state, SIM_DT)
 		_tick_respawns(SIM_DT)
 		_acc -= SIM_DT
 		steps += 1
 	if steps == 5:
 		_acc = 0.0
+	_save_t += delta
+	if _save_t >= SAVE_INTERVAL:
+		_save_t = 0.0
+		_save_all()
 	if steps > 0:
 		_broadcast()
 
@@ -216,49 +211,63 @@ func _tick_respawns(dt: float) -> void:
 		_respawn.erase(id)
 		_revive(_find(id))
 
-# Reset a dead fighter to a fresh state at its ORIGINAL spawn point (stored at creation).
 func _revive(f) -> void:
 	if f == null:
 		return
-	var fresh := GameData.create_fighter(f["classId"], f["team"], f["slot"], Rng.new(MATCH_SEED + _fseq), DUEL_TEAM_SIZE)
+	var orig_id = f["id"]
+	var fresh := GameData.create_fighter(f["classId"], f["team"], f["slot"], Rng.new(SEED + _fseq), ZONE_TEAM_SIZE)
 	_fseq += 1
 	for k in fresh:
 		f[k] = fresh[k]
-	var sp = _spawn_pos.get(f["id"], Vector2(f["x"], f["y"]))
+	f["id"] = orig_id                            # keep the unique id across respawn
+	var sp = _spawn_pos.get(orig_id, Vector2(f["x"], f["y"]))
 	f["x"] = sp.x
 	f["y"] = sp.y
 
-func _find(id):
+func _find(id) -> Variant:
 	for f in _state["fighters"]:
 		if f["id"] == id:
 			return f
 	return null
 
-# ---- snapshots (server → clients) ----
+# ---- persistence (server-authoritative; access token kept fresh via reauth) ----
+func _save_all() -> void:
+	for pid in _peers.duplicate():
+		if not _session.has(pid):
+			continue
+		var f = _find(_session[pid]["fid"])
+		if f != null and f["alive"]:
+			_save_one(_session[pid], f)
+
+func _save_one(session: Dictionary, f) -> void:
+	if f == null or not f["alive"]:             # never persist a corpse's position
+		return
+	await supa.save_character_as(session["access"], session["char_id"],
+		{"last_x": f["x"], "last_y": f["y"], "last_map": MAP_ID})
+
+# ---- interest-managed snapshots (server → clients) ----
 func _broadcast() -> void:
-	var snap := _snapshot()
-	if net != null and multiplayer.has_multiplayer_peer():
-		net.receive_snapshot.rpc(snap)         # to all remote peers
-	if local_client != null:
-		local_client.receive_snapshot(snap)    # host renders directly (same process)
+	for pid in _peers:
+		var f = _find(_session[pid]["fid"])
+		if f == null:
+			continue
+		net.receive_snapshot.rpc_id(pid, _snapshot_for(Vector2(f["x"], f["y"])))
 	_state["events"].clear()
 	_snap_count += 1
 	if _snap_count % 90 == 0:
-		var pos := []
-		for f in _state["fighters"]:
-			pos.append("%s@(%d,%d)hp%d" % [f["id"], int(f["x"]), int(f["y"]), int(round(f["hp"]))])
-		print("[server] t=%.1f snaps=%d  %s" % [_state["t"], _snap_count, pos])
+		print("[zone] t=%.1f players=%d entities=%d" % [_state["t"], _peers.size(), _state["fighters"].size()])
 
-# A compact, render-only view (only the fields the client renderer reads).
-func _snapshot() -> Dictionary:
+func _snapshot_for(center: Vector2) -> Dictionary:
 	var fs := []
 	for f in _state["fighters"]:
-		fs.append({
-			"id": f["id"], "classId": f["classId"], "team": f["team"],
-			"x": f["x"], "y": f["y"], "hp": f["hp"], "maxHP": f["maxHP"],
-			"alive": f["alive"], "flash": f["flash"], "cds": f["cds"].duplicate(),
-		})
+		if Vector2(f["x"] - center.x, f["y"] - center.y).length() <= INTEREST_RADIUS:
+			fs.append({
+				"id": f["id"], "classId": f["classId"], "team": f["team"],
+				"x": f["x"], "y": f["y"], "hp": f["hp"], "maxHP": f["maxHP"],
+				"alive": f["alive"], "flash": f["flash"], "cds": f["cds"].duplicate(),
+			})
 	var ps := []
 	for p in _state["projectiles"]:
-		ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
+		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
+			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
 	return {"fighters": fs, "projectiles": ps, "events": _state["events"].duplicate(true), "t": _state["t"]}

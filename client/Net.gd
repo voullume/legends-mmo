@@ -23,9 +23,15 @@ func submit_ability(key: String, seq: int) -> void:
 		server.submit_ability(multiplayer.get_remote_sender_id(), key, seq)
 
 @rpc("any_peer", "call_remote", "reliable")
-func set_class(cls: String) -> void:
+func authenticate(access_token: String) -> void:
 	if server != null:
-		server.set_peer_class(multiplayer.get_remote_sender_id(), cls)
+		server.authenticate(multiplayer.get_remote_sender_id(), access_token)
+
+# client re-issues a fresh access token periodically (refresh token never leaves the client)
+@rpc("any_peer", "call_remote", "reliable")
+func reauth(access_token: String) -> void:
+	if server != null:
+		server.reauth(multiplayer.get_remote_sender_id(), access_token)
 
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")

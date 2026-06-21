@@ -18,19 +18,20 @@ var refresh_token := ""
 var user_id := ""
 var email := ""
 
-func _headers() -> PackedStringArray:
+func _headers(token := "") -> PackedStringArray:
+	var t: String = token if token != "" else access_token
 	var h := PackedStringArray(["apikey: " + ANON, "Content-Type: application/json"])
-	if access_token != "":
-		h.append("Authorization: Bearer " + access_token)
+	if t != "":
+		h.append("Authorization: Bearer " + t)
 	return h
 
 # One-shot HTTP request → { code, data, error }. A fresh HTTPRequest per call (await-friendly);
 # bounded by TIMEOUT so a hung connection always resolves instead of suspending the UI forever.
-func _http(method: int, path: String, body := "", extra := PackedStringArray()) -> Dictionary:
+func _http(method: int, path: String, body := "", extra := PackedStringArray(), token := "") -> Dictionary:
 	var req := HTTPRequest.new()
 	req.timeout = TIMEOUT
 	add_child(req)
-	var headers := _headers()
+	var headers := _headers(token)
 	for e in extra:
 		headers.append(e)
 	var err := req.request(URL + path, headers, method, body)
@@ -119,6 +120,23 @@ func save_character(char_id: String, fields: Dictionary) -> Dictionary:
 	var r = await _auth_http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields))
 	var ok: bool = r["code"] >= 200 and r["code"] < 300
 	return {"ok": ok, "expired": r["code"] == 401, "error": _err(r)}
+
+# --- server-side (explicit token, no shared session) — used by the zone server ---
+func get_character_as(token: String) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/characters?select=*&limit=1", "", PackedStringArray(), token)
+	if r["code"] == 200 and r["data"] is Array:
+		return {"ok": true, "character": (r["data"][0] if r["data"].size() > 0 else null), "code": r["code"]}
+	return {"ok": false, "character": null, "code": r["code"], "error": _err(r)}
+
+func save_character_as(token: String, char_id: String, fields: Dictionary) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields), PackedStringArray(), token)
+	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
+
+func refresh_as(rtoken: String) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))
+	if r["code"] == 200 and r["data"] is Dictionary and r["data"].has("access_token"):
+		return {"ok": true, "access_token": r["data"]["access_token"], "refresh_token": str(r["data"].get("refresh_token", rtoken))}
+	return {"ok": false}
 
 func _err(r) -> String:
 	if str(r.get("error", "")) != "":

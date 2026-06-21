@@ -42,8 +42,8 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 	# 4. airborne (Spiker)
 	if opts.get("airborne", false) and sc.has("airborneDmg"):
 		dmg *= sc["airborneDmg"]
-	# 5. sudden-death overtime
-	if state["t"] > OT_START:
+	# 5. sudden-death overtime (skipped in a persistent zone — t grows unbounded there)
+	if state["t"] > OT_START and not state.get("zone", false):
 		dmg *= 1.0 + (state["t"] - OT_START) * 0.035
 	# 6. strike zone (own + ally projectile boost)
 	if opts.get("projectile", false):

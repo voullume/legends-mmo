@@ -7,12 +7,18 @@ extends "res://client/Client.gd"
 ##   ONLINE — a remote client: intents/snapshots via the Net RPC bridge.
 ##   HOST   — the player who is also hosting: talks to the in-process Server directly.
 
-var net: Node = null         # RPC bridge (ONLINE)
-var server = null            # in-process authoritative server (HOST)
-var want_class := "striker"
+const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
+const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
+
+var net: Node = null         # RPC bridge
+var server = null            # in-process server (unused in the shared zone)
+# `supa` (the live Supabase session, refreshed locally) is inherited from Client.
+var access_token := ""       # initial token sent on connect to identify our account
 var autowalk := false        # debug: send a constant move intent (headless netcode test)
 var _connected := false
 var _aseq := 0               # monotonic ability sequence id (server de-dupes)
+var _reauth_t := 0.0
+var _absent := {}            # fighter id → seconds out of interest range (despawn hysteresis)
 var _net_msg := ""           # connection/disconnection banner for the HUD
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
@@ -59,6 +65,11 @@ func _send_ability(key: String) -> void:
 
 # render only — the server owns the sim
 func _process(delta: float) -> void:
+	if supa != null and net != null and _connected:
+		_reauth_t += delta
+		if _reauth_t >= REAUTH_INTERVAL:
+			_reauth_t = 0.0
+			_do_reauth()
 	if _state.is_empty():
 		_update_hud()          # still show the connecting/error banner before any snapshot
 		return
@@ -69,9 +80,14 @@ func _process(delta: float) -> void:
 func _on_connected() -> void:
 	_connected = true
 	_net_msg = ""
-	print("[netclient] connected to server")
-	if net != null and want_class != "":
-		net.set_class.rpc_id(1, want_class)
+	print("[netclient] connected — authenticating to the zone")
+	if net != null:
+		net.authenticate.rpc_id(1, access_token)
+
+# keep the server's access token fresh without ever sending the refresh token over the wire
+func _do_reauth() -> void:
+	if supa != null and await supa.refresh_session() and net != null:
+		net.reauth.rpc_id(1, supa.access_token)
 
 # shown on the HUD when the connection fails or the server goes away
 func net_error(msg: String) -> void:
@@ -95,10 +111,12 @@ func _sync_nodes_to_state() -> void:
 	var present := {}
 	for f in _state["fighters"]:
 		present[f["id"]] = true
+		_absent.erase(f["id"])                  # back in interest range
 		if not _nodes.has(f["id"]):
 			_spawn(f)
 		else:
 			var n = _nodes[f["id"]]
+			n["holder"].visible = true          # unhide if it was hidden during the despawn grace
 			if f["alive"] and n["died"]:        # server respawned it → reset the death pose
 				n["died"] = false
 				n["busy"] = ""
@@ -108,12 +126,19 @@ func _sync_nodes_to_state() -> void:
 				n["vel"] = Vector2.ZERO
 				if n["anim"] != null:
 					_safe_play(n["anim"], n["anims"].get("idle", "idle"))
+	# entities out of interest range: hide now, but keep the model around briefly so boundary
+	# jitter doesn't re-instantiate the GLB on every crossing.
+	var dt := get_process_delta_time()
 	for id in _nodes.keys():
 		if not present.has(id):
 			var n = _nodes[id]
-			if is_instance_valid(n["holder"]):
-				n["holder"].queue_free()
-			_nodes.erase(id)
+			n["holder"].visible = false
+			_absent[id] = float(_absent.get(id, 0.0)) + dt
+			if _absent[id] >= DESPAWN_GRACE:
+				if is_instance_valid(n["holder"]):
+					n["holder"].queue_free()
+				_nodes.erase(id)
+				_absent.erase(id)
 
 # camera/zoom only — class-cycle/reset/pause are server decisions in multiplayer
 func _unhandled_input(e: InputEvent) -> void:
