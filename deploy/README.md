@@ -17,8 +17,8 @@ the firewall, and runs the container (auto-restart, DTLS encryption). ~5 minutes
 2. Run:
    ```bash
    export SUPABASE_SERVICE_KEY="eyJ...your-service-role-key..."
-   export REPO_URL="https://github.com/<you>/legends-mmo.git"
-   curl -fsSL "https://raw.githubusercontent.com/<you>/legends-mmo/main/deploy/setup.sh" | sudo -E bash
+   export REPO_URL="https://github.com/voullume/legends-mmo.git"
+   curl -fsSL "https://raw.githubusercontent.com/voullume/legends-mmo/main/deploy/setup.sh" | sudo -E bash
    ```
 3. It prints the connect command when it finishes.
 4. **Also open UDP 7777 in your provider's firewall / security group** — most clouds (DigitalOcean,

@@ -11,8 +11,8 @@
 #
 # Quick start once the repo is on GitHub:
 #   export SUPABASE_SERVICE_KEY="eyJ..."
-#   export REPO_URL="https://github.com/<you>/legends-mmo.git"
-#   curl -fsSL "https://raw.githubusercontent.com/<you>/legends-mmo/main/deploy/setup.sh" | sudo -E bash
+#   export REPO_URL="https://github.com/voullume/legends-mmo.git"
+#   curl -fsSL "https://raw.githubusercontent.com/voullume/legends-mmo/main/deploy/setup.sh" | sudo -E bash
 # (Or paste this whole script as cloud-init user-data with the two vars hardcoded at the top.)
 set -euo pipefail
 
