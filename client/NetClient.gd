@@ -20,6 +20,10 @@ var _aseq := 0               # monotonic ability sequence id (server de-dupes)
 var _reauth_t := 0.0
 var _absent := {}            # fighter id → seconds out of interest range (despawn hysteresis)
 var _net_msg := ""           # connection/disconnection banner for the HUD
+var _chatting := false       # typing in the chat box (suppresses movement/abilities)
+var _chat_log: RichTextLabel
+var _chat_input: LineEdit
+var _chat_lines := []
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -27,14 +31,69 @@ func _enter_mode() -> void:
 	_player = PlayerCtl.new()
 	add_child(_player)
 	_player_id = ""              # set by assign_fighter()
+	_build_chat()
 	print("[netclient] ready — awaiting server fighter assignment")
+
+func _build_chat() -> void:
+	_chat_log = RichTextLabel.new()
+	_chat_log.bbcode_enabled = true
+	_chat_log.scroll_active = false
+	_chat_log.fit_content = true
+	_chat_log.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_chat_log.position = Vector2(16, -300)
+	_chat_log.custom_minimum_size = Vector2(620, 230)
+	_hud.add_child(_chat_log)
+	_chat_input = LineEdit.new()
+	_chat_input.placeholder_text = "say something…  (Enter sends · Esc cancels)"
+	_chat_input.max_length = 120
+	_chat_input.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_chat_input.position = Vector2(16, -46)
+	_chat_input.custom_minimum_size = Vector2(620, 34)
+	_chat_input.visible = false
+	_chat_input.text_submitted.connect(_on_chat_submit)
+	_chat_input.focus_exited.connect(_close_chat)
+	_hud.add_child(_chat_input)
+
+func _open_chat() -> void:
+	_chatting = true
+	_chat_input.visible = true
+	_chat_input.grab_focus()
+
+func _close_chat(_arg := "") -> void:
+	if not _chatting:
+		return
+	_chatting = false
+	_chat_input.text = ""
+	_chat_input.visible = false
+	_chat_input.release_focus()
+
+func _on_chat_submit(text: String) -> void:
+	var msg := text.strip_edges()
+	if msg != "" and net != null and _connected:
+		net.send_chat.rpc_id(1, msg)
+	_close_chat()
+
+func recv_chat(sender: String, text: String) -> void:
+	print("[chat] %s: %s" % [sender, text])
+	# escape user-supplied brackets so they can't inject BBCode into the log
+	_chat_lines.append("[color=#9fd0ff][b]%s[/b][/color]  %s" % [_esc(sender), _esc(text)])
+	if _chat_lines.size() > 9:
+		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
+	_chat_log.text = "\n".join(_chat_lines)
+
+func _esc(s: String) -> String:
+	return s.replace("[", "[lb]")
 
 # input runs at the fixed physics rate (bounded), independent of render fps
 var _aw_t := 0
 func _physics_process(_delta: float) -> void:
 	if _player == null or _player_id == "":
 		return
-	if autowalk:
+	if _chatting:
+		_player.intent["mx"] = 0.0                   # hold still while typing
+		_player.intent["my"] = 0.0
+		_player.intent["ability"] = ""
+	elif autowalk:
 		_player.intent["mx"] = 0.0                   # debug: stand and fight (combat / XP tests)
 		_player.intent["my"] = 0.0
 		_aw_t += 1
@@ -42,10 +101,12 @@ func _physics_process(_delta: float) -> void:
 			var ks: Array = _player.ability_keys()
 			if ks.size() > 0:
 				_player.intent["ability"] = ks[0]
+		if _aw_t == 30 and net != null and _connected:   # debug: exercise the chat path once
+			net.send_chat.rpc_id(1, "hello from the test bot")
 	else:
 		_player.poll(_yaw)
 	_send_movement()                                 # unreliable, latest-wins
-	if _player.intent["ability"] != "":
+	if not _chatting and _player.intent["ability"] != "":
 		_send_ability(_player.intent["ability"])     # reliable, de-duplicated
 		_player.intent["ability"] = ""
 
@@ -140,8 +201,17 @@ func _sync_nodes_to_state() -> void:
 				_nodes.erase(id)
 				_absent.erase(id)
 
-# camera/zoom only — class-cycle/reset/pause are server decisions in multiplayer
+# Enter opens/sends chat, Esc cancels; camera/zoom otherwise (class-cycle/reset are server-side)
 func _unhandled_input(e: InputEvent) -> void:
+	if e is InputEventKey and e.pressed and not e.echo:
+		if (e.keycode == KEY_ENTER or e.keycode == KEY_KP_ENTER) and not _chatting:
+			_open_chat()
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_ESCAPE and _chatting:
+			_close_chat()
+			get_viewport().set_input_as_handled()
+			return
 	if e is InputEventMouseButton:
 		if e.button_index == MOUSE_BUTTON_RIGHT:
 			_dragging = e.pressed

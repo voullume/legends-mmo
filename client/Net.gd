@@ -33,6 +33,17 @@ func reauth(access_token: String) -> void:
 	if server != null:
 		server.reauth(multiplayer.get_remote_sender_id(), access_token)
 
+# zone chat: client → server, server → all clients
+@rpc("any_peer", "call_remote", "reliable")
+func send_chat(text: String) -> void:
+	if server != null:
+		server.chat(multiplayer.get_remote_sender_id(), text)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_chat(sender: String, text: String) -> void:
+	if client != null:
+		client.recv_chat(sender, text)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

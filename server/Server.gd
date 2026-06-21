@@ -137,6 +137,20 @@ func reauth(pid: int, access: String) -> void:
 	if _session.has(pid) and access != "":
 		_session[pid]["access"] = access
 
+# zone-wide chat relay (sanitized; named by the sender's character)
+func chat(pid: int, text: String) -> void:
+	if not _session.has(pid):
+		return
+	var msg := text.strip_edges().replace("\n", " ").replace("\r", " ")
+	if msg.is_empty():
+		return
+	if msg.length() > 120:
+		msg = msg.substr(0, 120)
+	var who: String = str(_session[pid]["name"])
+	print("[chat] %s: %s" % [who, msg])
+	for p in _peers:
+		net.recv_chat.rpc_id(p, who, msg)
+
 func _spawn_player(ch, level: int) -> String:
 	var cls: String = str(ch.get("class", "striker"))
 	if not GameData.CLASSES.has(cls):
