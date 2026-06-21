@@ -70,8 +70,9 @@ direct writes, so items can't be forged. Without the key the server still runs b
 won't save. On Fly: `fly secrets set SUPABASE_SERVICE_KEY=<key>`. Locally: put it in a gitignored
 `.env` (see `.env.example`) — `play.sh` loads it.
 Deploy that image anywhere that runs containers with a **UDP** port:
-- **A VPS** (Hetzner / Oracle Cloud free ARM / DigitalOcean) — `docker run -p 7777:7777/udp` it,
-  open UDP 7777. Simplest and most reliable (binds `0.0.0.0`, no special config).
+- **A VPS** (Hetzner / DigitalOcean / Vultr — pick **x86_64**, 1 vCPU is enough) — simplest and most
+  reliable. One script does the whole box: see **`deploy/README.md`** (`deploy/setup.sh` installs
+  Docker, builds, opens the firewall, and runs the container with auto-restart + DTLS).
 - **Fly.io** — a starting `fly.toml` is included (`fly apps create … && fly ips allocate-v4 && fly
   deploy`). UDP on Fly needs a **dedicated IPv4** and the `fly-global-services` bind (the toml sets
   `BIND` for that). If routing misbehaves, fall back to the VPS path.
