@@ -121,6 +121,13 @@ func save_character(char_id: String, fields: Dictionary) -> Dictionary:
 	var ok: bool = r["code"] >= 200 and r["code"] < 300
 	return {"ok": ok, "expired": r["code"] == 401, "error": _err(r)}
 
+# --- inventory (this account's items; RLS scopes to characters we own) ---
+func get_inventory() -> Dictionary:
+	var r = await _auth_http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=*&order=created_at.desc")
+	if r["code"] == 200 and r["data"] is Array:
+		return {"ok": true, "items": r["data"]}
+	return {"ok": false, "items": [], "error": _err(r)}
+
 # --- server-side (explicit token, no shared session) — used by the zone server ---
 func get_character_as(token: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/characters?select=*&limit=1", "", PackedStringArray(), token)
@@ -131,6 +138,12 @@ func get_character_as(token: String) -> Dictionary:
 func save_character_as(token: String, char_id: String, fields: Dictionary) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields), PackedStringArray(), token)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
+
+func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary:
+	var body := item.duplicate()
+	body["character_id"] = char_id
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/inventory", JSON.stringify(body), PackedStringArray(), token)
+	return {"ok": r["code"] == 201, "code": r["code"]}
 
 func refresh_as(rtoken: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))

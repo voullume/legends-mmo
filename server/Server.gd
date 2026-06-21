@@ -46,8 +46,23 @@ const MOBS := [
 	{"class": "linebacker", "level": 3, "tier": "elite", "x": 830.0, "y": 270.0},
 ]
 
+# --- loot ---
+const LOOT_SLOTS := {
+	"weapon": ["Bat", "Cleats", "Gauntlets", "Glove", "Racket"],
+	"armor": ["Jersey", "Shoulder Pads", "Helmet", "Shin Guards"],
+	"trinket": ["Medal", "Lucky Charm", "Whistle", "Captain's Band"],
+}
+const RARITIES := [
+	{"name": "common", "weight": 60, "mult": 1},
+	{"name": "uncommon", "weight": 28, "mult": 2},
+	{"name": "rare", "weight": 10, "mult": 4},
+	{"name": "epic", "weight": 2, "mult": 8},
+]
+const LOOT_STATS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]
+
 var net: Node = null
 var supa: Node = null
+var _loot_rng = null
 
 var _state: Dictionary = {}
 var _peers: Array = []
@@ -77,6 +92,7 @@ func start() -> bool:
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ 0x9E3779B9)   # vary loot per launch
 	Engine.max_fps = 60
 	_state = Sim.create_match([], [], SEED, MAP_ID)
 	_state["zone"] = true                        # persistent: no match-end / no overtime ramp
@@ -280,6 +296,7 @@ func _award_kills() -> void:
 		for pid in _peers:
 			if _session[pid]["fid"] == ev["killer"]:
 				_award_xp(pid, _mob_xp(victim))
+				_grant_loot(pid, victim)
 				break
 
 func _award_xp(pid: int, amt: int) -> void:
@@ -343,6 +360,47 @@ func _mob_xp(mob) -> int:
 	var lvl := int(mob.get("mobLevel", 1))
 	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"
 	return MOB_XP_BASE * lvl * (MOB_ELITE_XP if elite else 1)
+
+func _grant_loot(pid: int, mob) -> void:
+	if not _session.has(pid):
+		return
+	var item := _roll_loot(mob)
+	if item.is_empty():
+		return
+	var s = _session[pid]
+	supa.add_item_as(s["access"], s["char_id"], item)    # persist to the account (fire-and-forget)
+	net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+	print("[loot] %s looted [%s] %s (+%d %s)" % [s["name"], item["rarity"], item["name"], item["bonus_amt"], item["bonus_stat"]])
+
+func _roll_loot(mob) -> Dictionary:
+	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"
+	var lvl := int(mob.get("mobLevel", 1))
+	var chance := 1.0 if elite else 0.45
+	if _loot_rng.next() > chance:
+		return {}
+	var rar := _roll_rarity(elite)
+	var slots: Array = LOOT_SLOTS.keys()
+	var slot: String = slots[_loot_rng.next_int(slots.size())]
+	var bases: Array = LOOT_SLOTS[slot]
+	var base: String = bases[_loot_rng.next_int(bases.size())]
+	var stat: String = LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())]
+	return {"name": base, "rarity": str(rar["name"]), "slot": slot, "bonus_stat": stat, "bonus_amt": int(rar["mult"]) * (2 + lvl)}
+
+func _roll_rarity(elite: bool) -> Dictionary:
+	var total := 0
+	for r in RARITIES:
+		total += int(r["weight"])
+	var roll: float = _loot_rng.next() * total
+	var acc := 0.0
+	var idx := 0
+	for i in RARITIES.size():
+		acc += float(RARITIES[i]["weight"])
+		if roll < acc:
+			idx = i
+			break
+	if elite:
+		idx = min(idx + 2, RARITIES.size() - 1)
+	return RARITIES[idx]
 
 func _find(id) -> Variant:
 	for f in _state["fighters"]:

@@ -9,6 +9,7 @@ extends "res://client/Client.gd"
 
 const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
 const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
+const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff"}
 
 var net: Node = null         # RPC bridge
 var server = null            # in-process server (unused in the shared zone)
@@ -24,6 +25,8 @@ var _chatting := false       # typing in the chat box (suppresses movement/abili
 var _chat_log: RichTextLabel
 var _chat_input: LineEdit
 var _chat_lines := []
+var _inv_panel: Control
+var _inv_label: RichTextLabel
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -32,6 +35,7 @@ func _enter_mode() -> void:
 	add_child(_player)
 	_player_id = ""              # set by assign_fighter()
 	_build_chat()
+	_build_inventory()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -83,6 +87,68 @@ func recv_chat(sender: String, text: String) -> void:
 
 func _esc(s: String) -> String:
 	return s.replace("[", "[lb]")
+
+func _build_inventory() -> void:
+	_inv_panel = CenterContainer.new()
+	_inv_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_inv_panel.visible = false
+	_hud.add_child(_inv_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(480, 0)
+	_inv_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "Inventory   (I to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_inv_label = RichTextLabel.new()
+	_inv_label.bbcode_enabled = true
+	_inv_label.scroll_active = true
+	_inv_label.custom_minimum_size = Vector2(440, 380)
+	vb.add_child(_inv_label)
+
+func _toggle_inventory() -> void:
+	_inv_panel.visible = not _inv_panel.visible
+	if _inv_panel.visible:
+		_load_inventory()
+
+func _load_inventory() -> void:
+	if supa == null:
+		return
+	_inv_label.text = "[color=#7f93a8]loading…[/color]"
+	var r = await supa.get_inventory()
+	if not r.get("ok"):
+		_inv_label.text = "[color=#ff8a8a]couldn't load inventory[/color]"
+		return
+	var items: Array = r.get("items", [])
+	if items.is_empty():
+		_inv_label.text = "[color=#7f93a8]empty — kill mobs to find loot[/color]"
+		return
+	var lines := ["[color=#7f93a8]%d items[/color]\n" % items.size()]
+	for it in items:
+		var col: String = RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
+		var bonus := ""
+		if int(it.get("bonus_amt", 0)) != 0:
+			bonus = "   [color=#9fe8a0]+%d %s[/color]" % [int(it["bonus_amt"]), str(it.get("bonus_stat", ""))]
+		lines.append("[color=%s]● %s[/color]  [color=#7f93a8](%s · %s)[/color]%s" % [col, _esc(str(it.get("name", "?"))), str(it.get("rarity", "")), str(it.get("slot", "")), bonus])
+	_inv_label.text = "\n".join(lines)
+
+func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: String) -> void:
+	print("[loot] %s [%s] +%d %s" % [item, rarity, amt, stat])
+	var col: String = RARITY_COLORS.get(rarity, "#cfd6df")
+	var bonus := ("   +%d %s" % [amt, stat]) if amt != 0 else ""
+	_chat_lines.append("[color=#ffd24d]★ Looted[/color] [color=%s]%s[/color] [color=#7f93a8](%s · %s)%s[/color]" % [col, _esc(item), rarity, slot, bonus])
+	if _chat_lines.size() > 9:
+		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
+	_chat_log.text = "\n".join(_chat_lines)
+	if _inv_panel.visible:
+		_load_inventory()
 
 # input runs at the fixed physics rate (bounded), independent of render fps
 var _aw_t := 0
@@ -208,8 +274,17 @@ func _unhandled_input(e: InputEvent) -> void:
 			_open_chat()
 			get_viewport().set_input_as_handled()
 			return
-		elif e.keycode == KEY_ESCAPE and _chatting:
-			_close_chat()
+		elif e.keycode == KEY_ESCAPE:
+			if _chatting:
+				_close_chat()
+				get_viewport().set_input_as_handled()
+				return
+			elif _inv_panel.visible:
+				_inv_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
+		elif e.keycode == KEY_I and not _chatting:
+			_toggle_inventory()
 			get_viewport().set_input_as_handled()
 			return
 	if e is InputEventMouseButton:

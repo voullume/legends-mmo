@@ -44,6 +44,12 @@ func recv_chat(sender: String, text: String) -> void:
 	if client != null:
 		client.recv_chat(sender, text)
 
+# loot drop notification (server → the looting client)
+@rpc("authority", "call_remote", "reliable")
+func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: String) -> void:
+	if client != null:
+		client.recv_loot(item, rarity, slot, amt, stat)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:
