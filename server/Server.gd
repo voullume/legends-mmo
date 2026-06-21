@@ -1,16 +1,17 @@
 extends Node
-## SHARED ZONE SERVER (Phase 4). One persistent, server-authoritative overworld that several
-## accounts' characters share. Combines Phase 2 (authoritative ENet world tick) with Phase 3
-## (accounts): a joining client authenticates with its Supabase access token, the server loads
-## that account's character (class + saved position) and spawns it, and persists position back.
+## SHARED ZONE SERVER (Phase 4 + 5). One persistent, server-authoritative overworld that several
+## accounts' characters share. A joining client authenticates with its Supabase access token; the
+## server loads that account's character (class, position, level, xp) and spawns it.
 ##
 ## - Players are team 0 (they coexist — abilities target enemies, so they don't hit each other).
-## - A few neutral training-dummy mobs (team 1) populate the zone (botsFrozen = passive).
-## - Per-client snapshots are interest-managed: a client only receives entities near its fighter.
+## - Mobs are team 1 with aggro/leash (Phase 5): they engage players who enter their camp and
+##   reset to spawn when the camp empties. Killing a mob grants XP; XP levels you up (+max HP),
+##   and level/xp/position persist to the account.
+## - Per-client snapshots are interest-managed (only entities near the client's fighter).
 ##
 ## SECURITY NOTE: ENet here is UNENCRYPTED. Only the short-lived access token crosses the wire
-## (never the long-lived refresh token — the client keeps that and re-issues fresh access tokens
-## via reauth()). A production deployment must enable ENet DTLS before exposing this publicly.
+## (never the refresh token — the client re-issues fresh access tokens via reauth). Production
+## must enable ENet DTLS before exposing this publicly.
 
 const Sim := preload("res://shared/Sim.gd")
 const GameData := preload("res://shared/GameData.gd")
@@ -26,6 +27,13 @@ const RESPAWN_DELAY := 4.0
 const SAVE_INTERVAL := 15.0
 const INTEREST_RADIUS := 450.0
 const STALE_INTENT_TICKS := 30
+const AGGRO_RANGE := 320.0            # a mob engages a player within this range (covers ranged basics)
+const LEASH_RANGE := 480.0            # once engaged, stays engaged until players pass this (hysteresis)
+const MAX_LEASH := 520.0              # a mob never strays further than this from its camp
+const MOB_XP := 30                    # XP granted for a mob kill
+const MOB_HP_SCALE := 0.4             # mobs are weakened so they're solo-killable dummies
+const MOB_DMG_SCALE := 0.3            # …and hit softly enough that a lone player survives
+const LEVEL_HP := 60.0                # bonus max HP per level
 const MOBS := [
 	{"class": "linebacker", "x": 620.0, "y": 200.0},
 	{"class": "goalkeeper", "x": 620.0, "y": 340.0},
@@ -36,18 +44,22 @@ var supa: Node = null
 
 var _state: Dictionary = {}
 var _peers: Array = []
-var _authing := {}                  # peer ids with an authenticate() in flight (race guard)
-var _session := {}                  # peer id → {fid, access, char_id, name}
+var _authing := {}
+var _session := {}                  # peer id → {fid, access, char_id, name, xp, level}
 var _move := {}
 var _pending_ability := {}
 var _last_aseq := {}
 var _intent_age := {}
 var _spawn_pos := {}
 var _respawn := {}
+var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
 var _fseq := 0
 var _acc := 0.0
 var _save_t := 0.0
 var _snap_count := 0
+
+static func _xp_to_next(level: int) -> int:
+	return level * 100
 
 func start() -> bool:
 	var peer := ENetMultiplayerPeer.new()
@@ -61,7 +73,6 @@ func start() -> bool:
 	Engine.max_fps = 60
 	_state = Sim.create_match([], [], SEED, MAP_ID)
 	_state["zone"] = true                        # persistent: no match-end / no overtime ramp
-	_state["botsFrozen"] = true                  # mobs are passive training dummies
 	for m in MOBS:
 		_spawn_fighter(m["class"], 1, Vector2(m["x"], m["y"]))
 	print("[zone] online on UDP %d  (map=%s, %d mobs)" % [PORT, MAP_ID, MOBS.size()])
@@ -76,9 +87,7 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	var f = _find(s["fid"])
-	if f != null and f["alive"]:
-		_save_one(s, f)                          # final save (fire-and-forget; uses captured session)
+	_save_one(s, _find(s["fid"]))                # persist xp/level (+ position if alive), even on a corpse
 	_remove_fighter(s["fid"])
 	_peers.erase(pid)
 	_session.erase(pid)
@@ -88,41 +97,46 @@ func _on_peer_disconnected(pid: int) -> void:
 	_intent_age.erase(pid)
 	print("[zone] peer %d left" % pid)
 
-# client → server: prove identity with the access token; the server loads the real character.
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	if pid in _peers or _authing.has(pid) or supa == null:
 		return
-	_authing[pid] = true                         # reserve synchronously, BEFORE the await (race guard)
+	_authing[pid] = true
 	var res = await supa.get_character_as(access)
 	_authing.erase(pid)
 	if not (pid in multiplayer.get_peers()) or pid in _peers:
-		return                                   # peer left or got authenticated meanwhile
+		return
 	if not res.get("ok") or res.get("character") == null:
 		print("[zone] peer %d auth failed (%s) — kicking" % [pid, res.get("error", "no character")])
 		multiplayer.multiplayer_peer.disconnect_peer(pid)
 		return
 	var ch = res["character"]
-	var fid := _spawn_player(ch)
+	var lvl := int(ch.get("level", 1))
+	var fid := _spawn_player(ch, lvl)
 	_peers.append(pid)
-	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]), "name": str(ch.get("name", "?"))}
+	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
+		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
-	print("[zone] %s (%s) joined as %s — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), fid, _peers.size()])
+	print("[zone] %s (%s, lvl %d) joined as %s — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _peers.size()])
 
-# client periodically re-issues a fresh access token (the refresh token never leaves the client)
 func reauth(pid: int, access: String) -> void:
 	if _session.has(pid) and access != "":
 		_session[pid]["access"] = access
 
-func _spawn_player(ch) -> String:
+func _spawn_player(ch, level: int) -> String:
 	var cls: String = str(ch.get("class", "striker"))
 	if not GameData.CLASSES.has(cls):
 		cls = "striker"
 	var pos := Vector2(float(ch.get("last_x", 480.0)), float(ch.get("last_y", 270.0)))
-	return _spawn_fighter(cls, 0, pos)
+	var fid := _spawn_fighter(cls, 0, pos)
+	var f = _find(fid)
+	if f != null:
+		f["maxHP"] += (level - 1) * LEVEL_HP       # progression: bonus HP per level
+		f["hp"] = f["maxHP"]
+	return fid
 
 func _spawn_fighter(cls: String, team: int, pos: Vector2) -> String:
 	var slot := 0
@@ -131,9 +145,11 @@ func _spawn_fighter(cls: String, team: int, pos: Vector2) -> String:
 			slot += 1
 	_fseq += 1
 	var f := GameData.create_fighter(cls, team, slot, Rng.new(SEED + _fseq), ZONE_TEAM_SIZE)
-	f["id"] = ("p" if team == 0 else "m") + str(_fseq)   # unique, monotonic — no slot-reuse collisions
+	f["id"] = ("p" if team == 0 else "m") + str(_fseq)
 	f["x"] = pos.x
 	f["y"] = pos.y
+	if team == 1:
+		_weaken_mob(f)                           # solo-killable training dummies
 	Geom.clamp_arena(f)
 	_state["fighters"].append(f)
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])
@@ -148,7 +164,13 @@ func _remove_fighter(fid: String) -> void:
 	_spawn_pos.erase(fid)
 	_respawn.erase(fid)
 
-# ---- intents (client → server) ----
+func _session_by_fid(fid: String) -> Variant:
+	for pid in _session:
+		if _session[pid]["fid"] == fid:
+			return _session[pid]
+	return null
+
+# ---- intents ----
 func submit_intent(pid: int, mv: Dictionary) -> void:
 	if not _move.has(pid):
 		return
@@ -172,6 +194,7 @@ func _physics_process(delta: float) -> void:
 	_acc += delta
 	var steps := 0
 	while _acc >= SIM_DT and steps < 5:
+		_update_mob_ai()                          # aggro / leash before the sim resolves actions
 		_state["winner"] = null
 		_state["controlled"] = {}
 		for pid in _peers:
@@ -191,12 +214,65 @@ func _physics_process(delta: float) -> void:
 		steps += 1
 	if steps == 5:
 		_acc = 0.0
-	_save_t += delta
+	_save_t += delta                              # save clock runs every frame, not just on sim steps
 	if _save_t >= SAVE_INTERVAL:
 		_save_t = 0.0
 		_save_all()
 	if steps > 0:
+		_award_kills()                            # grant XP for mob kills before events are cleared
 		_broadcast()
+
+# mob behaviour: engage players near the camp; otherwise hold/reset home (frozen via the seam)
+func _update_mob_ai() -> void:
+	var frozen := {}
+	for f in _state["fighters"]:
+		if f["team"] != 1:
+			continue
+		var here := Vector2(f["x"], f["y"])
+		var spawn: Vector2 = _spawn_pos.get(f["id"], here)
+		var was := bool(_mob_engaged.get(f["id"], false))
+		var radius: float = LEASH_RANGE if was else AGGRO_RANGE   # hysteresis: harder to drop than to start
+		var engaged := false
+		if (here - spawn).length() <= MAX_LEASH:                 # stays tethered to its camp
+			for p in _state["fighters"]:
+				if p["team"] == 0 and p["alive"] and (Vector2(p["x"], p["y"]) - here).length() < radius:
+					engaged = true
+					break
+		_mob_engaged[f["id"]] = engaged
+		frozen[f["id"]] = not engaged
+		if not engaged and f["alive"]:
+			f["x"] = spawn.x                                     # disengaged → return to camp
+			f["y"] = spawn.y
+			if was:                                             # heal to full only on the engage→disengage edge
+				f["hp"] = f["maxHP"]
+	_state["frozenIds"] = frozen
+
+func _award_kills() -> void:
+	for ev in _state["events"]:
+		if ev.get("type") != "kill":
+			continue
+		var victim = _find(ev["victim"])
+		if victim == null or victim["team"] != 1:    # only mob kills grant XP
+			continue
+		for pid in _peers:
+			if _session[pid]["fid"] == ev["killer"]:
+				_award_xp(pid, MOB_XP)
+				break
+
+func _award_xp(pid: int, amt: int) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	s["xp"] = int(s["xp"]) + amt
+	while s["xp"] >= _xp_to_next(int(s["level"])):
+		s["xp"] -= _xp_to_next(int(s["level"]))
+		s["level"] = int(s["level"]) + 1
+		var f = _find(s["fid"])
+		if f != null:
+			f["maxHP"] += LEVEL_HP
+			f["hp"] = f["maxHP"]
+	_save_one(s, _find(s["fid"]))                # persist xp/level on every kill (durable progression)
+	print("[zone] %s +%d xp → lvl %d (%d/%d)" % [s["name"], amt, s["level"], s["xp"], _xp_to_next(int(s["level"]))])
 
 func _tick_respawns(dt: float) -> void:
 	for f in _state["fighters"]:
@@ -219,10 +295,22 @@ func _revive(f) -> void:
 	_fseq += 1
 	for k in fresh:
 		f[k] = fresh[k]
-	f["id"] = orig_id                            # keep the unique id across respawn
+	f["id"] = orig_id
 	var sp = _spawn_pos.get(orig_id, Vector2(f["x"], f["y"]))
 	f["x"] = sp.x
 	f["y"] = sp.y
+	if f["team"] == 0:                            # re-apply the player's level HP bonus
+		var s = _session_by_fid(orig_id)
+		if s != null:
+			f["maxHP"] += (int(s["level"]) - 1) * LEVEL_HP
+			f["hp"] = f["maxHP"]
+	elif f["team"] == 1:                          # re-apply the mob weakening
+		_weaken_mob(f)
+
+func _weaken_mob(f) -> void:
+	f["maxHP"] *= MOB_HP_SCALE
+	f["hp"] = f["maxHP"]
+	f["dmgMult"] *= MOB_DMG_SCALE
 
 func _find(id) -> Variant:
 	for f in _state["fighters"]:
@@ -230,42 +318,58 @@ func _find(id) -> Variant:
 			return f
 	return null
 
-# ---- persistence (server-authoritative; access token kept fresh via reauth) ----
+# ---- persistence ----
 func _save_all() -> void:
 	for pid in _peers.duplicate():
-		if not _session.has(pid):
-			continue
-		var f = _find(_session[pid]["fid"])
-		if f != null and f["alive"]:
-			_save_one(_session[pid], f)
+		if _session.has(pid):
+			_save_one(_session[pid], _find(_session[pid]["fid"]))
 
 func _save_one(session: Dictionary, f) -> void:
-	if f == null or not f["alive"]:             # never persist a corpse's position
+	if supa == null:
 		return
-	await supa.save_character_as(session["access"], session["char_id"],
-		{"last_x": f["x"], "last_y": f["y"], "last_map": MAP_ID})
+	# xp/level are always valid (they live on the session) — persist them even for a corpse.
+	# Position is only persisted when alive (never write a dead fighter's death-spot).
+	var fields := {"xp": int(session["xp"]), "level": int(session["level"])}
+	if f != null and f["alive"]:
+		fields["last_x"] = f["x"]
+		fields["last_y"] = f["y"]
+		fields["last_map"] = MAP_ID
+	await supa.save_character_as(session["access"], session["char_id"], fields)
 
-# ---- interest-managed snapshots (server → clients) ----
+# ---- interest-managed snapshots ----
 func _broadcast() -> void:
+	var pinfo := {}
+	for pid in _peers:
+		var s = _session[pid]
+		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"]))}
 	for pid in _peers:
 		var f = _find(_session[pid]["fid"])
 		if f == null:
 			continue
-		net.receive_snapshot.rpc_id(pid, _snapshot_for(Vector2(f["x"], f["y"])))
+		net.receive_snapshot.rpc_id(pid, _snapshot_for(Vector2(f["x"], f["y"]), pinfo))
 	_state["events"].clear()
 	_snap_count += 1
-	if _snap_count % 90 == 0:
-		print("[zone] t=%.1f players=%d entities=%d" % [_state["t"], _peers.size(), _state["fighters"].size()])
+	if _snap_count % 60 == 0:
+		var hps := []
+		for f in _state["fighters"]:
+			hps.append("%s=%d/%d%s" % [f["id"], int(f["hp"]), int(f["maxHP"]), ("" if f["alive"] else "(dead)")])
+		print("[zone] t=%.1f  %s" % [_state["t"], hps])
 
-func _snapshot_for(center: Vector2) -> Dictionary:
+func _snapshot_for(center: Vector2, pinfo: Dictionary) -> Dictionary:
 	var fs := []
 	for f in _state["fighters"]:
 		if Vector2(f["x"] - center.x, f["y"] - center.y).length() <= INTEREST_RADIUS:
-			fs.append({
+			var d := {
 				"id": f["id"], "classId": f["classId"], "team": f["team"],
 				"x": f["x"], "y": f["y"], "hp": f["hp"], "maxHP": f["maxHP"],
 				"alive": f["alive"], "flash": f["flash"], "cds": f["cds"].duplicate(),
-			})
+			}
+			if pinfo.has(f["id"]):
+				var pi = pinfo[f["id"]]
+				d["level"] = pi["level"]
+				d["xp"] = pi["xp"]
+				d["xpNext"] = pi["xpNext"]
+			fs.append(d)
 	var ps := []
 	for p in _state["projectiles"]:
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:

@@ -209,10 +209,10 @@ static func sim_tick(state, dt) -> void:
 			_player_step(state, f, controlled[f["id"]], dt)
 			continue
 
-		# PRACTICE FREEZE (Phase 1): when set, non-controlled fighters hold position — no
-		# targeting, offense, or movement — so the player can explore controls unrushed.
-		# Absent in headless/AI-only matches, so determinism is unaffected.
-		if state.get("botsFrozen", false):
+		# FREEZE seams: a global one (Phase 1 practice) and a per-fighter one (Phase 5 zone mob
+		# aggro/leash). A frozen fighter holds position — no targeting, offense, or movement.
+		# Both are absent in headless/AI-only matches, so determinism is unaffected.
+		if state.get("botsFrozen", false) or state.get("frozenIds", {}).get(f["id"], false):
 			continue
 
 		# support routing (does not block offense/movement)

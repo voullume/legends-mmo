@@ -35,10 +35,10 @@ func _physics_process(_delta: float) -> void:
 	if _player == null or _player_id == "":
 		return
 	if autowalk:
-		_player.intent["mx"] = 1.0
+		_player.intent["mx"] = 0.0                   # debug: stand and fight (combat / XP tests)
 		_player.intent["my"] = 0.0
 		_aw_t += 1
-		if _aw_t % 15 == 0:                          # also fire the basic to test networked combat
+		if _aw_t % 12 == 0:
 			var ks: Array = _player.ability_keys()
 			if ks.size() > 0:
 				_player.intent["ability"] = ks[0]
@@ -167,9 +167,11 @@ func _update_hud() -> void:
 		return
 	var c: Dictionary = GameData.CLASSES[pf["classId"]]
 	var alive_txt := "[color=#ff6b6b](respawning…)[/color]" if not pf["alive"] else ""
-	var role := "HOST" if server != null else "CLIENT"
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   HP %d/%d %s   [color=#7fd4ff]ONLINE · %s[/color]\n[color=#7f93a8]WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom[/color]" % [
-		c["name"], c["sport"], c["role"], int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, role]
+	var lvl := int(pf.get("level", 1))
+	var xp := int(pf.get("xp", 0))
+	var xpn := int(pf.get("xpNext", 100))
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom · fight the dummies for XP[/color]" % [
+		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn]
 	var parts := []
 	var keys: Array = _player.ability_keys()
 	for i in keys.size():
