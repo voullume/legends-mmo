@@ -340,10 +340,20 @@ func _spawn(f: Dictionary) -> void:
 	var fill := _quad(BAR_W, BAR_H, Color(0.3, 0.85, 0.4))
 	fill.position.z = 0.01
 	ui.add_child(fill)
+	var label := Label3D.new()                # level / tier nameplate (mobs, and players online)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.no_depth_test = true
+	label.fixed_size = true
+	label.pixel_size = 0.0016
+	label.font_size = 56
+	label.outline_size = 16
+	label.outline_modulate = Color(0, 0, 0, 0.9)
+	label.position.y = BAR_H + 0.32
+	ui.add_child(label)
 
 	_nodes[f["id"]] = {
 		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"],
-		"ui": ui, "fill": fill, "last": holder.position, "vel": Vector2.ZERO,
+		"ui": ui, "fill": fill, "label": label, "last": holder.position, "vel": Vector2.ZERO,
 		"pcds": {}, "busy": "", "atk_clip": "", "died": false, "hit_cd": 0.0, "pflash": 0.0,
 	}
 
@@ -576,6 +586,16 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	fill.scale.x = max(frac, 0.001)
 	fill.position.x = -BAR_W / 2.0 * (1.0 - frac)
 	(fill.material_override as StandardMaterial3D).albedo_color = (Color(0.9, 0.3, 0.3) if frac < 0.35 else Color(0.3, 0.85, 0.4))
+	var label: Label3D = n["label"]
+	if f.has("mobTier"):
+		var elite: bool = str(f["mobTier"]) == "elite"
+		label.text = "Lv %d%s" % [int(f.get("mobLevel", 1)), ("  ★ ELITE" if elite else "")]
+		label.modulate = Color(1.0, 0.55, 0.4) if elite else Color(0.92, 0.82, 0.6)
+	elif f.has("level"):
+		label.text = "Lv %d" % int(f["level"])
+		label.modulate = Color(0.6, 0.85, 1.0)
+	elif label.text != "":
+		label.text = ""
 
 # ============================================================ FX
 func _spawn_num(tgt_id, amt: int, crit: bool) -> void:

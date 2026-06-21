@@ -30,13 +30,20 @@ const STALE_INTENT_TICKS := 30
 const AGGRO_RANGE := 320.0            # a mob engages a player within this range (covers ranged basics)
 const LEASH_RANGE := 480.0            # once engaged, stays engaged until players pass this (hysteresis)
 const MAX_LEASH := 520.0              # a mob never strays further than this from its camp
-const MOB_XP := 30                    # XP granted for a mob kill
-const MOB_HP_SCALE := 0.4             # mobs are weakened so they're solo-killable dummies
-const MOB_DMG_SCALE := 0.3            # …and hit softly enough that a lone player survives
-const LEVEL_HP := 60.0                # bonus max HP per level
+const MOB_HP_SCALE := 0.35            # base mob HP fraction (scaled up by level + tier)
+const MOB_DMG_SCALE := 0.28           # base mob damage fraction (scaled up by level + tier)
+const MOB_XP_BASE := 15               # mob XP = base × level × (elite ? 4 : 1)
+const MOB_ELITE_HP := 2.2
+const MOB_ELITE_DMG := 1.6
+const MOB_ELITE_XP := 4
+const LEVEL_HP := 60.0                # bonus max HP per player level
+# Camps form a difficulty gradient from the player's start (left) toward the elite (right).
 const MOBS := [
-	{"class": "linebacker", "x": 620.0, "y": 200.0},
-	{"class": "goalkeeper", "x": 620.0, "y": 340.0},
+	{"class": "setter", "level": 1, "tier": "minion", "x": 400.0, "y": 175.0},
+	{"class": "spiker", "level": 1, "tier": "minion", "x": 400.0, "y": 365.0},
+	{"class": "striker", "level": 2, "tier": "minion", "x": 620.0, "y": 200.0},
+	{"class": "batter", "level": 2, "tier": "minion", "x": 620.0, "y": 340.0},
+	{"class": "linebacker", "level": 3, "tier": "elite", "x": 830.0, "y": 270.0},
 ]
 
 var net: Node = null
@@ -74,7 +81,11 @@ func start() -> bool:
 	_state = Sim.create_match([], [], SEED, MAP_ID)
 	_state["zone"] = true                        # persistent: no match-end / no overtime ramp
 	for m in MOBS:
-		_spawn_fighter(m["class"], 1, Vector2(m["x"], m["y"]))
+		var fid := _spawn_fighter(m["class"], 1, Vector2(m["x"], m["y"]))
+		var f = _find(fid)
+		f["mobLevel"] = int(m["level"])
+		f["mobTier"] = str(m["tier"])
+		_scale_mob(f)
 	print("[zone] online on UDP %d  (map=%s, %d mobs)" % [PORT, MAP_ID, MOBS.size()])
 	return true
 
@@ -148,8 +159,6 @@ func _spawn_fighter(cls: String, team: int, pos: Vector2) -> String:
 	f["id"] = ("p" if team == 0 else "m") + str(_fseq)
 	f["x"] = pos.x
 	f["y"] = pos.y
-	if team == 1:
-		_weaken_mob(f)                           # solo-killable training dummies
 	Geom.clamp_arena(f)
 	_state["fighters"].append(f)
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])
@@ -256,7 +265,7 @@ func _award_kills() -> void:
 			continue
 		for pid in _peers:
 			if _session[pid]["fid"] == ev["killer"]:
-				_award_xp(pid, MOB_XP)
+				_award_xp(pid, _mob_xp(victim))
 				break
 
 func _award_xp(pid: int, amt: int) -> void:
@@ -304,13 +313,22 @@ func _revive(f) -> void:
 		if s != null:
 			f["maxHP"] += (int(s["level"]) - 1) * LEVEL_HP
 			f["hp"] = f["maxHP"]
-	elif f["team"] == 1:                          # re-apply the mob weakening
-		_weaken_mob(f)
+	elif f["team"] == 1:                          # re-apply mob level/tier scaling (mobLevel/Tier survive the copy)
+		_scale_mob(f)
 
-func _weaken_mob(f) -> void:
-	f["maxHP"] *= MOB_HP_SCALE
+func _scale_mob(f) -> void:
+	var lvl := int(f.get("mobLevel", 1))
+	var elite: bool = str(f.get("mobTier", "minion")) == "elite"
+	var hp_s := MOB_HP_SCALE * (1.0 + (lvl - 1) * 0.3) * (MOB_ELITE_HP if elite else 1.0)
+	var dmg_s := MOB_DMG_SCALE * (1.0 + (lvl - 1) * 0.2) * (MOB_ELITE_DMG if elite else 1.0)
+	f["maxHP"] = f["maxHP"] * hp_s
 	f["hp"] = f["maxHP"]
-	f["dmgMult"] *= MOB_DMG_SCALE
+	f["dmgMult"] *= dmg_s
+
+func _mob_xp(mob) -> int:
+	var lvl := int(mob.get("mobLevel", 1))
+	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"
+	return MOB_XP_BASE * lvl * (MOB_ELITE_XP if elite else 1)
 
 func _find(id) -> Variant:
 	for f in _state["fighters"]:
@@ -369,6 +387,9 @@ func _snapshot_for(center: Vector2, pinfo: Dictionary) -> Dictionary:
 				d["level"] = pi["level"]
 				d["xp"] = pi["xp"]
 				d["xpNext"] = pi["xpNext"]
+			if f["team"] == 1:
+				d["mobLevel"] = int(f.get("mobLevel", 1))
+				d["mobTier"] = str(f.get("mobTier", "minion"))
 			fs.append(d)
 	var ps := []
 	for p in _state["projectiles"]:
