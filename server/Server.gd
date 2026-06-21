@@ -451,10 +451,16 @@ func equip(pid: int, item_id: String, _slot: String) -> void:
 				break
 	if item != null:                                 # only if it's this player's item
 		var islot: String = str(item["slot"])
-		await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s" % [s["char_id"], islot], false)
-		if not bool(item["equipped"]):               # toggle: equip unless it was already equipped
-			await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)
-		await _apply_equipment(pid)
+		var ok: bool
+		if bool(item["equipped"]):                   # toggle OFF: unequip this item
+			ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, false)).get("ok"))
+		else:                                        # toggle ON: equip it FIRST, then clear others in the slot
+			ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)).get("ok"))
+			if ok:                                   # (so a failed clear can't strand the slot empty)
+				await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s&id=neq.%s" % [s["char_id"], islot, item_id], false)
+		if not ok:                                   # surface the failure (e.g. SUPABASE_SERVICE_KEY unset → 403)
+			print("[zone] equip write failed for %s — is SUPABASE_SERVICE_KEY set?" % s["name"])
+		await _apply_equipment(pid)                  # re-derive from the actually-persisted DB state either way
 	_equipping.erase(pid)
 	if net != null and _session.has(pid):
 		net.recv_inventory_changed.rpc_id(pid)
