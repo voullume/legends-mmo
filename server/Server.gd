@@ -56,6 +56,12 @@ const RARITIES := [
 	{"name": "epic", "weight": 2, "mult": 8},
 ]
 const LOOT_STATS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]
+# economy (Credits): buy from a fixed catalog, gamble a random roll, or sell inventory back
+const BUY_PRICE := {"common": 40, "uncommon": 110, "rare": 280, "epic": 650}
+const ROLL_PRICE := {"common": 50, "uncommon": 130, "rare": 320, "epic": 720}
+const SELL_PRICE := {"common": 14, "uncommon": 38, "rare": 95, "epic": 230}
+const SHOP_SLOT_STAT := {"weapon": "PWR", "armor": "END", "trinket": "INS"}
+const SHOP_RARITIES := ["common", "uncommon", "rare", "epic"]
 const RARITY_CAP := {"common": 4, "uncommon": 10, "rare": 20, "epic": 40}   # caps an equipped bonus (anti-forge)
 
 var net: Node = null
@@ -193,7 +199,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_peers.append(pid)
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
 		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
-		"map": str(pf["map"]) if pf != null else World.HOME, "party": []}
+		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": int(ch.get("credits", 0))}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -390,6 +396,91 @@ func _party_roster(pid: int) -> Array:
 			"alive": bool(mf["alive"]) if mf != null else false, "map": str(_session[m]["map"])})
 	return out
 
+# ---- economy (Credits): earn from kills, spend at the home-zone shop, sell inventory back ----
+func _mob_credits(mob) -> int:
+	var base := 8 + int(mob.get("mobLevel", 1)) * 5
+	if str(mob.get("mobTier", "")) == "elite":
+		base *= 2
+	return base
+
+func _award_credits(pid: int, amt: int) -> void:
+	if _session.has(pid):
+		_session[pid]["credits"] = int(_session[pid]["credits"]) + amt
+
+# the fixed catalog: one item per slot × rarity (varied base name, slot-appropriate stat)
+func _catalog() -> Array:
+	var out := []
+	for slot in LOOT_SLOTS:
+		var bases: Array = LOOT_SLOTS[slot]
+		var stat: String = str(SHOP_SLOT_STAT.get(slot, "PWR"))
+		for i in SHOP_RARITIES.size():
+			var rar: String = SHOP_RARITIES[i]
+			var mult := 1
+			for r in RARITIES:
+				if r["name"] == rar:
+					mult = int(r["mult"])
+			out.append({"slot": slot, "rarity": rar, "bonus_stat": stat, "bonus_amt": mult * 6,
+				"price": int(BUY_PRICE[rar]), "name": "%s %s" % [rar.capitalize(), str(bases[i % bases.size()])]})
+	return out
+
+func _give_and_charge(pid: int, item: Dictionary, price: int) -> void:
+	var s = _session[pid]
+	s["credits"] = int(s["credits"]) - price                  # deduct up front; refund if the write fails
+	var r = await supa.add_item_as(s["access"], s["char_id"], item)
+	if not _session.has(pid):
+		return
+	if r.get("ok"):
+		_save_one(s, _find(s["fid"]))
+		if net != null:
+			net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+			net.recv_inventory_changed.rpc_id(pid)
+	else:
+		s["credits"] = int(s["credits"]) + price
+
+func shop_buy(pid: int, slot: String, rarity: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return                                                # the shop only exists in the home base
+	var entry = null
+	for e in _catalog():
+		if e["slot"] == slot and e["rarity"] == rarity:
+			entry = e
+			break
+	if entry == null or int(_session[pid]["credits"]) < int(entry["price"]):
+		return
+	await _give_and_charge(pid, {"name": str(entry["name"]), "rarity": rarity, "slot": slot,
+		"bonus_stat": str(entry["bonus_stat"]), "bonus_amt": int(entry["bonus_amt"])}, int(entry["price"]))
+
+func shop_roll(pid: int, rarity: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not ROLL_PRICE.has(rarity):
+		return
+	if int(_session[pid]["credits"]) < int(ROLL_PRICE[rarity]):
+		return
+	var slots: Array = LOOT_SLOTS.keys()
+	var slot: String = slots[_loot_rng.next_int(slots.size())]
+	var bases: Array = LOOT_SLOTS[slot]
+	var mult := 1
+	for r in RARITIES:
+		if r["name"] == rarity:
+			mult = int(r["mult"])
+	await _give_and_charge(pid, {"name": "%s %s" % [rarity.capitalize(), str(bases[_loot_rng.next_int(bases.size())])],
+		"rarity": rarity, "slot": slot, "bonus_stat": LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())],
+		"bonus_amt": mult * 6}, int(ROLL_PRICE[rarity]))
+
+func shop_sell(pid: int, item_id: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return
+	var s = _session[pid]
+	var r = await supa.sell_item_as(s["char_id"], item_id)    # service-role, scoped to this character
+	if not _session.has(pid) or not r.get("ok"):
+		return
+	s["credits"] = int(s["credits"]) + int(SELL_PRICE.get(str(r["rarity"]), 10))
+	await _apply_equipment(pid)                               # re-derive stats (the item may have been equipped)
+	if not _session.has(pid):
+		return
+	_save_one(s, _find(s["fid"]))
+	if net != null:
+		net.recv_inventory_changed.rpc_id(pid)
+
 # ---- intents ----
 func submit_intent(pid: int, mv: Dictionary) -> void:
 	if not _move.has(pid):
@@ -548,6 +639,7 @@ func _award_kills() -> void:
 				continue
 			for pid in _peers:
 				if _session[pid]["fid"] == ev["killer"]:
+					_award_credits(pid, _mob_credits(victim))   # credits before xp's save persists both
 					_award_xp(pid, _mob_xp(victim))
 					_grant_loot(pid, victim)
 					break
@@ -883,7 +975,7 @@ func _save_one(session: Dictionary, f) -> void:
 	# for a corpse. Position is the live spot when alive, else the respawn point — never the death
 	# spot — so last_map and last_x/last_y always stay consistent (you resume in the world you were in).
 	var fields := {"xp": int(session["xp"]), "level": int(session["level"]),
-		"last_map": str(session.get("map", World.HOME))}
+		"last_map": str(session.get("map", World.HOME)), "credits": int(session.get("credits", 0))}
 	if f != null:
 		if f["alive"]:
 			fields["last_x"] = f["x"]
@@ -901,7 +993,7 @@ func _broadcast() -> void:
 		var s = _session[pid]
 		var pf = _find(s["fid"])                  # include derived combat stats for skill-bar tooltips
 		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"])),
-			"name": str(s["name"]),
+			"name": str(s["name"]), "credits": int(s.get("credits", 0)),
 			"dmgMult": float(pf["dmgMult"]) if pf != null else 1.0,
 			"crit": float(pf["crit"]) if pf != null else 0.0,
 			"critMult": float(pf["critMult"]) if pf != null else 1.5}
@@ -939,6 +1031,7 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				var pi = pinfo[f["id"]]
 				d["level"] = pi["level"]
 				d["name"] = pi["name"]
+				d["credits"] = pi["credits"]
 				d["xp"] = pi["xp"]
 				d["xpNext"] = pi["xpNext"]
 				d["dmgMult"] = pi["dmgMult"]

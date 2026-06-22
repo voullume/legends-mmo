@@ -98,6 +98,22 @@ func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
 	if client != null:
 		client.recv_party_invite(inviter_name, inviter_fid)
 
+# ---- shop (client → server; server re-validates credits/ownership/location) ----
+@rpc("any_peer", "call_remote", "reliable")
+func shop_buy(slot: String, rarity: String) -> void:
+	if server != null:
+		server.shop_buy(multiplayer.get_remote_sender_id(), slot, rarity)
+
+@rpc("any_peer", "call_remote", "reliable")
+func shop_roll(rarity: String) -> void:
+	if server != null:
+		server.shop_roll(multiplayer.get_remote_sender_id(), rarity)
+
+@rpc("any_peer", "call_remote", "reliable")
+func shop_sell(item_id: String) -> void:
+	if server != null:
+		server.shop_sell(multiplayer.get_remote_sender_id(), item_id)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

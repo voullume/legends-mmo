@@ -174,6 +174,19 @@ func clear_inventory_as(char_id: String) -> void:
 		return
 	await _http(HTTPClient.METHOD_DELETE, "/rest/v1/inventory?character_id=eq." + char_id, "", PackedStringArray(), service_key)
 
+# server-side: verify an item belongs to this character, delete it, and return its rarity (for the
+# sell price). Scoped by character_id so a client can never sell items it doesn't own.
+func sell_item_as(char_id: String, item_id: String) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s" % [item_id, char_id]
+	var g = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory" + q + "&select=rarity", "", PackedStringArray(), service_key)
+	if not (g["code"] == 200 and g["data"] is Array and (g["data"] as Array).size() > 0):
+		return {"ok": false}
+	var rarity := str(g["data"][0].get("rarity", "common"))
+	var d = await _http(HTTPClient.METHOD_DELETE, "/rest/v1/inventory" + q, "", PackedStringArray(), service_key)
+	return {"ok": d["code"] >= 200 and d["code"] < 300, "rarity": rarity}
+
 func refresh_as(rtoken: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))
 	if r["code"] == 200 and r["data"] is Dictionary and r["data"].has("access_token"):
