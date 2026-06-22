@@ -394,7 +394,7 @@ func _build_admin_panel() -> void:
 	title.text = "⚙ ADMIN  (F1)"
 	vb.add_child(title)
 	var cmds := [
-		["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}],
+		["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}],
 		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
 		["God Mode", "god", {}], ["Heal", "heal", {}],
 		["→ Home", "to_home", {}], ["→ Combat", "to_combat", {}],

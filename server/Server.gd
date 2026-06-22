@@ -844,6 +844,9 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 			_save_one(s, f)
 		"add_xp":
 			_award_xp(pid, int(args.get("amt", 100)))
+		"add_credits":
+			s["credits"] = int(s["credits"]) + int(args.get("amt", 500))
+			_save_one(s, f)
 		"give_item":
 			_admin_give_item(pid)
 		"clear_items":
