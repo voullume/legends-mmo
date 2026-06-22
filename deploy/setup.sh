@@ -22,7 +22,6 @@ REPO_URL="${REPO_URL:-}"
 IMAGE="legends-zone"
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo -E bash setup.sh)"; exit 1; }
-[ -n "${SUPABASE_SERVICE_KEY:-}" ] || { echo "ERROR: set SUPABASE_SERVICE_KEY (Supabase -> Settings -> API -> service_role)"; exit 1; }
 
 echo "==> [1/5] Docker"
 command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
@@ -34,6 +33,15 @@ if [ -n "$REPO_URL" ]; then
 fi
 [ -f "$APP_DIR/Dockerfile" ] || { echo "ERROR: no code at $APP_DIR — set REPO_URL, or upload the repo there first."; exit 1; }
 cd "$APP_DIR"
+
+# Resolve the service key: use the env var if given (and remember it), else reuse a saved one.
+# This makes re-running (to deploy an update) a no-argument command.
+if [ -n "${SUPABASE_SERVICE_KEY:-}" ]; then
+  umask 077; printf 'SUPABASE_SERVICE_KEY=%s\n' "$SUPABASE_SERVICE_KEY" > "$APP_DIR/.env"
+elif [ -f "$APP_DIR/.env" ]; then
+  . "$APP_DIR/.env"
+fi
+[ -n "${SUPABASE_SERVICE_KEY:-}" ] || { echo "ERROR: set SUPABASE_SERVICE_KEY once (Supabase -> Settings -> API -> service_role); it's saved for next time."; exit 1; }
 
 echo "==> [3/5] Build the server image (downloads Godot + imports assets — a few minutes)"
 docker build -t "$IMAGE" .

@@ -35,7 +35,7 @@ Each tester signs up their own account in-client (instant, no email). One charac
 |---|---|
 | Live logs | `docker logs -f legends-zone` |
 | Restart / stop | `docker restart legends-zone` · `docker stop legends-zone` |
-| Update to latest | re-run the script — it pulls, rebuilds, and restarts |
+| Update to latest | re-run the one-liner — it pulls, rebuilds, restarts (the service key is remembered, so no env vars needed after the first time) |
 
 ## No GitHub? Upload the code instead
 From your machine, copy the repo up and run the script without `REPO_URL`:
