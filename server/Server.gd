@@ -205,6 +205,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
+	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE})
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
 		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
@@ -1004,6 +1005,8 @@ func _broadcast() -> void:
 			continue
 		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
 		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
+		if str(s["map"]) == World.HOME:           # the shop pad only exists in the home base
+			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
 		net.receive_snapshot.rpc_id(pid, snap)
 	for mapname in _worlds:
 		_worlds[mapname]["events"].clear()

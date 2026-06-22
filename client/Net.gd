@@ -114,6 +114,11 @@ func shop_sell(item_id: String) -> void:
 	if server != null:
 		server.shop_sell(multiplayer.get_remote_sender_id(), item_id)
 
+@rpc("authority", "call_remote", "reliable")
+func recv_shop_info(info: Dictionary) -> void:
+	if client != null:
+		client.recv_shop_info(info)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

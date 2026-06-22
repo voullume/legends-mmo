@@ -45,6 +45,14 @@ var _inv_label: RichTextLabel
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
 var _inv_loading := false     # an inventory GET is in flight
 var _inv_pending := false     # a refresh was requested while loading
+var _shop_panel: Control = null
+var _shop_buy_lbl: RichTextLabel = null
+var _shop_sell_lbl: RichTextLabel = null
+var _shop_info := {}          # catalog + roll/sell prices (from recv_shop_info)
+var _shop_root: Node3D = null # the 3D shop pad visual
+var _shop_sig := ""
+var _shop_hint: Label = null  # "Press B to shop" proximity prompt
+var _near_shop := false
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -54,6 +62,7 @@ func _enter_mode() -> void:
 	_player_id = ""              # set by assign_fighter()
 	_build_chat()
 	_build_inventory()
+	_build_shop()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -194,6 +203,182 @@ func _on_item_clicked(meta) -> void:
 func recv_inventory_changed() -> void:
 	if _inv_panel != null and _inv_panel.visible:
 		_load_inventory()
+	if _shop_panel != null and _shop_panel.visible:   # a buy/sell/roll changed our items + credits
+		_render_shop_buy()
+		_load_shop_sell()
+
+# ---- shop (home-zone economy: buy from a catalog, gamble a roll, sell inventory back) ----
+func recv_shop_info(info: Dictionary) -> void:
+	_shop_info = info
+
+func _build_shop() -> void:
+	_shop_panel = CenterContainer.new()
+	_shop_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_shop_panel.visible = false
+	_hud.add_child(_shop_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(680, 0)
+	_shop_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "Shop   (B to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 16)
+	vb.add_child(hb)
+	_shop_buy_lbl = RichTextLabel.new()
+	_shop_buy_lbl.bbcode_enabled = true
+	_shop_buy_lbl.scroll_active = true
+	_shop_buy_lbl.custom_minimum_size = Vector2(330, 430)
+	_shop_buy_lbl.meta_clicked.connect(_on_shop_meta)
+	hb.add_child(_shop_buy_lbl)
+	_shop_sell_lbl = RichTextLabel.new()
+	_shop_sell_lbl.bbcode_enabled = true
+	_shop_sell_lbl.scroll_active = true
+	_shop_sell_lbl.custom_minimum_size = Vector2(330, 430)
+	_shop_sell_lbl.meta_clicked.connect(_on_shop_meta)
+	hb.add_child(_shop_sell_lbl)
+
+func _toggle_shop() -> void:
+	if _shop_panel == null:
+		return
+	_shop_panel.visible = not _shop_panel.visible
+	if _shop_panel.visible:
+		_render_shop_buy()
+		_load_shop_sell()
+
+func _my_credits() -> int:
+	var pf = _find_fighter(_player_id)
+	return int(pf.get("credits", 0)) if pf != null else 0
+
+func _render_shop_buy() -> void:
+	if _shop_buy_lbl == null:
+		return
+	var lines := ["[b]BUY[/b]   [color=#ffd24d]%d credits[/color]\n" % _my_credits()]
+	lines.append("[color=#7f93a8]Catalog — click to buy:[/color]")
+	for e in _shop_info.get("catalog", []):
+		var col: String = RARITY_COLORS.get(str(e.get("rarity", "")), "#cfd6df")
+		lines.append("[url=buy|%s|%s][color=%s]%s[/color][/url] [color=#9fe8a0]+%d %s[/color] — [color=#ffd24d]%d[/color]" % [
+			str(e["slot"]), str(e["rarity"]), col, _esc(str(e["name"])), int(e["bonus_amt"]), str(e["bonus_stat"]), int(e["price"])])
+	lines.append("\n[color=#7f93a8]Random roll (random item of that tier):[/color]")
+	var roll: Dictionary = _shop_info.get("roll", {})
+	for rar in ["common", "uncommon", "rare", "epic"]:
+		if roll.has(rar):
+			lines.append("[url=roll|%s][color=%s]Roll %s[/color][/url] — [color=#ffd24d]%d[/color]" % [rar, RARITY_COLORS.get(rar, "#cfd6df"), rar.capitalize(), int(roll[rar])])
+	_shop_buy_lbl.text = "\n".join(lines)
+
+func _load_shop_sell() -> void:
+	if _shop_sell_lbl == null or supa == null:
+		return
+	_shop_sell_lbl.text = "[b]SELL[/b]\n[color=#7f93a8]loading…[/color]"
+	var r = await supa.get_inventory()
+	if _shop_sell_lbl == null:
+		return
+	if not r.get("ok"):
+		_shop_sell_lbl.text = "[b]SELL[/b]\n[color=#ff8a8a]couldn't load inventory[/color]"
+		return
+	var items: Array = r.get("items", [])
+	var sell: Dictionary = _shop_info.get("sell", {})
+	var lines := ["[b]SELL[/b]   [color=#7f93a8]click to sell[/color]\n"]
+	if items.is_empty():
+		lines.append("[color=#7f93a8]nothing to sell — go earn some loot[/color]")
+	for it in items:
+		var col: String = RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
+		var price: int = int(sell.get(str(it.get("rarity", "common")), 0))
+		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
+		lines.append("[url=sell|%s][color=%s]%s[/color][/url]%s [color=#7f93a8](%s)[/color] — [color=#ffd24d]%d[/color]" % [
+			str(it.get("id", "")), col, _esc(str(it.get("name", "?"))), eq, str(it.get("slot", "")), price])
+	_shop_sell_lbl.text = "\n".join(lines)
+
+func _on_shop_meta(meta) -> void:
+	if net == null or not _connected:
+		return
+	var p := str(meta).split("|")
+	match p[0]:
+		"buy":
+			if p.size() >= 3:
+				net.shop_buy.rpc_id(1, p[1], p[2])
+		"roll":
+			if p.size() >= 2:
+				net.shop_roll.rpc_id(1, p[1])
+		"sell":
+			if p.size() >= 2:
+				net.shop_sell.rpc_id(1, p[1])
+
+# the gold shop pad in the home base + the "press B" proximity prompt
+func _render_shop_pad() -> void:
+	var shop = _state.get("shop")
+	var sig := JSON.stringify(shop)
+	if sig == _shop_sig:
+		return
+	_shop_sig = sig
+	if _shop_root != null:
+		_shop_root.queue_free()
+		_shop_root = null
+	if shop == null or _world_root == null:
+		return
+	_shop_root = Node3D.new()
+	_world_root.add_child(_shop_root)
+	var pos := Vector3((float(shop["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(shop["y"]) - _ah() / 2.0) * SCALE)
+	var pillar := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = World.SHOP_RADIUS * SCALE * 0.5
+	cyl.bottom_radius = World.SHOP_RADIUS * SCALE * 0.6
+	cyl.height = 2.6
+	pillar.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.82, 0.3, 0.34)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.78, 0.25)
+	mat.emission_energy_multiplier = 1.6
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	pillar.material_override = mat
+	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
+	_shop_root.add_child(pillar)
+	var lbl := Label3D.new()
+	lbl.text = "🛒 Shop"
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0016
+	lbl.font_size = 52
+	lbl.outline_size = 16
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	lbl.modulate = Color(1.0, 0.88, 0.5)
+	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
+	_shop_root.add_child(lbl)
+
+func _update_shop_proximity() -> void:
+	if _shop_hint == null:
+		_shop_hint = Label.new()
+		_shop_hint.add_theme_font_size_override("font_size", 18)
+		_shop_hint.modulate = Color(1.0, 0.88, 0.5)
+		_shop_hint.visible = false
+		_hud.add_child(_shop_hint)
+	var shop = _state.get("shop")
+	var pf = _find_fighter(_player_id)
+	_near_shop = false
+	if shop != null and pf != null:
+		var d := Vector2(float(pf["x"]) - float(shop["x"]), float(pf["y"]) - float(shop["y"])).length()
+		_near_shop = d <= World.SHOP_RADIUS
+	if _near_shop and (_shop_panel == null or not _shop_panel.visible):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_shop_hint.text = "Press [B] to shop"
+		_shop_hint.position = Vector2(vp.x / 2.0 - 70.0, vp.y - 150.0)
+		_shop_hint.visible = true
+	else:
+		_shop_hint.visible = false
+	if not _near_shop and _shop_panel != null and _shop_panel.visible:
+		_shop_panel.visible = false                  # walked away → close the shop
 
 # ---- admin tool (only the admin account ever receives recv_admin) ----
 func recv_admin(on: bool) -> void:
@@ -248,6 +433,7 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 var _aw_t := 0
 var _auto_equipped := false
 var _aw_invited := false
+var _aw_shopped := false
 func _auto_equip() -> void:                          # debug: equip the first looted item
 	if supa == null:
 		return
@@ -277,6 +463,9 @@ func _physics_process(_delta: float) -> void:
 				_player.intent["ability"] = ks[0]
 		if _aw_t == 30 and net != null and _connected:   # debug: exercise the chat path once
 			net.send_chat.rpc_id(1, "hello from the test bot")
+		if _aw_t == 60 and not _aw_shopped and net != null and _connected:   # debug: buy from the shop once
+			_aw_shopped = true
+			net.shop_buy.rpc_id(1, "weapon", "common")
 		if _aw_t == 90 and not _aw_invited and net != null and _connected:   # debug: invite the first other player
 			for f in _state.get("fighters", []):
 				if int(f.get("team", 0)) == 0 and str(f["id"]) != _player_id:
@@ -593,6 +782,8 @@ func _process(delta: float) -> void:
 	_render_world(delta)
 	_update_focus()
 	_update_party()
+	_render_shop_pad()
+	_update_shop_proximity()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -675,6 +866,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_inv_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _shop_panel != null and _shop_panel.visible:
+				_shop_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _invite_prompt != null or _invite_popup != null:
 				_close_invite_prompt()
 				if _invite_popup != null:
@@ -703,6 +898,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_F1 and _is_admin and _admin_panel != null:
 			_admin_panel.visible = not _admin_panel.visible
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_B and not _chatting and (_near_shop or (_shop_panel != null and _shop_panel.visible)):
+			_toggle_shop()                  # open/close the shop while on the home pad
 			get_viewport().set_input_as_handled()
 			return
 	if e is InputEventMouseButton:
@@ -741,7 +940,7 @@ func _update_hud() -> void:
 	var lvl := int(pf.get("level", 1))
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally[/color]" % [
-		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn]
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally[/color]" % [
+		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0))]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
