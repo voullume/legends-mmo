@@ -3,7 +3,8 @@
 #   ./play.sh            single-player: log in -> your character -> local world  (easiest)
 #   ./play.sh zone       multiplayer demo: headless server + two player windows
 #   ./play.sh server     just the dedicated zone server (headless, no window)
-#   ./play.sh online [ip] one player joining a zone (default 127.0.0.1)
+#   ./play.sh online [ip] one player joining a LOCAL zone (default 127.0.0.1, no encryption)
+#   ./play.sh join <ip>  join a REMOTE/internet server (encrypted) — e.g. ./play.sh join 159.89.132.86
 #
 # Demo login that already has a character:  legends_smoke1@testmail.dev / Testpass1234!
 # (or click "Sign Up" to make your own — it logs you straight in, no email needed.)
@@ -22,6 +23,9 @@ case "${1:-local}" in
     exec "$GODOT" --headless --path "$DIR" -- --server ;;
   online)
     exec "$GODOT" --path "$DIR" -- --online "${2:-127.0.0.1}" ;;
+  join)
+    [ -n "${2:-}" ] || { echo "usage: $0 join <server-ip>   (e.g. ./play.sh join 159.89.132.86)"; exit 1; }
+    exec "$GODOT" --path "$DIR" -- --online "$2" --dtls ;;
   zone)
     echo "starting headless zone server…"
     "$GODOT" --headless --path "$DIR" -- --server & SRV=$!
@@ -32,5 +36,5 @@ case "${1:-local}" in
     "$GODOT" --path "$DIR" -- --online 127.0.0.1 &
     wait ;;
   *)
-    echo "usage: $0 {local|zone|server|online [ip]}"; exit 1 ;;
+    echo "usage: $0 {local|zone|server|online [ip]|join <ip>}"; exit 1 ;;
 esac
