@@ -146,7 +146,15 @@ const FORMAT_MODS := {
 		"spiker": {"dmg": 0.97}, "goalkeeper": {"dmg": 0.96}, "quarterback": {"dmg": 1.05},
 		"batter": {"dmg": 1.24}, "setter": {"dmg": 1.18},
 	},
-	5: {"batter": {"dmg": 1.12}},
+	5: {   # the live MMO format (ZONE_TEAM_SIZE). Tuned so all 8 classes sit ~47-53% in AI duels
+	       # (was a 61-point spread: spiker 78% … setter 17%). Mods apply to players AND mobs alike.
+		"spiker": {"dmg": 0.82},
+		"striker": {"dmg": 0.86},
+		"pitcher": {"dmg": 0.93},
+		"linebacker": {"dmg": 0.93},
+		"batter": {"dmg": 1.30, "hp": 1.12},
+		"setter": {"dmg": 1.18, "hp": 1.06},
+	},
 }
 
 # --- Venues (obstacles are circular rigs that block movement, shots, and LOS) ---
