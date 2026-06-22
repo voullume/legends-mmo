@@ -161,6 +161,19 @@ func inv_set_equipped_as(token: String, filter: String, val: bool) -> Dictionary
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory?" + filter, JSON.stringify({"equipped": val}), PackedStringArray(), auth)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
+# server-side: is this user registered in the admins table? (service-role read; clients can't see it)
+func is_admin_as(user_id: String) -> bool:
+	if service_key == "" or user_id == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/admins?select=user_id&user_id=eq." + user_id, "", PackedStringArray(), service_key)
+	return r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0
+
+# server-side: wipe a character's inventory (service-role; used by the admin tool)
+func clear_inventory_as(char_id: String) -> void:
+	if service_key == "":
+		return
+	await _http(HTTPClient.METHOD_DELETE, "/rest/v1/inventory?character_id=eq." + char_id, "", PackedStringArray(), service_key)
+
 func refresh_as(rtoken: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))
 	if r["code"] == 200 and r["data"] is Dictionary and r["data"].has("access_token"):

@@ -61,6 +61,17 @@ func recv_inventory_changed() -> void:
 	if client != null:
 		client.recv_inventory_changed()
 
+# admin tool: one gated command channel (the server re-checks the admin flag) + the admin notice
+@rpc("any_peer", "call_remote", "reliable")
+func admin_cmd(cmd: String, args: Dictionary) -> void:
+	if server != null:
+		server.admin_cmd(multiplayer.get_remote_sender_id(), cmd, args)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_admin(on: bool) -> void:
+	if client != null:
+		client.recv_admin(on)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

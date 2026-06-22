@@ -29,6 +29,8 @@ var _chat_idle := 0.0        # seconds since the last chat/loot line — the log
 const CHAT_FADE_AFTER := 20.0
 var _focus_id := ""          # tab-target: the chosen enemy (sticky — only Tab/Esc/death changes it)
 var _focus_marker: Node3D = null
+var _is_admin := false       # set by the server (recv_admin) only for the admin account
+var _admin_panel: Control = null
 var _inv_panel: Control
 var _inv_label: RichTextLabel
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
@@ -183,6 +185,42 @@ func _on_item_clicked(meta) -> void:
 func recv_inventory_changed() -> void:
 	if _inv_panel != null and _inv_panel.visible:
 		_load_inventory()
+
+# ---- admin tool (only the admin account ever receives recv_admin) ----
+func recv_admin(on: bool) -> void:
+	_is_admin = on
+	if on and _admin_panel == null:
+		_build_admin_panel()
+
+func _build_admin_panel() -> void:
+	_admin_panel = PanelContainer.new()
+	var vb := VBoxContainer.new()
+	_admin_panel.add_child(vb)
+	var title := Label.new()
+	title.text = "⚙ ADMIN  (F1)"
+	vb.add_child(title)
+	var cmds := [
+		["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}],
+		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
+		["God Mode", "god", {}], ["Heal", "heal", {}],
+		["→ Home", "to_home", {}], ["→ Combat", "to_combat", {}],
+		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}],
+	]
+	for c in cmds:
+		var b := Button.new()
+		b.text = str(c[0])
+		var cmd: String = str(c[1])
+		var args: Dictionary = c[2]
+		b.pressed.connect(func() -> void: _admin(cmd, args))
+		vb.add_child(b)
+	_hud.add_child(_admin_panel)
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_admin_panel.position = Vector2(vp.x - 180.0, 70.0)
+	_admin_panel.visible = false
+
+func _admin(cmd: String, args: Dictionary) -> void:
+	if _is_admin and net != null and _connected:
+		net.admin_cmd.rpc_id(1, cmd, args)
 
 func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: String) -> void:
 	print("[loot] %s [%s] +%d %s" % [item, rarity, amt, stat])
@@ -419,6 +457,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_TAB and not _chatting:
 			_cycle_focus()
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_F1 and _is_admin and _admin_panel != null:
+			_admin_panel.visible = not _admin_panel.visible
 			get_viewport().set_input_as_handled()
 			return
 	if e is InputEventMouseButton:

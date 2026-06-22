@@ -198,6 +198,12 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
+	if _session.has(pid):                             # admin powers, gated on the service-role admins table
+		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
+		_session[pid]["admin"] = is_admin
+		if is_admin and net != null:
+			net.recv_admin.rpc_id(pid, true)
+			print("[zone] %s authenticated as ADMIN" % ch.get("name", "?"))
 	print("[zone] %s (%s, lvl %d) joined as %s in '%s' — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _session[pid]["map"], _peers.size()])
 
 func reauth(pid: int, access: String) -> void:
@@ -620,6 +626,91 @@ func _recompute_player_stats(f, level: int, bonus: Dictionary) -> void:
 	f["clutchDmg"] = d["clutchDmg"]
 	f["clutchDR"] = d["clutchDR"]
 	f["hp"] = f["maxHP"] * frac
+
+# ---- admin / god-mode (gated: only sessions flagged admin via the service-role admins table) ----
+func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
+	if not _session.has(pid) or not bool(_session[pid].get("admin", false)):
+		return                                       # not an admin → ignore (authoritative gate)
+	var s = _session[pid]
+	var f = _find(s["fid"])
+	if f == null:
+		return
+	match cmd:
+		"level_up", "level_down":
+			s["level"] = clampi(int(s["level"]) + (1 if cmd == "level_up" else -1), 1, 99)
+			_recompute_player_stats(f, int(s["level"]), s.get("equip_bonus", {}))
+			f["hp"] = f["maxHP"]
+			_save_one(s, f)
+		"add_xp":
+			_award_xp(pid, int(args.get("amt", 100)))
+		"give_item":
+			_admin_give_item(pid)
+		"clear_items":
+			await supa.clear_inventory_as(s["char_id"])
+			await _apply_equipment(pid)
+			if net != null and _session.has(pid):
+				net.recv_inventory_changed.rpc_id(pid)
+		"god":
+			s["god"] = not bool(s.get("god", false))
+			if bool(s["god"]):
+				f["maxHP"] = 999999.0
+				f["hp"] = 999999.0
+				f["dmgMult"] = 50.0
+			else:
+				_recompute_player_stats(f, int(s["level"]), s.get("equip_bonus", {}))
+				f["hp"] = f["maxHP"]
+		"heal":
+			f["hp"] = f["maxHP"]
+		"to_home":
+			_relocate(f, s, World.HOME, World.HOME_SPAWN)
+		"to_combat":
+			_relocate(f, s, World.COMBAT, World.COMBAT_SPAWN)
+		"spawn_mob":
+			var mid := _spawn_fighter("linebacker", 1, Vector2(f["x"] + 100.0, f["y"]), str(s["map"]))
+			var mf = _find(mid)
+			mf["mobLevel"] = clampi(int(args.get("level", 3)), 1, 10)
+			mf["mobTier"] = "elite"
+			_scale_mob(mf)
+		"clear_mobs":
+			var w = _worlds[str(s["map"])]
+			var keep := []
+			for ff in w["fighters"]:
+				if ff["team"] == 1 and not ff.get("dummy", false):
+					_spawn_pos.erase(ff["id"])
+					_mob_engaged.erase(ff["id"])
+					_respawn.erase(ff["id"])
+				else:
+					keep.append(ff)
+			w["fighters"] = keep
+	print("[admin] %s ran '%s'" % [s["name"], cmd])
+
+func _admin_give_item(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	var rar = RARITIES[_loot_rng.next_int(RARITIES.size())]
+	var slots: Array = LOOT_SLOTS.keys()
+	var slot: String = slots[_loot_rng.next_int(slots.size())]
+	var bases: Array = LOOT_SLOTS[slot]
+	var item := {"name": str(bases[_loot_rng.next_int(bases.size())]), "rarity": str(rar["name"]), "slot": slot,
+		"bonus_stat": LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())], "bonus_amt": int(rar["mult"]) * 6}
+	var r = await supa.add_item_as(s["access"], s["char_id"], item)
+	if r.get("ok") and net != null and _session.has(pid):
+		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+
+func _relocate(f, s, to_map: String, pos: Vector2) -> void:
+	if not _worlds.has(to_map):
+		return
+	_worlds[str(f["map"])]["fighters"].erase(f)
+	f["x"] = pos.x
+	f["y"] = pos.y
+	f["map"] = to_map
+	f["arenaW"] = int(_worlds[to_map].get("arenaW", GameData.ARENA_W))
+	f["arenaH"] = int(_worlds[to_map].get("arenaH", GameData.ARENA_H))
+	_worlds[to_map]["fighters"].append(f)
+	_spawn_pos[f["id"]] = pos
+	s["map"] = to_map
+	_tp_next[f["id"]] = Time.get_ticks_msec() + TP_GRACE_MS
 
 func _find(id) -> Variant:
 	for mapname in _worlds:
