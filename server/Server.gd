@@ -73,7 +73,6 @@ var _intent_age := {}
 var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
-var _last_hurt := {}               # fighter id → ms it last took damage (out-of-combat regen timer)
 var _tp_next := {}                 # fighter id → earliest ms it may use a portal (grace after teleport/spawn)
 var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
 var _equipping := {}               # peer ids with an equip() toggle in flight (race guard)
@@ -258,7 +257,6 @@ func _remove_fighter(fid: String) -> void:
 	_spawn_pos.erase(fid)
 	_respawn.erase(fid)
 	_tp_next.erase(fid)
-	_last_hurt.erase(fid)
 
 func _session_by_fid(fid: String) -> Variant:
 	for pid in _session:
@@ -329,20 +327,18 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		if not f["alive"] and not _respawn.has(f["id"]):
 			_respawn[f["id"]] = 0.0 if f.get("dummy", false) else RESPAWN_DELAY
 
-# heal living players toward max HP; fast on safe maps, slow + delayed-after-damage on combat maps
+# heal living players toward max HP; fast on safe maps, slow + delayed-after-damage on combat maps.
+# Gate on the engine's noDmgT (seconds since the last hit) — it resets on ANY hit, even one fully
+# absorbed by a shield/DR, so a shielded-but-attacked player doesn't regen "out of combat".
 func _apply_regen(w: Dictionary) -> void:
 	var rate := float(w.get("regen", 0.0))
 	if rate <= 0.0:
 		return
-	var now := Time.get_ticks_msec()
-	for ev in w["events"]:                        # any fighter hit this tick resets its regen timer
-		if ev.get("type") == "dmg":
-			_last_hurt[ev.get("tgt", "")] = now
-	var delay_ms := int(float(w.get("regenDelay", 0.0)) * 1000.0)
+	var delay := float(w.get("regenDelay", 0.0))
 	for f in w["fighters"]:
 		if f["team"] != 0 or not f["alive"] or f["hp"] >= f["maxHP"]:
 			continue
-		if now - int(_last_hurt.get(f["id"], 0)) >= delay_ms:
+		if float(f.get("noDmgT", 0.0)) >= delay:
 			f["hp"] = minf(f["maxHP"], f["hp"] + f["maxHP"] * rate * SIM_DT)
 
 func _advance_respawns(dt: float) -> void:
