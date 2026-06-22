@@ -494,7 +494,7 @@ func _grant_loot(pid: int, mob) -> void:
 func _roll_loot(mob) -> Dictionary:
 	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"
 	var lvl := int(mob.get("mobLevel", 1))
-	var chance := 1.0 if elite else 0.45
+	var chance := 1.0 if elite else 0.65
 	if _loot_rng.next() > chance:
 		return {}
 	var rar := _roll_rarity(elite)
