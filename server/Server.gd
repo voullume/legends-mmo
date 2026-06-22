@@ -1,25 +1,25 @@
 extends Node
-## SHARED ZONE SERVER (Phase 4 + 5). One persistent, server-authoritative overworld that several
-## accounts' characters share. A joining client authenticates with its Supabase access token; the
-## server loads that account's character (class, position, level, xp) and spawns it.
+## SHARED ZONE SERVER (Phase 4 + 5). Persistent, server-authoritative overworld for several accounts.
+## TWO worlds run side by side (see shared/World.gd):
+##   home   — a safe base: roam freely + a passive training dummy that instantly respawns.
+##   combat — aggressive mobs, XP, and loot. A portal pad in each world teleports you to the other.
+## Each world is an independent sim in the same 960×540 arena space; players only see/affect their own.
 ##
 ## - Players are team 0 (they coexist — abilities target enemies, so they don't hit each other).
-## - Mobs are team 1 with aggro/leash (Phase 5): they engage players who enter their camp and
-##   reset to spawn when the camp empties. Killing a mob grants XP; XP levels you up (+max HP),
-##   and level/xp/position persist to the account.
-## - Per-client snapshots are interest-managed (only entities near the client's fighter).
+## - Mobs are team 1 with aggro/leash; killing one grants XP + a loot roll. Progression persists.
+## - Per-client snapshots are interest-managed (only entities near the client's fighter, in its world).
 ##
-## SECURITY NOTE: pass --dtls (on the server AND clients) to encrypt the ENet transport; without
-## it the link is plaintext. Only the short-lived access token crosses the wire (the refresh token
-## stays on the client, re-issued via reauth). DTLS here encrypts but does not verify the server
-## identity (no MITM protection yet), so prefer a VPN or a host you control.
-## Inventory is server-authoritative: the server writes the inventory table with the service_role
-## key (SUPABASE_SERVICE_KEY env var) — clients are denied direct writes, so items can't be forged.
+## SECURITY NOTE: pass --dtls (server AND clients) to encrypt the ENet transport; without it it's
+## plaintext. Only the short-lived access token crosses the wire (the refresh token stays on the
+## client). DTLS encrypts but doesn't verify server identity — prefer a VPN or a host you control.
+## Inventory is server-authoritative: the server writes the inventory table with the service_role key
+## (SUPABASE_SERVICE_KEY env var) — clients are denied direct writes, so items can't be forged.
 
 const Sim := preload("res://shared/Sim.gd")
 const GameData := preload("res://shared/GameData.gd")
 const Geom := preload("res://shared/Geom.gd")
 const Rng := preload("res://shared/Rng.gd")
+const World := preload("res://shared/World.gd")
 
 const PORT := 7777
 const MAP_ID := "stadium"
@@ -40,14 +40,8 @@ const MOB_ELITE_HP := 2.2
 const MOB_ELITE_DMG := 1.6
 const MOB_ELITE_XP := 4
 const LEVEL_HP := 60.0                # bonus max HP per player level
-# Camps form a difficulty gradient from the player's start (left) toward the elite (right).
-const MOBS := [
-	{"class": "setter", "level": 1, "tier": "minion", "x": 400.0, "y": 175.0},
-	{"class": "spiker", "level": 1, "tier": "minion", "x": 400.0, "y": 365.0},
-	{"class": "striker", "level": 2, "tier": "minion", "x": 620.0, "y": 200.0},
-	{"class": "batter", "level": 2, "tier": "minion", "x": 620.0, "y": 340.0},
-	{"class": "linebacker", "level": 3, "tier": "elite", "x": 830.0, "y": 270.0},
-]
+const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob scaling)
+const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity to re-triggering a pad
 
 # --- loot ---
 const LOOT_SLOTS := {
@@ -68,10 +62,10 @@ var net: Node = null
 var supa: Node = null
 var _loot_rng = null
 
-var _state: Dictionary = {}
+var _worlds: Dictionary = {}        # map name → independent sim state
 var _peers: Array = []
 var _authing := {}
-var _session := {}                  # peer id → {fid, access, char_id, name, xp, level}
+var _session := {}                  # peer id → {fid, access, char_id, name, xp, level, map}
 var _move := {}
 var _pending_ability := {}
 var _last_aseq := {}
@@ -79,6 +73,7 @@ var _intent_age := {}
 var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
+var _tp_next := {}                 # fighter id → earliest ms it may use a portal (grace after teleport/spawn)
 var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
 var _equipping := {}               # peer ids with an equip() toggle in flight (race guard)
 var _equip_next := {}              # peer id → earliest ms it may equip again (rate limit)
@@ -112,16 +107,29 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	# vary loot per launch with process-unique, high-res entropy (no same-second seed collisions)
 	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ Time.get_ticks_usec() ^ (OS.get_process_id() << 13))
 	Engine.max_fps = 60
-	_state = Sim.create_match([], [], SEED, MAP_ID)
-	_state["zone"] = true                        # persistent: no match-end / no overtime ramp
-	for m in MOBS:
-		var fid := _spawn_fighter(m["class"], 1, Vector2(m["x"], m["y"]))
+	_worlds[World.HOME] = _new_world()
+	_worlds[World.COMBAT] = _new_world()
+	# home: a single passive training dummy
+	var did := _spawn_fighter(World.DUMMY_CLASS, 1, World.DUMMY_POS, World.HOME)
+	var dummy = _find(did)
+	if dummy != null:
+		dummy["dummy"] = true
+		dummy["maxHP"] = DUMMY_HP
+		dummy["hp"] = DUMMY_HP
+	# combat: the mob gradient
+	for m in World.MOBS:
+		var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), World.COMBAT)
 		var f = _find(fid)
 		f["mobLevel"] = int(m["level"])
 		f["mobTier"] = str(m["tier"])
 		_scale_mob(f)
-	print("[zone] online on UDP %d  (map=%s, %d mobs%s)" % [port, MAP_ID, MOBS.size(), "  · DTLS" if use_dtls else ""])
+	print("[zone] online on UDP %d  (home + combat worlds, %d mobs%s)" % [port, World.MOBS.size(), "  · DTLS" if use_dtls else ""])
 	return true
+
+func _new_world() -> Dictionary:
+	var w: Dictionary = Sim.create_match([], [], SEED, MAP_ID)
+	w["zone"] = true                             # persistent: no match-end / no overtime ramp
+	return w
 
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
@@ -160,16 +168,18 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	var ch = res["character"]
 	var lvl := int(ch.get("level", 1))
 	var fid := _spawn_player(ch, lvl)
+	var pf = _find(fid)
 	_peers.append(pid)
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
-		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl}
+		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
+		"map": str(pf["map"]) if pf != null else World.HOME}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
-	print("[zone] %s (%s, lvl %d) joined as %s — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _peers.size()])
+	print("[zone] %s (%s, lvl %d) joined as %s in '%s' — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _session[pid]["map"], _peers.size()])
 
 func reauth(pid: int, access: String) -> void:
 	if _session.has(pid) and access != "":
@@ -197,17 +207,24 @@ func _spawn_player(ch, level: int) -> String:
 	var cls: String = str(ch.get("class", "striker"))
 	if not GameData.CLASSES.has(cls):
 		cls = "striker"
-	var pos := Vector2(float(ch.get("last_x", 480.0)), float(ch.get("last_y", 270.0)))
-	var fid := _spawn_fighter(cls, 0, pos)
+	var map: String = str(ch.get("last_map", World.HOME))
+	if not _worlds.has(map):
+		map = World.HOME
+	var pos: Vector2 = World.HOME_SPAWN           # home is a hub: always spawn at the safe pad-free point
+	if map == World.COMBAT:                        # in combat, resume where you logged out
+		pos = Vector2(float(ch.get("last_x", World.COMBAT_SPAWN.x)), float(ch.get("last_y", World.COMBAT_SPAWN.y)))
+	var fid := _spawn_fighter(cls, 0, pos, map)
 	var f = _find(fid)
 	if f != null:
 		f["maxHP"] += (level - 1) * LEVEL_HP       # progression: bonus HP per level
 		f["hp"] = f["maxHP"]
+		_tp_next[fid] = Time.get_ticks_msec() + TP_GRACE_MS   # don't instantly portal on spawn near a pad
 	return fid
 
-func _spawn_fighter(cls: String, team: int, pos: Vector2) -> String:
+func _spawn_fighter(cls: String, team: int, pos: Vector2, map: String) -> String:
+	var w = _worlds[map]
 	var slot := 0
-	for f in _state["fighters"]:
+	for f in w["fighters"]:
 		if f["team"] == team:
 			slot += 1
 	_fseq += 1
@@ -215,19 +232,23 @@ func _spawn_fighter(cls: String, team: int, pos: Vector2) -> String:
 	f["id"] = ("p" if team == 0 else "m") + str(_fseq)
 	f["x"] = pos.x
 	f["y"] = pos.y
+	f["map"] = map
 	Geom.clamp_arena(f)
-	_state["fighters"].append(f)
+	w["fighters"].append(f)
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])
 	return f["id"]
 
 func _remove_fighter(fid: String) -> void:
-	var keep := []
-	for f in _state["fighters"]:
-		if f["id"] != fid:
-			keep.append(f)
-	_state["fighters"] = keep
+	for mapname in _worlds:
+		var w = _worlds[mapname]
+		var keep := []
+		for f in w["fighters"]:
+			if f["id"] != fid:
+				keep.append(f)
+		w["fighters"] = keep
 	_spawn_pos.erase(fid)
 	_respawn.erase(fid)
+	_tp_next.erase(fid)
 
 func _session_by_fid(fid: String) -> Variant:
 	for pid in _session:
@@ -254,27 +275,15 @@ func submit_ability(pid: int, key, seq) -> void:
 
 # ---- authoritative tick ----
 func _physics_process(delta: float) -> void:
-	if _state.is_empty():
+	if _worlds.is_empty():
 		return
 	_acc += delta
 	var steps := 0
 	while _acc >= SIM_DT and steps < 5:
-		_update_mob_ai()                          # aggro / leash before the sim resolves actions
-		_state["winner"] = null
-		_state["controlled"] = {}
-		for pid in _peers:
-			var fid: String = _session[pid]["fid"]
-			_intent_age[pid] = int(_intent_age.get(pid, 0)) + 1
-			var mv = _move.get(pid, {"mx": 0.0, "my": 0.0})
-			var mx: float = mv["mx"]
-			var my: float = mv["my"]
-			if _intent_age[pid] > STALE_INTENT_TICKS:
-				mx = 0.0
-				my = 0.0
-			_state["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, "")}
-			_pending_ability[pid] = ""
-		Sim.sim_tick(_state, SIM_DT)
-		_tick_respawns(SIM_DT)
+		for mapname in _worlds:
+			_tick_world(_worlds[mapname], mapname)
+		_advance_respawns(SIM_DT)                 # respawn countdown runs once per tick (not per world)
+		_check_portals()                          # move players between worlds after the sims resolve
 		_acc -= SIM_DT
 		steps += 1
 	if steps == 5:
@@ -287,11 +296,75 @@ func _physics_process(delta: float) -> void:
 		_award_kills()                            # grant XP for mob kills before events are cleared
 		_broadcast()
 
-# mob behaviour: engage players near the camp; otherwise hold/reset home (frozen via the seam)
-func _update_mob_ai() -> void:
+func _tick_world(w: Dictionary, mapname: String) -> void:
+	_update_mob_ai(w)                             # aggro / leash before the sim resolves actions
+	w["winner"] = null
+	w["controlled"] = {}
+	for pid in _peers:
+		if str(_session[pid].get("map", World.HOME)) != mapname:
+			continue
+		var fid: String = _session[pid]["fid"]
+		_intent_age[pid] = int(_intent_age.get(pid, 0)) + 1
+		var mv = _move.get(pid, {"mx": 0.0, "my": 0.0})
+		var mx: float = mv["mx"]
+		var my: float = mv["my"]
+		if _intent_age[pid] > STALE_INTENT_TICKS:
+			mx = 0.0
+			my = 0.0
+		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, "")}
+		_pending_ability[pid] = ""
+	Sim.sim_tick(w, SIM_DT)
+	for f in w["fighters"]:                       # queue the dead for respawn (instant for the dummy)
+		if not f["alive"] and not _respawn.has(f["id"]):
+			_respawn[f["id"]] = 0.0 if f.get("dummy", false) else RESPAWN_DELAY
+
+func _advance_respawns(dt: float) -> void:
+	var done := []
+	for id in _respawn:
+		_respawn[id] -= dt
+		if _respawn[id] <= 0.0:
+			done.append(id)
+	for id in done:
+		_respawn.erase(id)
+		_revive(_find(id))
+
+# step into a portal pad → move the player's fighter to the other world at the pad's destination
+func _check_portals() -> void:
+	var now := Time.get_ticks_msec()
+	for pid in _peers:
+		var s = _session[pid]
+		var f = _find(s["fid"])
+		if f == null or not f["alive"] or now < int(_tp_next.get(f["id"], 0)):
+			continue
+		for portal in World.PORTALS.get(s["map"], []):
+			if Vector2(f["x"] - float(portal["x"]), f["y"] - float(portal["y"])).length() <= World.PORTAL_RADIUS:
+				_portal_teleport(f, s, portal)
+				_tp_next[f["id"]] = now + TP_GRACE_MS
+				break
+
+func _portal_teleport(f, s, portal) -> void:
+	var from_map: String = str(f["map"])
+	var to_map: String = str(portal["to"])
+	if not _worlds.has(to_map):
+		return
+	_worlds[from_map]["fighters"].erase(f)
+	f["x"] = float(portal["tx"])
+	f["y"] = float(portal["ty"])
+	f["map"] = to_map
+	_worlds[to_map]["fighters"].append(f)
+	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])    # respawn at the arrival point in the new world
+	s["map"] = to_map
+	print("[zone] %s → %s" % [s["name"], to_map])
+
+# mob behaviour: engage players near the camp; otherwise hold/reset home (frozen via the seam).
+# the training dummy is always frozen — it never moves or attacks (just takes hits).
+func _update_mob_ai(w: Dictionary) -> void:
 	var frozen := {}
-	for f in _state["fighters"]:
+	for f in w["fighters"]:
 		if f["team"] != 1:
+			continue
+		if f.get("dummy", false):
+			frozen[f["id"]] = true
 			continue
 		var here := Vector2(f["x"], f["y"])
 		var spawn: Vector2 = _spawn_pos.get(f["id"], here)
@@ -299,7 +372,7 @@ func _update_mob_ai() -> void:
 		var radius: float = LEASH_RANGE if was else AGGRO_RANGE   # hysteresis: harder to drop than to start
 		var engaged := false
 		if (here - spawn).length() <= MAX_LEASH:                 # stays tethered to its camp
-			for p in _state["fighters"]:
+			for p in w["fighters"]:
 				if p["team"] == 0 and p["alive"] and (Vector2(p["x"], p["y"]) - here).length() < radius:
 					engaged = true
 					break
@@ -310,20 +383,21 @@ func _update_mob_ai() -> void:
 			f["y"] = spawn.y
 			if was:                                             # heal to full only on the engage→disengage edge
 				f["hp"] = f["maxHP"]
-	_state["frozenIds"] = frozen
+	w["frozenIds"] = frozen
 
 func _award_kills() -> void:
-	for ev in _state["events"]:
-		if ev.get("type") != "kill":
-			continue
-		var victim = _find(ev["victim"])
-		if victim == null or victim["team"] != 1:    # only mob kills grant XP
-			continue
-		for pid in _peers:
-			if _session[pid]["fid"] == ev["killer"]:
-				_award_xp(pid, _mob_xp(victim))
-				_grant_loot(pid, victim)
-				break
+	for mapname in _worlds:
+		for ev in _worlds[mapname]["events"]:
+			if ev.get("type") != "kill":
+				continue
+			var victim = _find(ev["victim"])
+			if victim == null or victim["team"] != 1 or victim.get("dummy", false):  # mobs only, not the dummy
+				continue
+			for pid in _peers:
+				if _session[pid]["fid"] == ev["killer"]:
+					_award_xp(pid, _mob_xp(victim))
+					_grant_loot(pid, victim)
+					break
 
 func _award_xp(pid: int, amt: int) -> void:
 	if not _session.has(pid):
@@ -340,36 +414,26 @@ func _award_xp(pid: int, amt: int) -> void:
 	_save_one(s, _find(s["fid"]))                # persist xp/level on every kill (durable progression)
 	print("[zone] %s +%d xp → lvl %d (%d/%d)" % [s["name"], amt, s["level"], s["xp"], _xp_to_next(int(s["level"]))])
 
-func _tick_respawns(dt: float) -> void:
-	for f in _state["fighters"]:
-		if not f["alive"] and not _respawn.has(f["id"]):
-			_respawn[f["id"]] = RESPAWN_DELAY
-	var done := []
-	for id in _respawn:
-		_respawn[id] -= dt
-		if _respawn[id] <= 0.0:
-			done.append(id)
-	for id in done:
-		_respawn.erase(id)
-		_revive(_find(id))
-
 func _revive(f) -> void:
 	if f == null:
 		return
 	var orig_id = f["id"]
 	var fresh := GameData.create_fighter(f["classId"], f["team"], f["slot"], Rng.new(SEED + _fseq), ZONE_TEAM_SIZE)
 	_fseq += 1
-	for k in fresh:
+	for k in fresh:                               # custom fields (map/dummy/mobLevel/mobTier) aren't in fresh → preserved
 		f[k] = fresh[k]
 	f["id"] = orig_id
 	var sp = _spawn_pos.get(orig_id, Vector2(f["x"], f["y"]))
 	f["x"] = sp.x
 	f["y"] = sp.y
-	if f["team"] == 0:                            # re-derive from base stats + level + equipped gear
+	if f.get("dummy", false):                     # training dummy: fixed HP, no scaling
+		f["maxHP"] = DUMMY_HP
+		f["hp"] = DUMMY_HP
+	elif f["team"] == 0:                          # re-derive from base stats + level + equipped gear
 		var s = _session_by_fid(orig_id)
 		if s != null:
 			_recompute_player_stats(f, int(s["level"]), s.get("equip_bonus", {}))
-	elif f["team"] == 1:                          # re-apply mob level/tier scaling (mobLevel/Tier survive the copy)
+	elif f["team"] == 1:                          # re-apply mob level/tier scaling
 		_scale_mob(f)
 
 func _scale_mob(f) -> void:
@@ -519,9 +583,10 @@ func _recompute_player_stats(f, level: int, bonus: Dictionary) -> void:
 	f["hp"] = f["maxHP"] * frac
 
 func _find(id) -> Variant:
-	for f in _state["fighters"]:
-		if f["id"] == id:
-			return f
+	for mapname in _worlds:
+		for f in _worlds[mapname]["fighters"]:
+			if f["id"] == id:
+				return f
 	return null
 
 # ---- persistence ----
@@ -534,36 +599,42 @@ func _save_one(session: Dictionary, f) -> void:
 	if supa == null:
 		return
 	# xp/level are always valid (they live on the session) — persist them even for a corpse.
-	# Position is only persisted when alive (never write a dead fighter's death-spot).
+	# Position + map are only persisted when alive (never write a dead fighter's death-spot).
 	var fields := {"xp": int(session["xp"]), "level": int(session["level"])}
 	if f != null and f["alive"]:
 		fields["last_x"] = f["x"]
 		fields["last_y"] = f["y"]
-		fields["last_map"] = MAP_ID
+		fields["last_map"] = str(session.get("map", World.HOME))
 	await supa.save_character_as(session["access"], session["char_id"], fields)
 
-# ---- interest-managed snapshots ----
+# ---- interest-managed snapshots (per world) ----
 func _broadcast() -> void:
 	var pinfo := {}
 	for pid in _peers:
 		var s = _session[pid]
 		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"]))}
 	for pid in _peers:
-		var f = _find(_session[pid]["fid"])
-		if f == null:
+		var s = _session[pid]
+		var f = _find(s["fid"])
+		if f == null or not _worlds.has(s["map"]):
 			continue
-		net.receive_snapshot.rpc_id(pid, _snapshot_for(Vector2(f["x"], f["y"]), pinfo))
-	_state["events"].clear()
+		net.receive_snapshot.rpc_id(pid, _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo))
+	for mapname in _worlds:
+		_worlds[mapname]["events"].clear()
 	_snap_count += 1
-	if _snap_count % 60 == 0:
-		var hps := []
-		for f in _state["fighters"]:
-			hps.append("%s=%d/%d%s" % [f["id"], int(f["hp"]), int(f["maxHP"]), ("" if f["alive"] else "(dead)")])
-		print("[zone] t=%.1f  %s" % [_state["t"], hps])
+	if _snap_count % 300 == 0:                    # concise heartbeat every ~10s
+		var counts := []
+		for mapname in _worlds:
+			var np := 0
+			for f in _worlds[mapname]["fighters"]:
+				if f["team"] == 0:
+					np += 1
+			counts.append("%s:%dp" % [mapname, np])
+		print("[zone] t=%.0f  %s" % [_worlds[World.COMBAT]["t"], " ".join(counts)])
 
-func _snapshot_for(center: Vector2, pinfo: Dictionary) -> Dictionary:
+func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dictionary) -> Dictionary:
 	var fs := []
-	for f in _state["fighters"]:
+	for f in w["fighters"]:
 		if Vector2(f["x"] - center.x, f["y"] - center.y).length() <= INTEREST_RADIUS:
 			var d := {
 				"id": f["id"], "classId": f["classId"], "team": f["team"],
@@ -578,9 +649,12 @@ func _snapshot_for(center: Vector2, pinfo: Dictionary) -> Dictionary:
 			if f["team"] == 1:
 				d["mobLevel"] = int(f.get("mobLevel", 1))
 				d["mobTier"] = str(f.get("mobTier", "minion"))
+				if f.get("dummy", false):
+					d["dummy"] = true
 			fs.append(d)
 	var ps := []
-	for p in _state["projectiles"]:
+	for p in w["projectiles"]:
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
 			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
-	return {"fighters": fs, "projectiles": ps, "events": _state["events"].duplicate(true), "t": _state["t"]}
+	return {"fighters": fs, "projectiles": ps, "events": w["events"].duplicate(true), "t": w["t"],
+		"map": mapname, "portals": World.portals_for(mapname)}

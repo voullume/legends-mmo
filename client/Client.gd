@@ -13,6 +13,7 @@ extends Node
 const GameData := preload("res://shared/GameData.gd")
 const Sim := preload("res://shared/Sim.gd")
 const Geom := preload("res://shared/Geom.gd")
+const World := preload("res://shared/World.gd")
 const PlayerCtl := preload("res://client/Player.gd")
 
 # --- world scale / look ---
@@ -68,6 +69,8 @@ var _quitting := false
 
 var _world_root: Node3D
 var _fx_root: Node3D
+var _portal_root: Node3D = null            # portal pad visuals (rebuilt when the world's portals change)
+var _portals_sig := ""
 var _proj_pool := []
 var _fx_active := []                       # {node, t, life, vel}
 var _num_pool := []
@@ -431,7 +434,55 @@ func _render_world(delta: float) -> void:
 		_update_ui(n, f)
 		n["pflash"] = f["flash"]
 
+	_render_portals()
 	_update_hud()
+
+# Draw the current world's portal pads (sent in the snapshot). Rebuilt only when they change
+# (i.e. when you cross into the other world), so it's cheap.
+func _render_portals() -> void:
+	var portals: Array = _state.get("portals", [])
+	var sig := JSON.stringify(portals)
+	if sig == _portals_sig:
+		return
+	_portals_sig = sig
+	if _portal_root != null:
+		_portal_root.queue_free()
+		_portal_root = null
+	if portals.is_empty() or _world_root == null:
+		return
+	_portal_root = Node3D.new()
+	_world_root.add_child(_portal_root)
+	for p in portals:
+		var pos := Vector3((float(p["x"]) - GameData.ARENA_W / 2.0) * SCALE, 0.0, (float(p["y"]) - GameData.ARENA_H / 2.0) * SCALE)
+		var pillar := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = World.PORTAL_RADIUS * SCALE
+		cyl.bottom_radius = World.PORTAL_RADIUS * SCALE
+		cyl.height = 3.0
+		pillar.mesh = cyl
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.35, 0.8, 1.0, 0.32)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.emission_enabled = true
+		mat.emission = Color(0.4, 0.85, 1.0)
+		mat.emission_energy_multiplier = 1.6
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		pillar.material_override = mat
+		pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		pillar.position = pos + Vector3(0.0, 1.5, 0.0)
+		_portal_root.add_child(pillar)
+		var lbl := Label3D.new()
+		lbl.text = str(p.get("label", "Portal"))
+		lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		lbl.no_depth_test = true
+		lbl.fixed_size = true
+		lbl.pixel_size = 0.0016
+		lbl.font_size = 52
+		lbl.outline_size = 16
+		lbl.outline_modulate = Color(0, 0, 0, 0.9)
+		lbl.modulate = Color(0.65, 0.92, 1.0)
+		lbl.position = pos + Vector3(0.0, 3.7, 0.0)
+		_portal_root.add_child(lbl)
 
 func _handle_events() -> void:
 	for ev in _state["events"]:
@@ -587,7 +638,10 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	fill.position.x = -BAR_W / 2.0 * (1.0 - frac)
 	(fill.material_override as StandardMaterial3D).albedo_color = (Color(0.9, 0.3, 0.3) if frac < 0.35 else Color(0.3, 0.85, 0.4))
 	var label: Label3D = n["label"]
-	if f.has("mobTier"):
+	if f.get("dummy", false):
+		label.text = "Training Dummy"
+		label.modulate = Color(0.72, 0.74, 0.8)
+	elif f.has("mobTier"):
 		var elite: bool = str(f["mobTier"]) == "elite"
 		label.text = "Lv %d%s" % [int(f.get("mobLevel", 1)), ("  ★ ELITE" if elite else "")]
 		label.modulate = Color(1.0, 0.55, 0.4) if elite else Color(0.92, 0.82, 0.6)
