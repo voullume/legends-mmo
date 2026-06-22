@@ -284,7 +284,7 @@ func submit_intent(pid: int, mv: Dictionary) -> void:
 	var v := Vector2(clampf(float(mv.get("mx", 0.0)), -1.0, 1.0), clampf(float(mv.get("my", 0.0)), -1.0, 1.0))
 	if v.length() > 1.0:
 		v = v.normalized()
-	_move[pid] = {"mx": v.x, "my": v.y}
+	_move[pid] = {"mx": v.x, "my": v.y, "target": str(mv.get("target", ""))}
 	_intent_age[pid] = 0
 
 func submit_ability(pid: int, key, seq) -> void:
@@ -332,7 +332,7 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		if _intent_age[pid] > STALE_INTENT_TICKS:
 			mx = 0.0
 			my = 0.0
-		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, "")}
+		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, ""), "target": str(mv.get("target", ""))}
 		_pending_ability[pid] = ""
 	Sim.sim_tick(w, SIM_DT)
 	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)

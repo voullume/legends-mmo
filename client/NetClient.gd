@@ -27,6 +27,8 @@ var _chat_input: LineEdit
 var _chat_lines := []
 var _chat_idle := 0.0        # seconds since the last chat/loot line — the log fades out after CHAT_FADE_AFTER
 const CHAT_FADE_AFTER := 20.0
+var _focus_id := ""          # tab-target: the chosen enemy (sticky — only Tab/Esc/death changes it)
+var _focus_marker: Node3D = null
 var _inv_panel: Control
 var _inv_label: RichTextLabel
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
@@ -238,11 +240,73 @@ func _physics_process(_delta: float) -> void:
 		_player.intent["ability"] = ""
 
 func _send_movement() -> void:
-	var mv := {"mx": _player.intent["mx"], "my": _player.intent["my"]}
+	var mv := {"mx": _player.intent["mx"], "my": _player.intent["my"], "target": _focus_id}
 	if server != null:
 		server.submit_intent_local(1, mv)
 	elif net != null and _connected:
 		net.submit_intent.rpc_id(1, mv)
+
+# Tab-target: sticky cycle through alive enemies, nearest-first. Holds the chosen target until Tab
+# (next), Esc (clear), or it dies/leaves (cleared in _update_focus).
+func _cycle_focus() -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null:
+		return
+	var enemies := []
+	for f in _state.get("fighters", []):
+		if int(f.get("team", 0)) != int(pf.get("team", 0)) and bool(f.get("alive", true)):
+			enemies.append(f)
+	if enemies.is_empty():
+		_focus_id = ""
+		return
+	var px: float = float(pf["x"])
+	var py: float = float(pf["y"])
+	enemies.sort_custom(func(a, b): return Vector2(float(a["x"]) - px, float(a["y"]) - py).length_squared() < Vector2(float(b["x"]) - px, float(b["y"]) - py).length_squared())
+	var cur := -1
+	for i in enemies.size():
+		if str(enemies[i]["id"]) == _focus_id:
+			cur = i
+			break
+	var nxt: int = ((cur + 1) % enemies.size()) if cur >= 0 else 0
+	_focus_id = str(enemies[nxt]["id"])
+
+# clear a dead/gone focus, and draw the ring marker on the current target
+func _update_focus() -> void:
+	if _focus_id != "":
+		var ft = _find_fighter(_focus_id)
+		if ft == null or not bool(ft.get("alive", true)):
+			_focus_id = ""
+	if _focus_marker == null:
+		_focus_marker = _make_focus_marker()
+	if _focus_marker == null:
+		return
+	var t = _find_fighter(_focus_id) if _focus_id != "" else null
+	if t != null:
+		_focus_marker.visible = true
+		_focus_marker.position = _world(t) + Vector3(0.0, 0.08, 0.0)
+	else:
+		_focus_marker.visible = false
+
+func _make_focus_marker() -> Node3D:
+	if _world_root == null:
+		return null
+	var m := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.55
+	torus.outer_radius = 0.80
+	m.mesh = torus
+	m.rotation_degrees.x = 90.0                  # lay the ring flat on the ground
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.42, 0.32)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.42, 0.32)
+	mat.emission_energy_multiplier = 2.2
+	m.material_override = mat
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	m.visible = false
+	_world_root.add_child(m)
+	return m
 
 func _send_ability(key: String) -> void:
 	_aseq += 1
@@ -263,6 +327,7 @@ func _process(delta: float) -> void:
 		return
 	_sync_nodes_to_state()
 	_render_world(delta)
+	_update_focus()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -344,8 +409,16 @@ func _unhandled_input(e: InputEvent) -> void:
 				_inv_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _focus_id != "":              # clear the tab-target
+				_focus_id = ""
+				get_viewport().set_input_as_handled()
+				return
 		elif e.keycode == KEY_I and not _chatting:
 			_toggle_inventory()
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_TAB and not _chatting:
+			_cycle_focus()
 			get_viewport().set_input_as_handled()
 			return
 	if e is InputEventMouseButton:

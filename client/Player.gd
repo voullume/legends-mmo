@@ -53,6 +53,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			KEY_3: idx = 2
 			KEY_4: idx = 3
 			KEY_5: idx = 4
+			KEY_6: idx = 5
+			KEY_7: idx = 6
+			KEY_8: idx = 7
 		if idx >= 0 and idx < keys.size():
 			intent["ability"] = keys[idx]
 	elif e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:

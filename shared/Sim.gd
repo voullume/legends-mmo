@@ -557,7 +557,15 @@ static func _player_step(state, f, intent, dt) -> void:
 				"dash":
 					_player_dash(state, f, ab, mvx, mvy)
 				_:
-					var tgt = _nearest_enemy(state, f)
+					# tab-target: hit the player's chosen focus if it's a valid enemy, else auto-nearest
+					var tgt = null
+					var tid: String = str(intent.get("target", ""))
+					if tid != "":
+						var ft = _find_alive(state, tid)
+						if ft != null and ft["team"] != f["team"]:
+							tgt = ft
+					if tgt == null:
+						tgt = _nearest_enemy(state, f)
 					if tgt != null:
 						Abilities.try_cast(state, f, ab, tgt)
 		intent["ability"] = ""

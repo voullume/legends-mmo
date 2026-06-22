@@ -893,7 +893,7 @@ func _update_hud() -> void:
 	var alive_txt := "[color=#ff6b6b](respawning…)[/color]" if not pf["alive"] else ""
 	var bots_txt := "[color=#7fd4ff][b]BOTS PAUSED[/b] — press P to engage[/color]" if _bots_frozen else "[color=#ff8a8a][b]BOTS ACTIVE[/b] — press P to pause[/color]"
 	var title: String = ("%s the %s" % [char_name, c["name"]]) if char_name != "" else c["name"]
-	var controls := "WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom · [b]P[/b] pause bots · [b]R[/b] reset"
+	var controls := "WASD move · 1-8 abilities · LMB basic · [b]Tab[/b] target · RMB-drag camera · wheel zoom · [b]P[/b] pause bots · [b]R[/b] reset"
 	if not class_locked:
 		controls += " · [b]C[/b] class"
 	var save_txt := ("   [color=#7fd4ff]%s[/color]" % _save_note) if _save_note != "" else ""
