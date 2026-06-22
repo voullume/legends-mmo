@@ -25,10 +25,14 @@ RUN wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERS
     && rm /tmp/godot.zip
 
 WORKDIR /app
-COPY . /app
-
-# The project ships without import metadata — import assets once at build time.
+# Heavy, rarely-changing assets FIRST so the slow import below stays in Docker's layer cache:
+# a code-only update doesn't touch models/, so this layer is reused and the import is skipped.
+COPY project.godot ./
+COPY models/ ./models/
 RUN godot --headless --path /app --import 2>&1 | tail -3 || true
+
+# The code (changes often) — copied after the import so editing it doesn't re-run the import.
+COPY . /app
 
 ENV PORT=7777
 EXPOSE 7777/udp
