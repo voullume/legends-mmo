@@ -696,16 +696,21 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if e is InputEventMouseButton:
-		if e.button_index == MOUSE_BUTTON_LEFT and e.pressed and not _chatting and _try_invite_click():
-			get_viewport().set_input_as_handled()   # clicked a player → invite, don't also swing
-			return
 		if e.button_index == MOUSE_BUTTON_RIGHT:
-			_dragging = e.pressed
+			if e.pressed:
+				_dragging = true
+				_rmb_moved = false
+			else:
+				_dragging = false
+				if not _rmb_moved and not _chatting:
+					_try_invite_click()             # a right-CLICK (no drag) on a player → invite popup
 		elif e.button_index == MOUSE_BUTTON_WHEEL_UP and e.pressed:
 			_dist = clampf(_dist / ZOOM_STEP, DIST_MIN, DIST_MAX)
 		elif e.button_index == MOUSE_BUTTON_WHEEL_DOWN and e.pressed:
 			_dist = clampf(_dist * ZOOM_STEP, DIST_MIN, DIST_MAX)
 	elif e is InputEventMouseMotion and _dragging:
+		if e.relative.length() > 2.0:               # any real drag = camera, not an invite click
+			_rmb_moved = true
 		_yaw -= e.relative.x * ORBIT_SENS
 		_pitch = clampf(_pitch + e.relative.y * ORBIT_SENS, PITCH_MIN, PITCH_MAX)
 
@@ -726,7 +731,7 @@ func _update_hud() -> void:
 	var lvl := int(pf.get("level", 1))
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic (click a player to invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/click frame = ally heal · RMB camera[/color]" % [
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally[/color]" % [
 		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)

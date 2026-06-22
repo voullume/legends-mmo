@@ -86,6 +86,7 @@ var _yaw := 0.0
 var _pitch := 1.12             # high, MMO-style overhead angle by default
 var _dist := 26.0
 var _dragging := false
+var _rmb_moved := false       # distinguishes a right-CLICK (invite) from a right-drag (camera)
 var _acc := 0.0
 var _bots_frozen := true        # start paused so the player can feel out controls unrushed
 

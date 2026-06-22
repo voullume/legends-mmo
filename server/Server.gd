@@ -171,6 +171,7 @@ func _on_peer_disconnected(pid: int) -> void:
 	_chat_next.erase(pid)
 	_equipping.erase(pid)
 	_equip_next.erase(pid)
+	_party_invite_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -286,7 +287,10 @@ func _session_by_fid(fid: String) -> Variant:
 
 # ---- parties (social group + heal/buff targeting; XP stays solo) ----
 const MAX_PARTY := 5
-var _party_invites := {}                          # target_pid -> inviter_pid (one pending invite each)
+const INVITE_COOLDOWN_MS := 1000                  # per-sender anti-spam (mirrors chat)
+const INVITE_TTL_MS := 30000                      # a pending invite expires (and stops blocking) after 30s
+var _party_invites := {}                          # target_pid -> {from: inviter_pid, t: ms}
+var _party_invite_next := {}                      # inviter_pid -> earliest next-invite ms
 
 func _pid_by_fid(fid: String) -> int:
 	for pid in _session:
@@ -298,15 +302,20 @@ func _pid_by_fid(fid: String) -> int:
 func party_invite(pid: int, target_fid: String) -> void:
 	if not _session.has(pid):
 		return
+	var now := Time.get_ticks_msec()
+	if now < int(_party_invite_next.get(pid, 0)):    # rate-limit per sender (anti-spam/DoS)
+		return
 	var tpid := _pid_by_fid(target_fid)
 	if tpid < 0 or tpid == pid:
 		return
 	var party: Array = _session[pid]["party"]
-	if tpid in party:
-		return                                    # already grouped together
-	if max(party.size(), 1) >= MAX_PARTY:
+	if tpid in party or max(party.size(), 1) >= MAX_PARTY:
 		return
-	_party_invites[tpid] = pid
+	var pend = _party_invites.get(tpid)              # don't stomp a still-fresh invite from someone else
+	if pend != null and int(pend.get("from", -1)) != pid and now - int(pend.get("t", 0)) < INVITE_TTL_MS:
+		return
+	_party_invite_next[pid] = now + INVITE_COOLDOWN_MS
+	_party_invites[tpid] = {"from": pid, "t": now}
 	if net != null:
 		net.recv_party_invite.rpc_id(tpid, str(_session[pid]["name"]), str(_session[pid]["fid"]))
 
@@ -314,8 +323,11 @@ func party_invite(pid: int, target_fid: String) -> void:
 func party_accept(pid: int, inviter_fid: String) -> void:
 	if not _session.has(pid) or not _party_invites.has(pid):
 		return
-	var ipid: int = _party_invites[pid]
+	var inv = _party_invites[pid]
 	_party_invites.erase(pid)
+	if Time.get_ticks_msec() - int(inv.get("t", 0)) >= INVITE_TTL_MS:
+		return                                       # expired
+	var ipid: int = int(inv.get("from", -1))
 	if not _session.has(ipid) or str(_session[ipid]["fid"]) != inviter_fid or ipid == pid:
 		return
 	_party_leave(pid)                             # drop any old party first
