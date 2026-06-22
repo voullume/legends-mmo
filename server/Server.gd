@@ -160,6 +160,7 @@ func _on_peer_disconnected(pid: int) -> void:
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
 	_save_one(s, _find(s["fid"]))                # persist xp/level (+ position if alive), even on a corpse
+	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
 	_remove_fighter(s["fid"])
 	_peers.erase(pid)
 	_session.erase(pid)
@@ -191,7 +192,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_peers.append(pid)
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
 		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
-		"map": str(pf["map"]) if pf != null else World.HOME}
+		"map": str(pf["map"]) if pf != null else World.HOME, "party": []}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -283,6 +284,95 @@ func _session_by_fid(fid: String) -> Variant:
 			return _session[pid]
 	return null
 
+# ---- parties (social group + heal/buff targeting; XP stays solo) ----
+const MAX_PARTY := 5
+var _party_invites := {}                          # target_pid -> inviter_pid (one pending invite each)
+
+func _pid_by_fid(fid: String) -> int:
+	for pid in _session:
+		if str(_session[pid]["fid"]) == fid:
+			return pid
+	return -1
+
+# invite the clicked player (by fighter id); they get a prompt
+func party_invite(pid: int, target_fid: String) -> void:
+	if not _session.has(pid):
+		return
+	var tpid := _pid_by_fid(target_fid)
+	if tpid < 0 or tpid == pid:
+		return
+	var party: Array = _session[pid]["party"]
+	if tpid in party:
+		return                                    # already grouped together
+	if max(party.size(), 1) >= MAX_PARTY:
+		return
+	_party_invites[tpid] = pid
+	if net != null:
+		net.recv_party_invite.rpc_id(tpid, str(_session[pid]["name"]), str(_session[pid]["fid"]))
+
+# accept the pending invite (validated against _party_invites so it can't be forged)
+func party_accept(pid: int, inviter_fid: String) -> void:
+	if not _session.has(pid) or not _party_invites.has(pid):
+		return
+	var ipid: int = _party_invites[pid]
+	_party_invites.erase(pid)
+	if not _session.has(ipid) or str(_session[ipid]["fid"]) != inviter_fid or ipid == pid:
+		return
+	_party_leave(pid)                             # drop any old party first
+	var members: Array = (_session[ipid]["party"] as Array).duplicate()
+	if members.is_empty():
+		members = [ipid]
+	if pid not in members:
+		members.append(pid)
+	if members.size() > MAX_PARTY:
+		return
+	_party_set(members)
+
+func party_decline(pid: int) -> void:
+	_party_invites.erase(pid)
+
+func party_leave(pid: int) -> void:
+	_party_leave(pid)
+
+# set each member's party to the shared list (disband if < 2 left); the roster rides the snapshot
+func _party_set(members: Array) -> void:
+	if members.size() < 2:
+		for m in members:
+			if _session.has(m):
+				_session[m]["party"] = []
+		return
+	for m in members:
+		if _session.has(m):
+			_session[m]["party"] = members.duplicate()
+
+func _party_leave(pid: int) -> void:
+	_party_invites.erase(pid)
+	if not _session.has(pid):
+		return
+	var party: Array = (_session[pid]["party"] as Array).duplicate()
+	_session[pid]["party"] = []
+	if party.is_empty():
+		return
+	var rest := []
+	for m in party:
+		if m != pid and _session.has(m):
+			rest.append(m)
+	_party_set(rest)                              # rebuild the remainder (disbands at < 2)
+
+# the party roster for a player's snapshot: live HP so the HUD frames stay current
+func _party_roster(pid: int) -> Array:
+	var out := []
+	if not _session.has(pid):
+		return out
+	for m in _session[pid]["party"]:
+		if not _session.has(m):
+			continue
+		var mf = _find(_session[m]["fid"])
+		out.append({"fid": str(_session[m]["fid"]), "name": str(_session[m]["name"]),
+			"hp": int(round(mf["hp"])) if mf != null else 0, "maxHP": int(mf["maxHP"]) if mf != null else 1,
+			"alive": bool(mf["alive"]) if mf != null else false, "map": str(_session[m]["map"])})
+	return out
+
 # ---- intents ----
 func submit_intent(pid: int, mv: Dictionary) -> void:
 	if not _move.has(pid):
@@ -290,7 +380,7 @@ func submit_intent(pid: int, mv: Dictionary) -> void:
 	var v := Vector2(clampf(float(mv.get("mx", 0.0)), -1.0, 1.0), clampf(float(mv.get("my", 0.0)), -1.0, 1.0))
 	if v.length() > 1.0:
 		v = v.normalized()
-	_move[pid] = {"mx": v.x, "my": v.y, "target": str(mv.get("target", ""))}
+	_move[pid] = {"mx": v.x, "my": v.y, "target": str(mv.get("target", "")), "friend": str(mv.get("friend", ""))}
 	_intent_age[pid] = 0
 
 func submit_ability(pid: int, key, seq) -> void:
@@ -339,7 +429,7 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		if _intent_age[pid] > STALE_INTENT_TICKS:
 			mx = 0.0
 			my = 0.0
-		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, ""), "target": str(mv.get("target", ""))}
+		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, ""), "target": str(mv.get("target", "")), "friend": str(mv.get("friend", ""))}
 		_pending_ability[pid] = ""
 	Sim.sim_tick(w, SIM_DT)
 	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)
@@ -802,7 +892,9 @@ func _broadcast() -> void:
 		var f = _find(s["fid"])
 		if f == null or not _worlds.has(s["map"]):
 			continue
-		net.receive_snapshot.rpc_id(pid, _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo))
+		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
+		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
+		net.receive_snapshot.rpc_id(pid, snap)
 	for mapname in _worlds:
 		_worlds[mapname]["events"].clear()
 	_snap_count += 1

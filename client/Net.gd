@@ -72,6 +72,32 @@ func recv_admin(on: bool) -> void:
 	if client != null:
 		client.recv_admin(on)
 
+# ---- parties (client → server) ----
+@rpc("any_peer", "call_remote", "reliable")
+func party_invite(target_fid: String) -> void:
+	if server != null:
+		server.party_invite(multiplayer.get_remote_sender_id(), target_fid)
+
+@rpc("any_peer", "call_remote", "reliable")
+func party_accept(inviter_fid: String) -> void:
+	if server != null:
+		server.party_accept(multiplayer.get_remote_sender_id(), inviter_fid)
+
+@rpc("any_peer", "call_remote", "reliable")
+func party_decline() -> void:
+	if server != null:
+		server.party_decline(multiplayer.get_remote_sender_id())
+
+@rpc("any_peer", "call_remote", "reliable")
+func party_leave() -> void:
+	if server != null:
+		server.party_leave(multiplayer.get_remote_sender_id())
+
+@rpc("authority", "call_remote", "reliable")
+func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
+	if client != null:
+		client.recv_party_invite(inviter_name, inviter_fid)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

@@ -420,6 +420,13 @@ static func _ability_by_key(c, key):
 			return ab
 	return null
 
+static func _friend_or_lowest(state, f, friend_id) -> Dictionary:
+	if str(friend_id) != "":                         # a chosen party/ally target (click a frame / Ctrl+Tab)
+		var ft = _find_alive(state, str(friend_id))
+		if ft != null and ft["team"] == f["team"]:
+			return ft
+	return _lowest_ally_or_self(state, f)
+
 static func _lowest_ally_or_self(state, f) -> Dictionary:
 	var best: Dictionary = f
 	var best_frac: float = f["hp"] / f["maxHP"]
@@ -434,12 +441,12 @@ static func _lowest_ally_or_self(state, f) -> Dictionary:
 # Support abilities (allybuff/allyheal/teamheal) aren't handled by Abilities.try_cast
 # (the bots route them through AI.support_tick). For a human we resolve them directly,
 # self/lowest-ally targeted, no AI gating.
-static func _player_support_cast(state, f, ab) -> void:
+static func _player_support_cast(state, f, ab, friend_id := "") -> void:
 	var c = GameData.CLASSES[f["classId"]]
 	var cd_mult: float = 1.0 - f["cdr"]
 	match ab["type"]:
 		"allyheal":
-			var t := _lowest_ally_or_self(state, f)
+			var t := _friend_or_lowest(state, f, friend_id)
 			Combat.apply_heal(state, f, t, t["maxHP"] * ab["healPct"])
 			var e_heal := AI._echo(c, f)   # Six-Pack echo parity (Setter)
 			if e_heal > 0.0:
@@ -452,7 +459,7 @@ static func _player_support_cast(state, f, ab) -> void:
 						a["stun"] = 0.0
 						a["slowT"] = 0.0
 		"allybuff":
-			var t := _lowest_ally_or_self(state, f)
+			var t := _friend_or_lowest(state, f, friend_id)
 			if ab.has("shieldPct"):
 				Combat.apply_shield(state, f, t, t["maxHP"] * ab["shieldPct"], ab["dur"])
 				var e_shield := AI._echo(c, f)   # Six-Pack echo parity (Setter)
@@ -551,7 +558,7 @@ static func _player_step(state, f, intent, dt) -> void:
 			# offensive abilities use try_cast so range/LOS still gate them honestly.
 			match ab["type"]:
 				"allybuff", "allyheal", "teamheal":
-					_player_support_cast(state, f, ab)
+					_player_support_cast(state, f, ab, str(intent.get("friend", "")))
 				"selfbuff", "barrier":
 					_player_self_cast(state, f, ab)
 				"dash":
