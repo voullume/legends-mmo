@@ -593,8 +593,7 @@ func _make_target_ring(col: Color) -> Node3D:
 	torus.inner_radius = 1.28
 	torus.outer_radius = 1.62
 	torus.rings = 6
-	m.mesh = torus
-	m.rotation_degrees.x = 90.0                  # lay the ring flat on the ground
+	m.mesh = torus                               # TorusMesh is already flat in the XZ plane (lies on the ground)
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.albedo_color = col
