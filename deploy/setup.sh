@@ -37,14 +37,21 @@ fi
 [ -f "$APP_DIR/Dockerfile" ] || { echo "ERROR: no code at $APP_DIR — set REPO_URL (first run), or upload the repo there."; exit 1; }
 cd "$APP_DIR"
 
-# Resolve the service key: use the env var if given (and remember it), else reuse a saved one.
-# This makes re-running (to deploy an update) a no-argument command.
+# Resolve the service key: use the env var if given (and remember it, shell-quoted so re-sourcing
+# can't break), else reuse a saved one (tolerating a malformed old .env). Re-runs need no args.
 if [ -n "${SUPABASE_SERVICE_KEY:-}" ]; then
-  umask 077; printf 'SUPABASE_SERVICE_KEY=%s\n' "$SUPABASE_SERVICE_KEY" > "$APP_DIR/.env"
+  umask 077; printf 'SUPABASE_SERVICE_KEY=%q\n' "$SUPABASE_SERVICE_KEY" > "$APP_DIR/.env"
 elif [ -f "$APP_DIR/.env" ]; then
-  . "$APP_DIR/.env"
+  . "$APP_DIR/.env" 2>/dev/null || true
 fi
-[ -n "${SUPABASE_SERVICE_KEY:-}" ] || { echo "ERROR: set SUPABASE_SERVICE_KEY once (Supabase -> Settings -> API -> service_role); it's saved for next time."; exit 1; }
+case "${SUPABASE_SERVICE_KEY:-}" in
+  eyJ*) : ;;   # looks like a JWT — good
+  *) echo "ERROR: SUPABASE_SERVICE_KEY is missing or invalid (it must be the real service_role JWT,"
+     echo "       which starts with 'eyJ' — not a placeholder). Re-run with the real key:"
+     echo "         export SUPABASE_SERVICE_KEY=\"eyJ...\""
+     echo "         curl -fsSL \"https://raw.githubusercontent.com/voullume/legends-mmo/main/deploy/setup.sh\" | sudo -E bash"
+     exit 1 ;;
+esac
 
 echo "==> [3/5] Build the server image (downloads Godot + imports assets — a few minutes)"
 docker build -t "$IMAGE" .
