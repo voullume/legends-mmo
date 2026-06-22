@@ -449,18 +449,7 @@ func _update_hud() -> void:
 	var lvl := int(pf.get("level", 1))
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD move · 1-5 abilities · LMB basic · RMB-drag camera · wheel zoom · fight the dummies for XP[/color]" % [
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD move · 1-8 abilities · LMB basic · [b]Tab[/b] target · RMB camera · wheel zoom · hover a skill for its stats[/color]" % [
 		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn]
-	var parts := []
-	var keys: Array = _player.ability_keys()
-	for i in keys.size():
-		var ab = Sim._ability_by_key(c, keys[i])
-		var cd: float = pf["cds"].get(keys[i], 0.0)
-		var col := "#4dd4ff"
-		if ab.get("ult", false): col = "#ffd24d"
-		elif ab.get("basic", false): col = "#9fe8a0"
-		var label: String = ab["name"]
-		if cd > 0.05:
-			label = "%s [color=#ff8a8a]%.1f[/color]" % [ab["name"], cd]
-		parts.append("[color=%s][b]%d[/b][/color] %s" % [col, i + 1, label])
-	_bar.text = "   ".join(parts)
+	_bar.text = ""
+	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
