@@ -1,5 +1,12 @@
 # Legends of the Arena — Handoff & MMORPG Roadmap
 
+> **⚠️ HISTORICAL — read `CLAUDE.md` first for current status.** This document is the *original*
+> handoff that kicked off the MMO. **The roadmap in §6 (phases 1–5) is now COMPLETE** — netcode,
+> Supabase accounts/persistence, the shared zone, parties, economy, admin tools, and a measured
+> balance pass are all built, reviewed, and deployed live. The sections below remain useful as the
+> **reusable-systems reference** (the combat engine, the Meshy asset pipeline, gltf-transform rules,
+> GDScript gotchas) — those are all still accurate. For *what exists now and what's next*, see `CLAUDE.md`.
+
 > **Read this first.** This repo is a **prototype** built to conceptualize a sports-themed
 > action game. The real goal is an **MMORPG**. This document captures everything worth
 > carrying forward, plus a proposed architecture + incremental roadmap to build the MMO.
