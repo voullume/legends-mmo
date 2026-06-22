@@ -31,6 +31,14 @@ var _focus_id := ""          # tab-target: the chosen enemy (sticky — only Tab
 var _focus_marker: Node3D = null
 var _is_admin := false       # set by the server (recv_admin) only for the admin account
 var _admin_panel: Control = null
+var _friend_id := ""         # friendly focus: heal/buff target (click a party frame / Ctrl+Tab)
+var _friend_marker: Node3D = null
+var _party := []             # party roster from the snapshot (live HP)
+var _party_panel: VBoxContainer = null
+var _party_frames := []      # [{root, fid, fill, name}]
+var _invite_popup: Panel = null      # "Invite <name>?" after clicking a player
+var _invite_prompt: Panel = null     # an incoming invite (accept/decline)
+var _invite_from_fid := ""
 var _inv_panel: Control
 var _inv_label: RichTextLabel
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
@@ -238,6 +246,7 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 # input runs at the fixed physics rate (bounded), independent of render fps
 var _aw_t := 0
 var _auto_equipped := false
+var _aw_invited := false
 func _auto_equip() -> void:                          # debug: equip the first looted item
 	if supa == null:
 		return
@@ -267,6 +276,12 @@ func _physics_process(_delta: float) -> void:
 				_player.intent["ability"] = ks[0]
 		if _aw_t == 30 and net != null and _connected:   # debug: exercise the chat path once
 			net.send_chat.rpc_id(1, "hello from the test bot")
+		if _aw_t == 90 and not _aw_invited and net != null and _connected:   # debug: invite the first other player
+			for f in _state.get("fighters", []):
+				if int(f.get("team", 0)) == 0 and str(f["id"]) != _player_id:
+					_aw_invited = true
+					net.party_invite.rpc_id(1, str(f["id"]))
+					break
 		if _aw_t == 720 and not _auto_equipped:          # debug: equip a looted item (~12s in)
 			_auto_equipped = true
 			_auto_equip()
@@ -278,7 +293,7 @@ func _physics_process(_delta: float) -> void:
 		_player.intent["ability"] = ""
 
 func _send_movement() -> void:
-	var mv := {"mx": _player.intent["mx"], "my": _player.intent["my"], "target": _focus_id}
+	var mv := {"mx": _player.intent["mx"], "my": _player.intent["my"], "target": _focus_id, "friend": _friend_id}
 	if server != null:
 		server.submit_intent_local(1, mv)
 	elif net != null and _connected:
@@ -346,6 +361,207 @@ func _make_focus_marker() -> Node3D:
 	_world_root.add_child(m)
 	return m
 
+# ---- parties: HUD frames (live HP, click to pick a heal/buff target), friend ring, invites ----
+func _update_party() -> void:
+	if _friend_id != "" and not _in_party(_friend_id) and _friend_id != _player_id:
+		_friend_id = ""
+	_sync_party_panel()
+	if _friend_marker == null:
+		_friend_marker = _make_friend_marker()
+	if _friend_marker != null:
+		var t = _find_fighter(_friend_id) if _friend_id != "" else null
+		_friend_marker.visible = t != null
+		if t != null:
+			_friend_marker.position = _world(t) + Vector3(0.0, 0.06, 0.0)
+
+func _in_party(fid: String) -> bool:
+	for m in _party:
+		if str(m.get("fid", "")) == fid:
+			return true
+	return false
+
+func _sync_party_panel() -> void:
+	if _party_panel == null:
+		_party_panel = VBoxContainer.new()
+		_party_panel.add_theme_constant_override("separation", 4)
+		_party_panel.position = Vector2(12.0, 150.0)
+		_hud.add_child(_party_panel)
+	var fids := []
+	for m in _party:
+		fids.append(str(m["fid"]))
+	var cur := []
+	for fr in _party_frames:
+		cur.append(str(fr["fid"]))
+	if fids != cur:                                  # membership changed → rebuild frames
+		for fr in _party_frames:
+			fr["root"].queue_free()
+		_party_frames.clear()
+		for fid in fids:
+			_party_frames.append(_make_party_frame(fid))
+	for i in _party_frames.size():
+		var m = _party[i]
+		var fr = _party_frames[i]
+		var frac: float = clampf(float(m["hp"]) / max(float(m["maxHP"]), 1.0), 0.0, 1.0)
+		fr["fill"].size = Vector2(146.0 * frac, 14.0)
+		fr["fill"].color = Color(0.3, 0.8, 0.4) if bool(m["alive"]) else Color(0.5, 0.5, 0.55)
+		var you: String = "  [you]" if str(m["fid"]) == _player_id else ""
+		fr["name"].text = "%s  %d/%d%s" % [str(m["name"]), int(m["hp"]), int(m["maxHP"]), you]
+		fr["sel"].visible = (str(m["fid"]) == _friend_id)
+
+func _make_party_frame(fid: String) -> Dictionary:
+	var root := Panel.new()
+	root.custom_minimum_size = Vector2(152.0, 36.0)
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	var sel := ColorRect.new()
+	sel.size = Vector2(152.0, 36.0)
+	sel.color = Color(1.0, 0.85, 0.3, 0.22)
+	sel.visible = false
+	root.add_child(sel)
+	var nm := Label.new()
+	nm.position = Vector2(5.0, 1.0)
+	nm.add_theme_font_size_override("font_size", 12)
+	root.add_child(nm)
+	var bg := ColorRect.new()
+	bg.position = Vector2(3.0, 20.0)
+	bg.size = Vector2(146.0, 14.0)
+	bg.color = Color(0, 0, 0, 0.5)
+	root.add_child(bg)
+	var fill := ColorRect.new()
+	fill.position = Vector2(3.0, 20.0)
+	fill.size = Vector2(146.0, 14.0)
+	fill.color = Color(0.3, 0.8, 0.4)
+	root.add_child(fill)
+	root.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			_select_friend(fid))
+	_party_panel.add_child(root)
+	return {"root": root, "fid": fid, "fill": fill, "name": nm, "sel": sel}
+
+func _select_friend(fid: String) -> void:
+	_friend_id = "" if _friend_id == fid else fid   # click the frame again to clear
+
+# Ctrl+Tab cycles the heal/buff target through the party (self included)
+func _cycle_friend() -> void:
+	var ids := []
+	for m in _party:
+		ids.append(str(m["fid"]))
+	if ids.is_empty():
+		_friend_id = ""
+		return
+	var cur := ids.find(_friend_id)
+	_friend_id = ids[(cur + 1) % ids.size()] if cur >= 0 else ids[0]
+
+func _make_friend_marker() -> Node3D:
+	if _world_root == null:
+		return null
+	var m := MeshInstance3D.new()
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.55
+	torus.outer_radius = 0.80
+	m.mesh = torus
+	m.rotation_degrees.x = 90.0
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(0.35, 0.95, 0.5)
+	mat.emission_enabled = true
+	mat.emission = Color(0.35, 0.95, 0.5)
+	mat.emission_energy_multiplier = 2.2
+	m.material_override = mat
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	m.visible = false
+	_world_root.add_child(m)
+	return m
+
+# the OTHER player nearest the cursor in screen space (for click-to-invite)
+func _player_under_cursor() -> Dictionary:
+	if _cam == null:
+		return {}
+	var mp: Vector2 = _hud.get_viewport().get_mouse_position()
+	var best := {}
+	var bestd := 54.0
+	for f in _state.get("fighters", []):
+		if int(f.get("team", 0)) != 0 or str(f["id"]) == _player_id or not _nodes.has(f["id"]):
+			continue
+		var wp: Vector3 = _world(f) + Vector3(0.0, 1.0, 0.0)
+		if _cam.is_position_behind(wp):
+			continue
+		var d: float = _cam.unproject_position(wp).distance_to(mp)
+		if d < bestd:
+			bestd = d
+			best = f
+	return best
+
+# returns true if the click landed on an invitable player (so we swallow it, no basic attack)
+func _try_invite_click() -> bool:
+	var p := _player_under_cursor()
+	if p.is_empty() or _in_party(str(p["id"])):
+		return false
+	var nm: String = str(p.get("name", GameData.CLASSES[str(p["classId"])]["name"]))
+	_show_invite_popup(str(p["id"]), nm)
+	return true
+
+func _show_invite_popup(fid: String, nm: String) -> void:
+	if _invite_popup != null:
+		_invite_popup.queue_free()
+	_invite_popup = Panel.new()
+	var vb := VBoxContainer.new()
+	_invite_popup.add_child(vb)
+	var lbl := Label.new()
+	lbl.text = "Invite %s?" % nm
+	vb.add_child(lbl)
+	var btn := Button.new()
+	btn.text = "Invite to Party"
+	btn.pressed.connect(func() -> void:
+		if net != null and _connected:
+			net.party_invite.rpc_id(1, fid)
+		_invite_popup.queue_free()
+		_invite_popup = null)
+	vb.add_child(btn)
+	_hud.add_child(_invite_popup)
+	_invite_popup.reset_size()
+	_invite_popup.position = _hud.get_viewport().get_mouse_position() + Vector2(10.0, 10.0)
+
+# an incoming invite → accept/decline prompt
+func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
+	if autowalk:                                     # test bots auto-accept (skip the UI)
+		if net != null and _connected:
+			net.party_accept.rpc_id(1, inviter_fid)
+		return
+	_invite_from_fid = inviter_fid
+	if _invite_prompt != null:
+		_invite_prompt.queue_free()
+	_invite_prompt = Panel.new()
+	var vb := VBoxContainer.new()
+	_invite_prompt.add_child(vb)
+	var lbl := Label.new()
+	lbl.text = "%s invited you to a party" % inviter_name
+	vb.add_child(lbl)
+	var row := HBoxContainer.new()
+	vb.add_child(row)
+	var yes := Button.new()
+	yes.text = "Accept"
+	yes.pressed.connect(func() -> void:
+		if net != null and _connected:
+			net.party_accept.rpc_id(1, _invite_from_fid)
+		_close_invite_prompt())
+	row.add_child(yes)
+	var no := Button.new()
+	no.text = "Decline"
+	no.pressed.connect(func() -> void:
+		if net != null and _connected:
+			net.party_decline.rpc_id(1)
+		_close_invite_prompt())
+	row.add_child(no)
+	_hud.add_child(_invite_prompt)
+	_invite_prompt.reset_size()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_invite_prompt.position = Vector2((vp.x - _invite_prompt.size.x) / 2.0, 120.0)
+
+func _close_invite_prompt() -> void:
+	if _invite_prompt != null:
+		_invite_prompt.queue_free()
+		_invite_prompt = null
+
 func _send_ability(key: String) -> void:
 	_aseq += 1
 	if server != null:
@@ -366,6 +582,7 @@ func _process(delta: float) -> void:
 	_sync_nodes_to_state()
 	_render_world(delta)
 	_update_focus()
+	_update_party()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -387,6 +604,7 @@ func net_error(msg: String) -> void:
 
 func receive_snapshot(snap: Dictionary) -> void:
 	_state = snap
+	_party = snap.get("party", [])
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
@@ -447,6 +665,17 @@ func _unhandled_input(e: InputEvent) -> void:
 				_inv_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _invite_prompt != null or _invite_popup != null:
+				_close_invite_prompt()
+				if _invite_popup != null:
+					_invite_popup.queue_free()
+					_invite_popup = null
+				get_viewport().set_input_as_handled()
+				return
+			elif _friend_id != "":             # clear the ally target
+				_friend_id = ""
+				get_viewport().set_input_as_handled()
+				return
 			elif _focus_id != "":              # clear the tab-target
 				_focus_id = ""
 				get_viewport().set_input_as_handled()
@@ -456,7 +685,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_TAB and not _chatting:
-			_cycle_focus()
+			if e.ctrl_pressed:
+				_cycle_friend()             # Ctrl+Tab: cycle the ally heal/buff target
+			else:
+				_cycle_focus()              # Tab: cycle the enemy target
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_F1 and _is_admin and _admin_panel != null:
@@ -464,6 +696,9 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if e is InputEventMouseButton:
+		if e.button_index == MOUSE_BUTTON_LEFT and e.pressed and not _chatting and _try_invite_click():
+			get_viewport().set_input_as_handled()   # clicked a player → invite, don't also swing
+			return
 		if e.button_index == MOUSE_BUTTON_RIGHT:
 			_dragging = e.pressed
 		elif e.button_index == MOUSE_BUTTON_WHEEL_UP and e.pressed:
@@ -491,7 +726,7 @@ func _update_hud() -> void:
 	var lvl := int(pf.get("level", 1))
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD move · 1-8 abilities · LMB basic · [b]Tab[/b] target · RMB camera · wheel zoom · hover a skill for its stats[/color]" % [
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic (click a player to invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/click frame = ally heal · RMB camera[/color]" % [
 		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)

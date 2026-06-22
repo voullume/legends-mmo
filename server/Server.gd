@@ -327,6 +327,11 @@ func party_accept(pid: int, inviter_fid: String) -> void:
 	if members.size() > MAX_PARTY:
 		return
 	_party_set(members)
+	var names := []
+	for m in members:
+		if _session.has(m):
+			names.append(str(_session[m]["name"]))
+	print("[zone] party formed: %s" % ", ".join(names))
 
 func party_decline(pid: int) -> void:
 	_party_invites.erase(pid)
@@ -884,6 +889,7 @@ func _broadcast() -> void:
 		var s = _session[pid]
 		var pf = _find(s["fid"])                  # include derived combat stats for skill-bar tooltips
 		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"])),
+			"name": str(s["name"]),
 			"dmgMult": float(pf["dmgMult"]) if pf != null else 1.0,
 			"crit": float(pf["crit"]) if pf != null else 0.0,
 			"critMult": float(pf["critMult"]) if pf != null else 1.5}
@@ -920,6 +926,7 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 			if pinfo.has(f["id"]):
 				var pi = pinfo[f["id"]]
 				d["level"] = pi["level"]
+				d["name"] = pi["name"]
 				d["xp"] = pi["xp"]
 				d["xpNext"] = pi["xpNext"]
 				d["dmgMult"] = pi["dmgMult"]
