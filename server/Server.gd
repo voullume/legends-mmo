@@ -124,7 +124,20 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 		f["mobTier"] = str(m["tier"])
 		_scale_mob(f)
 	print("[zone] online on UDP %d  (home + combat worlds, %d mobs%s)" % [port, World.MOBS.size(), "  · DTLS" if use_dtls else ""])
+	_check_service_key()                         # verify loot/equip will be able to save
 	return true
+
+# On boot, confirm the service_role key can actually write our inventory table (loot/equip).
+# Logs a clear ✓/✗ in `docker logs` so a wrong/stale key is obvious instead of silent 0-loot.
+func _check_service_key() -> void:
+	if supa == null or supa.service_key == "":
+		print("[zone] ✗ SUPABASE_SERVICE_KEY not set — loot/equip will NOT save.")
+		return
+	var r = await supa._http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id&limit=1", "", PackedStringArray(), supa.service_key)
+	if int(r.get("code", 0)) == 200:
+		print("[zone] ✓ SUPABASE_SERVICE_KEY valid for this project — loot/equip will save.")
+	else:
+		print("[zone] ✗ SUPABASE_SERVICE_KEY INVALID (HTTP %s) — loot/equip will NOT save. Redeploy with the correct service_role key." % str(r.get("code")))
 
 func _new_world(map: String) -> Dictionary:
 	var w: Dictionary = Sim.create_match([], [], SEED, MAP_ID)
