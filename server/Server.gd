@@ -657,7 +657,11 @@ func _broadcast() -> void:
 	var pinfo := {}
 	for pid in _peers:
 		var s = _session[pid]
-		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"]))}
+		var pf = _find(s["fid"])                  # include derived combat stats for skill-bar tooltips
+		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"])),
+			"dmgMult": float(pf["dmgMult"]) if pf != null else 1.0,
+			"crit": float(pf["crit"]) if pf != null else 0.0,
+			"critMult": float(pf["critMult"]) if pf != null else 1.5}
 	for pid in _peers:
 		var s = _session[pid]
 		var f = _find(s["fid"])
@@ -691,6 +695,9 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				d["level"] = pi["level"]
 				d["xp"] = pi["xp"]
 				d["xpNext"] = pi["xpNext"]
+				d["dmgMult"] = pi["dmgMult"]
+				d["crit"] = pi["crit"]
+				d["critMult"] = pi["critMult"]
 			if f["team"] == 1:
 				d["mobLevel"] = int(f.get("mobLevel", 1))
 				d["mobTier"] = str(f.get("mobTier", "minion"))

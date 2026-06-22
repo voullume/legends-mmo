@@ -92,6 +92,11 @@ var _bots_frozen := true        # start paused so the player can feel out contro
 var _hud: CanvasLayer
 var _info: RichTextLabel
 var _bar: RichTextLabel
+var _hotbar: HBoxContainer                 # MMO-style skill bar (a slot per ability)
+var _slots := []                           # [{root, cd, cs}] per ability
+var _hotbar_class := ""
+var _tooltip: PanelContainer
+var _tt_label: RichTextLabel
 
 func _ready() -> void:
 	_load_meshy()
@@ -888,6 +893,120 @@ func _build_hud() -> void:
 	_bar.position = Vector2(16, -120)
 	_bar.custom_minimum_size = Vector2(900, 0)
 	_hud.add_child(_bar)
+	# skill bar (hotbar) + hover tooltip
+	_hotbar = HBoxContainer.new()
+	_hotbar.add_theme_constant_override("separation", 6)
+	_hud.add_child(_hotbar)
+	_tooltip = PanelContainer.new()
+	_tooltip.visible = false
+	_tt_label = RichTextLabel.new()
+	_tt_label.bbcode_enabled = true
+	_tt_label.fit_content = true
+	_tt_label.custom_minimum_size = Vector2(250, 0)
+	_tooltip.add_child(_tt_label)
+	_hud.add_child(_tooltip)
+
+# (re)build a slot per ability when the class is known/changes
+func _build_hotbar(class_id: String) -> void:
+	for s in _slots:
+		s["root"].queue_free()
+	_slots.clear()
+	_hotbar_class = class_id
+	var abilities: Array = GameData.CLASSES[class_id]["abilities"]
+	for i in abilities.size():
+		var ab = abilities[i]
+		var slot := Control.new()
+		slot.custom_minimum_size = Vector2(60, 60)
+		var bg := ColorRect.new()
+		bg.size = Vector2(60, 60)
+		bg.color = _slot_color(ab)
+		slot.add_child(bg)
+		var cd := ColorRect.new()                # cooldown wipe (dark, height = cd fraction)
+		cd.color = Color(0, 0, 0, 0.62)
+		cd.size = Vector2(60, 0)
+		slot.add_child(cd)
+		var kl := Label.new()                    # keybind
+		kl.text = str(i + 1)
+		kl.position = Vector2(4, 1)
+		kl.add_theme_font_size_override("font_size", 16)
+		slot.add_child(kl)
+		var nl := Label.new()                    # ability name (small, wrapped)
+		nl.text = str(ab["name"])
+		nl.position = Vector2(2, 30)
+		nl.size = Vector2(56, 28)
+		nl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		nl.add_theme_font_size_override("font_size", 10)
+		slot.add_child(nl)
+		var cs := Label.new()                    # cooldown seconds (center)
+		cs.position = Vector2(0, 18)
+		cs.size = Vector2(60, 24)
+		cs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		cs.add_theme_font_size_override("font_size", 20)
+		slot.add_child(cs)
+		slot.mouse_entered.connect(_on_slot_hover.bind(i))
+		slot.mouse_exited.connect(_on_slot_unhover)
+		_hotbar.add_child(slot)
+		_slots.append({"root": slot, "cd": cd, "cs": cs})
+
+func _slot_color(ab: Dictionary) -> Color:
+	if ab.get("ult", false): return Color(0.36, 0.30, 0.10)       # ultimate = gold-ish
+	if ab.get("basic", false): return Color(0.14, 0.26, 0.16)     # basic = green-ish
+	if ab["type"] in ["allybuff", "allyheal", "teamheal"]: return Color(0.13, 0.22, 0.30)  # support = blue
+	return Color(0.16, 0.18, 0.24)                                # normal
+
+func _update_hotbar(pf: Dictionary) -> void:
+	if pf.get("classId", "") != _hotbar_class:
+		_build_hotbar(str(pf["classId"]))
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_hotbar.position = Vector2((vp.x - _hotbar.size.x) / 2.0, vp.y - 86.0)
+	var abilities: Array = GameData.CLASSES[str(pf["classId"])]["abilities"]
+	for i in _slots.size():
+		var ab = abilities[i]
+		var total: float = float(ab.get("cd", 0.0))
+		var rem: float = float(pf.get("cds", {}).get(ab["key"], 0.0))
+		var frac: float = clampf(rem / total, 0.0, 1.0) if total > 0.0 else 0.0
+		_slots[i]["cd"].size = Vector2(60.0, frac * 60.0)
+		_slots[i]["cs"].text = ("%d" % int(ceil(rem))) if rem > 0.05 else ""
+
+func _on_slot_hover(i: int) -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null or i >= GameData.CLASSES[str(pf["classId"])]["abilities"].size():
+		return
+	_tt_label.text = _ability_tooltip(GameData.CLASSES[str(pf["classId"])]["abilities"][i], pf)
+	_tooltip.visible = true
+	_tooltip.reset_size()
+	var sp: Vector2 = _slots[i]["root"].global_position
+	_tooltip.position = Vector2(sp.x - 95.0, sp.y - _tooltip.size.y - 8.0)
+
+func _on_slot_unhover() -> void:
+	_tooltip.visible = false
+
+# the skill's real numbers, computed from the player's current stats + gear
+func _ability_tooltip(ab: Dictionary, pf: Dictionary) -> String:
+	var L := ["[b]%s[/b]  [color=#7f93a8]%s[/color]" % [ab["name"], str(ab["type"])]]
+	var dm: float = float(pf.get("dmgMult", 1.0))
+	var mhp: float = float(pf.get("maxHP", 1000.0))
+	if ab.has("dmg"):
+		L.append("Damage: [color=#ff9a6b]%d[/color]" % int(round(float(ab["dmg"]) * dm)))
+		var cr: float = float(pf.get("crit", 0.0))
+		if cr > 0.0:
+			L.append("Crit: %d%% for %.1f×" % [int(round(cr * 100.0)), float(pf.get("critMult", 1.5))])
+	if ab.has("healPct"):
+		L.append("Heal: [color=#9fe8a0]%d[/color]" % int(round(float(ab["healPct"]) * mhp)))
+	if ab.has("shieldPct"):
+		L.append("Shield: [color=#9fd0ff]%d[/color]" % int(round(float(ab["shieldPct"]) * mhp)))
+	if ab.has("range"):
+		L.append("[color=#9fb4c8]Range: %d[/color]" % int(ab["range"]))
+	if ab.has("dist"):
+		L.append("[color=#9fb4c8]Dash: %d[/color]" % int(ab["dist"]))
+	if ab.has("stun"):
+		L.append("[color=#d7c27a]Stun: %.1fs[/color]" % float(ab["stun"]))
+	if ab.has("slow"):
+		L.append("[color=#d7c27a]Slow: %d%% for %.1fs[/color]" % [int(float(ab["slow"]["amt"]) * 100.0), float(ab["slow"]["dur"])])
+	if ab.has("dur"):
+		L.append("[color=#9fb4c8]Duration: %.1fs[/color]" % float(ab["dur"]))
+	L.append("[color=#7f93a8]Cooldown: %.1fs[/color]" % float(ab.get("cd", 0.0)))
+	return "\n".join(L)
 
 func _update_hud() -> void:
 	var pf = _find_fighter(_player_id)
@@ -903,16 +1022,4 @@ func _update_hud() -> void:
 	var save_txt := ("   [color=#7fd4ff]%s[/color]" % _save_note) if _save_note != "" else ""
 	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   HP %d/%d %s   %s%s\n[color=#7f93a8]%s[/color]" % [
 		title, c["sport"], c["role"], int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, bots_txt, save_txt, controls]
-	var parts := []
-	var keys: Array = _player.ability_keys()
-	for i in keys.size():
-		var ab = Sim._ability_by_key(c, keys[i])
-		var cd: float = pf["cds"].get(keys[i], 0.0)
-		var col := "#4dd4ff"
-		if ab.get("ult", false): col = "#ffd24d"
-		elif ab.get("basic", false): col = "#9fe8a0"
-		var label: String = ab["name"]
-		if cd > 0.05:
-			label = "%s [color=#ff8a8a]%.1f[/color]" % [ab["name"], cd]
-		parts.append("[color=%s][b]%d[/b][/color] %s" % [col, i + 1, label])
-	_bar.text = "   ".join(parts)
+	_update_hotbar(pf)                           # the visual skill bar replaces the old text row
