@@ -19,6 +19,7 @@ const PlayerCtl := preload("res://client/Player.gd")
 # --- world scale / look ---
 const SCALE := 0.05                       # sim units → world units (960×540 → 48×27)
 const MESHY_SCALE := 1.9
+const IDLE_SCALE := 0.90                   # standing shrinks to ~match the (lower) run height — no pop on move
 const MESHY_FLIP := false
 const CHAR_Y := 0.0
 const SIM_DT := 1.0 / 30.0
@@ -380,7 +381,7 @@ func _spawn(f: Dictionary) -> void:
 	ui.add_child(label)
 
 	_nodes[f["id"]] = {
-		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"],
+		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"], "mscale": msc,
 		"ui": ui, "fill": fill, "label": label, "last": holder.position, "vel": Vector2.ZERO,
 		"pcds": {}, "busy": "", "atk_clip": "", "died": false, "hit_cd": 0.0, "pflash": 0.0,
 	}
@@ -447,6 +448,9 @@ func _render_world(delta: float) -> void:
 		# face heading while moving, else the nearest enemy
 		var flip: float = PI if MESHY_FLIP else 0.0
 		var model: Node3D = n["model"]
+		var msc: float = float(n.get("mscale", MESHY_SCALE))   # shrink toward run height when idle, back when moving
+		var ts: float = msc if moving else msc * IDLE_SCALE
+		model.scale = model.scale.lerp(Vector3(ts, ts, ts), clampf(delta * 8.0, 0.0, 1.0))
 		var tgt_yaw: float = model.rotation.y
 		if moving:
 			tgt_yaw = atan2(n["vel"].x, n["vel"].y) + flip
