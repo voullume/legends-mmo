@@ -598,13 +598,19 @@ func _save_all() -> void:
 func _save_one(session: Dictionary, f) -> void:
 	if supa == null:
 		return
-	# xp/level are always valid (they live on the session) — persist them even for a corpse.
-	# Position + map are only persisted when alive (never write a dead fighter's death-spot).
-	var fields := {"xp": int(session["xp"]), "level": int(session["level"])}
-	if f != null and f["alive"]:
-		fields["last_x"] = f["x"]
-		fields["last_y"] = f["y"]
-		fields["last_map"] = str(session.get("map", World.HOME))
+	# xp/level + the current world are always valid (they live on the session), so persist them even
+	# for a corpse. Position is the live spot when alive, else the respawn point — never the death
+	# spot — so last_map and last_x/last_y always stay consistent (you resume in the world you were in).
+	var fields := {"xp": int(session["xp"]), "level": int(session["level"]),
+		"last_map": str(session.get("map", World.HOME))}
+	if f != null:
+		if f["alive"]:
+			fields["last_x"] = f["x"]
+			fields["last_y"] = f["y"]
+		else:
+			var sp: Vector2 = _spawn_pos.get(f["id"], Vector2(f["x"], f["y"]))
+			fields["last_x"] = sp.x
+			fields["last_y"] = sp.y
 	await supa.save_character_as(session["access"], session["char_id"], fields)
 
 # ---- interest-managed snapshots (per world) ----
