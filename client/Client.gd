@@ -19,7 +19,7 @@ const PlayerCtl := preload("res://client/Player.gd")
 # --- world scale / look ---
 const SCALE := 0.05                       # sim units → world units (960×540 → 48×27)
 const MESHY_SCALE := 1.9
-const IDLE_SCALE := 0.90                   # standing shrinks to ~match the (lower) run height — no pop on move
+const IDLE_SCALE := 0.87                   # standing shrinks to match the (lower) run height — no pop on move
 const MESHY_FLIP := false
 const CHAR_Y := 0.0
 const SIM_DT := 1.0 / 30.0
