@@ -12,7 +12,7 @@ const COMBAT := "combat"
 # after taking damage before regen resumes (0 = always); aggro = whether mobs chase players here.
 const MAPS := {
 	HOME:   {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12, "regen_delay": 0.0, "aggro": false},
-	COMBAT: {"type": "combat", "w": 1920, "h": 1080, "regen": 0.025, "regen_delay": 5.0, "aggro": true},
+	COMBAT: {"type": "combat", "w": 1920, "h": 1080, "regen": 0.012, "regen_delay": 6.0, "aggro": true},
 }
 
 const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
