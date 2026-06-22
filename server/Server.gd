@@ -178,6 +178,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_equipping.erase(pid)
 	_equip_next.erase(pid)
 	_party_invite_next.erase(pid)
+	_shop_busy.erase(pid)
+	_shop_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -398,6 +400,18 @@ func _party_roster(pid: int) -> Array:
 	return out
 
 # ---- economy (Credits): earn from kills, spend at the home-zone shop, sell inventory back ----
+func _is_uuid(s: String) -> bool:
+	if s.length() != 36:
+		return false
+	for i in s.length():
+		var c := s[i]
+		if i == 8 or i == 13 or i == 18 or i == 23:
+			if c != "-":
+				return false
+		elif not ((c >= "0" and c <= "9") or (c >= "a" and c <= "f") or (c >= "A" and c <= "F")):
+			return false
+	return true
+
 func _mob_credits(mob) -> int:
 	var base := 8 + int(mob.get("mobLevel", 1)) * 5
 	if str(mob.get("mobTier", "")) == "elite":
@@ -428,17 +442,47 @@ func _give_and_charge(pid: int, item: Dictionary, price: int) -> void:
 	var s = _session[pid]
 	s["credits"] = int(s["credits"]) - price                  # deduct up front; refund if the write fails
 	var r = await supa.add_item_as(s["access"], s["char_id"], item)
-	if not _session.has(pid):
-		return
-	if r.get("ok"):
+	if not r.get("ok"):
+		s["credits"] = int(s["credits"]) + price              # refund + persist even if the peer left mid-buy
 		_save_one(s, _find(s["fid"]))
-		if net != null:
-			net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
-			net.recv_inventory_changed.rpc_id(pid)
-	else:
-		s["credits"] = int(s["credits"]) + price
+		return
+	_save_one(s, _find(s["fid"]))                             # success: the deduction is now durable
+	if net != null and _session.has(pid):
+		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+		net.recv_inventory_changed.rpc_id(pid)
+
+# shop actions are serialized + rate-limited per peer (like equip), so a flood of RPCs can't interleave
+# across the DB awaits to double-spend on a buy or get paid twice for one sell.
+var _shop_busy := {}                              # pid -> a shop op is in flight
+var _shop_next := {}                              # pid -> earliest next shop op (ms)
+
+func _shop_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_shop_busy.get(pid, false)) or now < int(_shop_next.get(pid, 0)):
+		return false
+	_shop_busy[pid] = true
+	_shop_next[pid] = now + 300
+	return true
 
 func shop_buy(pid: int, slot: String, rarity: String) -> void:
+	if not _shop_lock(pid):
+		return
+	await _do_shop_buy(pid, slot, rarity)
+	_shop_busy.erase(pid)
+
+func shop_roll(pid: int, rarity: String) -> void:
+	if not _shop_lock(pid):
+		return
+	await _do_shop_roll(pid, rarity)
+	_shop_busy.erase(pid)
+
+func shop_sell(pid: int, item_id: String) -> void:
+	if not _shop_lock(pid):
+		return
+	await _do_shop_sell(pid, item_id)
+	_shop_busy.erase(pid)
+
+func _do_shop_buy(pid: int, slot: String, rarity: String) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
 		return                                                # the shop only exists in the home base
 	var entry = null
@@ -451,7 +495,7 @@ func shop_buy(pid: int, slot: String, rarity: String) -> void:
 	await _give_and_charge(pid, {"name": str(entry["name"]), "rarity": rarity, "slot": slot,
 		"bonus_stat": str(entry["bonus_stat"]), "bonus_amt": int(entry["bonus_amt"])}, int(entry["price"]))
 
-func shop_roll(pid: int, rarity: String) -> void:
+func _do_shop_roll(pid: int, rarity: String) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not ROLL_PRICE.has(rarity):
 		return
 	if int(_session[pid]["credits"]) < int(ROLL_PRICE[rarity]):
@@ -467,8 +511,10 @@ func shop_roll(pid: int, rarity: String) -> void:
 		"rarity": rarity, "slot": slot, "bonus_stat": LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())],
 		"bonus_amt": mult * 6}, int(ROLL_PRICE[rarity]))
 
-func shop_sell(pid: int, item_id: String) -> void:
+func _do_shop_sell(pid: int, item_id: String) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return
+	if not _is_uuid(item_id):                                 # reject anything that isn't a well-formed id
 		return
 	var s = _session[pid]
 	var r = await supa.sell_item_as(s["char_id"], item_id)    # service-role, scoped to this character
