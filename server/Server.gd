@@ -31,8 +31,8 @@ const SAVE_INTERVAL := 15.0
 const INTEREST_RADIUS := 450.0
 const STALE_INTENT_TICKS := 30
 const AGGRO_RANGE := 320.0            # a mob engages a player within this range (covers ranged basics)
-const LEASH_RANGE := 1000.0           # once engaged, stays engaged until players pass this (hysteresis)
-const MAX_LEASH := 1000.0             # a mob chases up to this far from its camp before it resets (big combat arena)
+const LEASH_RANGE := 1300.0           # once engaged, stays engaged until players pass this (hysteresis)
+const MAX_LEASH := 1300.0             # a mob chases up to this far from its camp before it resets (big combat arena)
 const MOB_HP_SCALE := 0.35            # base mob HP fraction (scaled up by level + tier)
 const MOB_DMG_SCALE := 0.28           # base mob damage fraction (scaled up by level + tier)
 const MOB_XP_BASE := 15               # mob XP = base × level × (elite ? 4 : 1)
