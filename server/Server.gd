@@ -311,6 +311,7 @@ func _physics_process(delta: float) -> void:
 			_tick_world(_worlds[mapname], mapname)
 		_advance_respawns(SIM_DT)                 # respawn countdown runs once per tick (not per world)
 		_check_portals()                          # move players between worlds after the sims resolve
+		_apply_godmode()                          # keep god-mode players invulnerable (after damage resolves)
 		_acc -= SIM_DT
 		steps += 1
 	if steps == 5:
@@ -682,7 +683,50 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 				else:
 					keep.append(ff)
 			w["fighters"] = keep
+		"reset_mobs":
+			_reset_mobs()
 	print("[admin] %s ran '%s'" % [s["name"], cmd])
+
+# wipe every mob and re-spawn the original roster (combat camps + the home dummy) — fixes a map
+# whose mobs were cleared and never came back (cleared mobs aren't queued for respawn).
+func _reset_mobs() -> void:
+	for mapname in _worlds:
+		var w = _worlds[mapname]
+		var keep := []
+		for ff in w["fighters"]:
+			if ff["team"] == 1:
+				_spawn_pos.erase(ff["id"])
+				_mob_engaged.erase(ff["id"])
+				_respawn.erase(ff["id"])
+			else:
+				keep.append(ff)
+		w["fighters"] = keep
+	var did := _spawn_fighter(World.DUMMY_CLASS, 1, World.DUMMY_POS, World.HOME)
+	var dummy = _find(did)
+	dummy["dummy"] = true
+	dummy["maxHP"] = DUMMY_HP
+	dummy["hp"] = DUMMY_HP
+	for m in World.MOBS:
+		var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), World.COMBAT)
+		var f = _find(fid)
+		f["mobLevel"] = int(m["level"])
+		f["mobTier"] = str(m["tier"])
+		_scale_mob(f)
+
+# real god-mode: keep flagged players topped up + alive every tick so they take hits (flash/numbers)
+# but can't be drained or one-shot — and clear stun/slow so they're never locked.
+func _apply_godmode() -> void:
+	for pid in _peers:
+		if not bool(_session[pid].get("god", false)):
+			continue
+		var f = _find(_session[pid]["fid"])
+		if f == null:
+			continue
+		f["hp"] = f["maxHP"]
+		f["alive"] = true
+		f["stun"] = 0.0
+		f["slowT"] = 0.0
+		_respawn.erase(f["id"])
 
 func _admin_give_item(pid: int) -> void:
 	if not _session.has(pid):

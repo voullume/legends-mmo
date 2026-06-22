@@ -204,7 +204,7 @@ func _build_admin_panel() -> void:
 		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
 		["God Mode", "god", {}], ["Heal", "heal", {}],
 		["→ Home", "to_home", {}], ["→ Combat", "to_combat", {}],
-		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}],
+		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}],
 	]
 	for c in cmds:
 		var b := Button.new()
