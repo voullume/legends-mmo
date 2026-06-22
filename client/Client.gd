@@ -71,6 +71,9 @@ var _world_root: Node3D
 var _fx_root: Node3D
 var _portal_root: Node3D = null            # portal pad visuals (rebuilt when the world's portals change)
 var _portals_sig := ""
+var _ground: MeshInstance3D                # floor planes, resized when the arena (map) size changes
+var _field: MeshInstance3D
+var _arena_sig := ""
 var _proj_pool := []
 var _fx_active := []                       # {node, t, life, vel}
 var _num_pool := []
@@ -201,8 +204,25 @@ func _quad(w: float, h: float, col: Color) -> MeshInstance3D:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
 
+func _aw() -> float:
+	return float(_state.get("arenaW", GameData.ARENA_W))
+
+func _ah() -> float:
+	return float(_state.get("arenaH", GameData.ARENA_H))
+
 func _world(f: Dictionary) -> Vector3:
-	return Vector3((f["x"] - GameData.ARENA_W / 2.0) * SCALE, 0.0, (f["y"] - GameData.ARENA_H / 2.0) * SCALE)
+	return Vector3((f["x"] - _aw() / 2.0) * SCALE, 0.0, (f["y"] - _ah() / 2.0) * SCALE)
+
+# Resize the floor when the arena (map) size changes — i.e. when you cross into the other world.
+func _resize_arena() -> void:
+	var sig := "%dx%d" % [int(_aw()), int(_ah())]
+	if sig == _arena_sig:
+		return
+	_arena_sig = sig
+	if _ground != null and _ground.mesh is PlaneMesh:
+		(_ground.mesh as PlaneMesh).size = Vector2(_aw() * SCALE + 24.0, _ah() * SCALE + 24.0)
+	if _field != null and _field.mesh is PlaneMesh:
+		(_field.mesh as PlaneMesh).size = Vector2(_aw() * SCALE, _ah() * SCALE)
 
 func _build_world() -> void:
 	_world_root = Node3D.new()
@@ -236,6 +256,7 @@ func _build_world() -> void:
 	ground.mesh = gp
 	ground.material_override = _mat(Color(0.10, 0.13, 0.10))
 	add_child(ground)
+	_ground = ground
 	var field := MeshInstance3D.new()
 	var fp := PlaneMesh.new()
 	fp.size = Vector2(GameData.ARENA_W * SCALE, GameData.ARENA_H * SCALE)
@@ -243,6 +264,7 @@ func _build_world() -> void:
 	field.position.y = 0.01
 	field.material_override = _mat(Color(0.16, 0.30, 0.18))
 	add_child(field)
+	_field = field
 
 	# obstacles (rigs) for the chosen map — cylinders
 	for o in GameData.MAPS[MAP_ID]["obstacles"]:
@@ -434,6 +456,7 @@ func _render_world(delta: float) -> void:
 		_update_ui(n, f)
 		n["pflash"] = f["flash"]
 
+	_resize_arena()
 	_render_portals()
 	_update_hud()
 
@@ -453,7 +476,7 @@ func _render_portals() -> void:
 	_portal_root = Node3D.new()
 	_world_root.add_child(_portal_root)
 	for p in portals:
-		var pos := Vector3((float(p["x"]) - GameData.ARENA_W / 2.0) * SCALE, 0.0, (float(p["y"]) - GameData.ARENA_H / 2.0) * SCALE)
+		var pos := Vector3((float(p["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(p["y"]) - _ah() / 2.0) * SCALE)
 		var pillar := MeshInstance3D.new()
 		var cyl := CylinderMesh.new()
 		cyl.top_radius = World.PORTAL_RADIUS * SCALE
@@ -755,7 +778,7 @@ func _sync_projectiles() -> void:
 			_fx_root.add_child(pm)
 			_proj_pool.append(pm)
 		pm.visible = true
-		pm.position = Vector3((p["x"] - GameData.ARENA_W / 2.0) * SCALE, 1.4, (p["y"] - GameData.ARENA_H / 2.0) * SCALE)
+		pm.position = Vector3((p["x"] - _aw() / 2.0) * SCALE, 1.4, (p["y"] - _ah() / 2.0) * SCALE)
 		shown += 1
 	for i in range(shown, _proj_pool.size()):
 		_proj_pool[i].visible = false

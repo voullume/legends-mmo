@@ -1,33 +1,44 @@
 extends RefCounted
-## Two-world layout for the shared zone:
-##   HOME   — a safe base: roam freely, a training dummy to hit (passive, instant-respawn, no rewards).
-##   COMBAT — the testing zone: aggressive mobs, XP, and loot drops.
-## A portal pad in each world teleports the player to the other. Both worlds use the same 960×540
-## arena coordinate space but are SEPARATE sims, so players in one never see/affect the other.
+## World layout for the shared zone. Each map has a TYPE that drives gameplay:
+##   safe   — no mob aggro, strong health regen (the home base, future towns).
+##   combat — mobs chase, weak out-of-combat regen, bigger arena (the testing/mob zones).
+## Worlds are independent sims; a portal pad in each teleports the player to the other. Arena size is
+## per-map (each fighter carries its world's bounds), so maps can differ in size.
 
 const HOME := "home"
 const COMBAT := "combat"
 
-const HOME_SPAWN := Vector2(480, 300)       # where players appear / return in the home base
-const COMBAT_SPAWN := Vector2(140, 300)     # where the home portal drops you in combat (safely west of the mobs)
-const DUMMY_POS := Vector2(660, 300)        # the training dummy, east of the home spawn
-const DUMMY_CLASS := "linebacker"           # a tanky punching bag
-const PORTAL_RADIUS := 42.0                 # stepping this close to a pad teleports you
-
-# Portal pads per world. Stepping within PORTAL_RADIUS of {x,y} teleports to world `to` at (tx,ty).
-const PORTALS := {
-	HOME: [{"x": 300.0, "y": 300.0, "to": COMBAT, "tx": 140.0, "ty": 300.0, "label": "▶ Combat Zone"}],
-	COMBAT: [{"x": 140.0, "y": 470.0, "to": HOME, "tx": 480.0, "ty": 300.0, "label": "▶ Home Base"}],
+# Per-map config. w/h = arena size; regen = max-HP fraction healed per second; regen_delay = seconds
+# after taking damage before regen resumes (0 = always); aggro = whether mobs chase players here.
+const MAPS := {
+	HOME:   {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12, "regen_delay": 0.0, "aggro": false},
+	COMBAT: {"type": "combat", "w": 1920, "h": 1080, "regen": 0.025, "regen_delay": 5.0, "aggro": true},
 }
 
-# Mob camps live in the COMBAT world only — a difficulty gradient from the portal arrival (west) east.
+const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
+const COMBAT_SPAWN := Vector2(200, 540)      # the home portal drops you here (west, clear of the camps)
+const DUMMY_POS := Vector2(660, 300)         # the training dummy
+const DUMMY_CLASS := "linebacker"            # a tanky punching bag
+const PORTAL_RADIUS := 42.0                  # stepping this close to a pad teleports you
+
+# Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
+const PORTALS := {
+	HOME:   [{"x": 300.0, "y": 300.0, "to": COMBAT, "tx": 200.0, "ty": 540.0, "label": "▶ Combat Zone"}],
+	COMBAT: [{"x": 200.0, "y": 760.0, "to": HOME, "tx": 480.0, "ty": 300.0, "label": "▶ Home Base"}],
+}
+
+# Mob camps (COMBAT only), spread across the big arena so engaging one doesn't pull the next
+# (each camp is > AGGRO_RANGE from its neighbours). A difficulty gradient from the arrival (west) east.
 const MOBS := [
-	{"class": "setter", "level": 1, "tier": "minion", "x": 480.0, "y": 175.0},
-	{"class": "spiker", "level": 1, "tier": "minion", "x": 480.0, "y": 365.0},
-	{"class": "striker", "level": 2, "tier": "minion", "x": 700.0, "y": 200.0},
-	{"class": "batter", "level": 2, "tier": "minion", "x": 700.0, "y": 340.0},
-	{"class": "linebacker", "level": 3, "tier": "elite", "x": 870.0, "y": 270.0},
+	{"class": "setter", "level": 1, "tier": "minion", "x": 600.0, "y": 300.0},
+	{"class": "spiker", "level": 1, "tier": "minion", "x": 600.0, "y": 780.0},
+	{"class": "striker", "level": 2, "tier": "minion", "x": 1150.0, "y": 300.0},
+	{"class": "batter", "level": 2, "tier": "minion", "x": 1150.0, "y": 780.0},
+	{"class": "linebacker", "level": 3, "tier": "elite", "x": 1700.0, "y": 540.0},
 ]
+
+static func cfg(map: String) -> Dictionary:
+	return MAPS.get(map, MAPS[HOME])
 
 # slim portal list for snapshots (the client only needs to draw them)
 static func portals_for(map: String) -> Array:

@@ -329,7 +329,9 @@ static func sim_tick(state, dt) -> void:
 			var ang = atan2(f["y"] - target["y"], f["x"] - target["x"]) + f["strafeDir"] * 0.9
 			var sx = target["x"] + cos(ang) * want
 			var sy = target["y"] + sin(ang) * want
-			if f["flipT"] <= 0 and (sx < GameData.ARENA_PAD + 16 or sx > GameData.ARENA_W - GameData.ARENA_PAD - 16 or sy < GameData.ARENA_PAD + 16 or sy > GameData.ARENA_H - GameData.ARENA_PAD - 16):
+			var aw: float = float(f.get("arenaW", GameData.ARENA_W))
+			var ah: float = float(f.get("arenaH", GameData.ARENA_H))
+			if f["flipT"] <= 0 and (sx < GameData.ARENA_PAD + 16 or sx > aw - GameData.ARENA_PAD - 16 or sy < GameData.ARENA_PAD + 16 or sy > ah - GameData.ARENA_PAD - 16):
 				f["strafeDir"] *= -1
 				f["flipT"] = 0.7
 			AI.step_toward(state, f, sx, sy, dt, 0.65)

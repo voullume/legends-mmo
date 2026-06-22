@@ -73,6 +73,7 @@ var _intent_age := {}
 var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
+var _last_hurt := {}               # fighter id → ms it last took damage (out-of-combat regen timer)
 var _tp_next := {}                 # fighter id → earliest ms it may use a portal (grace after teleport/spawn)
 var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
 var _equipping := {}               # peer ids with an equip() toggle in flight (race guard)
@@ -107,8 +108,8 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	# vary loot per launch with process-unique, high-res entropy (no same-second seed collisions)
 	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ Time.get_ticks_usec() ^ (OS.get_process_id() << 13))
 	Engine.max_fps = 60
-	_worlds[World.HOME] = _new_world()
-	_worlds[World.COMBAT] = _new_world()
+	_worlds[World.HOME] = _new_world(World.HOME)
+	_worlds[World.COMBAT] = _new_world(World.COMBAT)
 	# home: a single passive training dummy
 	var did := _spawn_fighter(World.DUMMY_CLASS, 1, World.DUMMY_POS, World.HOME)
 	var dummy = _find(did)
@@ -126,9 +127,15 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	print("[zone] online on UDP %d  (home + combat worlds, %d mobs%s)" % [port, World.MOBS.size(), "  · DTLS" if use_dtls else ""])
 	return true
 
-func _new_world() -> Dictionary:
+func _new_world(map: String) -> Dictionary:
 	var w: Dictionary = Sim.create_match([], [], SEED, MAP_ID)
 	w["zone"] = true                             # persistent: no match-end / no overtime ramp
+	var c := World.cfg(map)                      # per-map size + regen + aggro
+	w["arenaW"] = int(c["w"])
+	w["arenaH"] = int(c["h"])
+	w["regen"] = float(c["regen"])
+	w["regenDelay"] = float(c["regen_delay"])
+	w["aggro"] = bool(c["aggro"])
 	return w
 
 # ---- connection / auth ----
@@ -233,6 +240,8 @@ func _spawn_fighter(cls: String, team: int, pos: Vector2, map: String) -> String
 	f["x"] = pos.x
 	f["y"] = pos.y
 	f["map"] = map
+	f["arenaW"] = int(w.get("arenaW", GameData.ARENA_W))   # carry the world's bounds (per-map clamp)
+	f["arenaH"] = int(w.get("arenaH", GameData.ARENA_H))
 	Geom.clamp_arena(f)
 	w["fighters"].append(f)
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])
@@ -249,6 +258,7 @@ func _remove_fighter(fid: String) -> void:
 	_spawn_pos.erase(fid)
 	_respawn.erase(fid)
 	_tp_next.erase(fid)
+	_last_hurt.erase(fid)
 
 func _session_by_fid(fid: String) -> Variant:
 	for pid in _session:
@@ -314,9 +324,26 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, "")}
 		_pending_ability[pid] = ""
 	Sim.sim_tick(w, SIM_DT)
+	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)
 	for f in w["fighters"]:                       # queue the dead for respawn (instant for the dummy)
 		if not f["alive"] and not _respawn.has(f["id"]):
 			_respawn[f["id"]] = 0.0 if f.get("dummy", false) else RESPAWN_DELAY
+
+# heal living players toward max HP; fast on safe maps, slow + delayed-after-damage on combat maps
+func _apply_regen(w: Dictionary) -> void:
+	var rate := float(w.get("regen", 0.0))
+	if rate <= 0.0:
+		return
+	var now := Time.get_ticks_msec()
+	for ev in w["events"]:                        # any fighter hit this tick resets its regen timer
+		if ev.get("type") == "dmg":
+			_last_hurt[ev.get("tgt", "")] = now
+	var delay_ms := int(float(w.get("regenDelay", 0.0)) * 1000.0)
+	for f in w["fighters"]:
+		if f["team"] != 0 or not f["alive"] or f["hp"] >= f["maxHP"]:
+			continue
+		if now - int(_last_hurt.get(f["id"], 0)) >= delay_ms:
+			f["hp"] = minf(f["maxHP"], f["hp"] + f["maxHP"] * rate * SIM_DT)
 
 func _advance_respawns(dt: float) -> void:
 	var done := []
@@ -351,6 +378,8 @@ func _portal_teleport(f, s, portal) -> void:
 	f["x"] = float(portal["tx"])
 	f["y"] = float(portal["ty"])
 	f["map"] = to_map
+	f["arenaW"] = int(_worlds[to_map].get("arenaW", GameData.ARENA_W))   # adopt the destination world's bounds
+	f["arenaH"] = int(_worlds[to_map].get("arenaH", GameData.ARENA_H))
 	_worlds[to_map]["fighters"].append(f)
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])    # respawn at the arrival point in the new world
 	s["map"] = to_map
@@ -360,10 +389,11 @@ func _portal_teleport(f, s, portal) -> void:
 # the training dummy is always frozen — it never moves or attacks (just takes hits).
 func _update_mob_ai(w: Dictionary) -> void:
 	var frozen := {}
+	var aggro_on := bool(w.get("aggro", true))   # safe maps never aggro/chase
 	for f in w["fighters"]:
 		if f["team"] != 1:
 			continue
-		if f.get("dummy", false):
+		if f.get("dummy", false) or not aggro_on:
 			frozen[f["id"]] = true
 			continue
 		var here := Vector2(f["x"], f["y"])
@@ -663,4 +693,5 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
 			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
 	return {"fighters": fs, "projectiles": ps, "events": w["events"].duplicate(true), "t": w["t"],
-		"map": mapname, "portals": World.portals_for(mapname)}
+		"map": mapname, "portals": World.portals_for(mapname),
+		"arenaW": int(w.get("arenaW", GameData.ARENA_W)), "arenaH": int(w.get("arenaH", GameData.ARENA_H))}

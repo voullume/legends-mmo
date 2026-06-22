@@ -8,8 +8,12 @@ static func dist(a: Dictionary, b: Dictionary) -> float:
 	return Vector2(a["x"] - b["x"], a["y"] - b["y"]).length()
 
 static func clamp_arena(f: Dictionary) -> void:
-	f["x"] = clampf(f["x"], float(GameData.ARENA_PAD), float(GameData.ARENA_W - GameData.ARENA_PAD))
-	f["y"] = clampf(f["y"], float(GameData.ARENA_PAD), float(GameData.ARENA_H - GameData.ARENA_PAD))
+	# Per-map bounds: a fighter carries its world's size (arenaW/arenaH); falls back to the global
+	# arena for the local practice mode. Lets each map (home vs the bigger combat zone) differ in size.
+	var w: float = float(f.get("arenaW", GameData.ARENA_W))
+	var h: float = float(f.get("arenaH", GameData.ARENA_H))
+	f["x"] = clampf(f["x"], float(GameData.ARENA_PAD), w - float(GameData.ARENA_PAD))
+	f["y"] = clampf(f["y"], float(GameData.ARENA_PAD), h - float(GameData.ARENA_PAD))
 
 # A segment from (x1,y1)->(x2,y2) is blocked if it passes within (o.r + pad) of rig o.
 static func seg_blocked(x1: float, y1: float, x2: float, y2: float, o: Dictionary, pad := 6.0) -> bool:
