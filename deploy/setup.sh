@@ -27,11 +27,14 @@ echo "==> [1/5] Docker"
 command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
 
 echo "==> [2/5] Code"
-if [ -n "$REPO_URL" ]; then
-  command -v git >/dev/null 2>&1 || { apt-get update -y && apt-get install -y git; }
-  if [ -d "$APP_DIR/.git" ]; then git -C "$APP_DIR" pull --ff-only; else git clone --depth 1 "$REPO_URL" "$APP_DIR"; fi
+command -v git >/dev/null 2>&1 || { apt-get update -y && apt-get install -y git; }
+if [ -d "$APP_DIR/.git" ]; then
+  # re-deploy: update to the latest main from the already-configured remote (no REPO_URL needed)
+  git -C "$APP_DIR" fetch --depth 1 origin main && git -C "$APP_DIR" reset --hard origin/main
+elif [ -n "$REPO_URL" ]; then
+  git clone --depth 1 "$REPO_URL" "$APP_DIR"
 fi
-[ -f "$APP_DIR/Dockerfile" ] || { echo "ERROR: no code at $APP_DIR — set REPO_URL, or upload the repo there first."; exit 1; }
+[ -f "$APP_DIR/Dockerfile" ] || { echo "ERROR: no code at $APP_DIR — set REPO_URL (first run), or upload the repo there."; exit 1; }
 cd "$APP_DIR"
 
 # Resolve the service key: use the env var if given (and remember it), else reuse a saved one.
