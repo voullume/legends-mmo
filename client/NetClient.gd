@@ -53,6 +53,8 @@ var _shop_root: Node3D = null # the 3D shop pad visual
 var _shop_sig := ""
 var _shop_hint: Label = null  # "Press B to shop" proximity prompt
 var _near_shop := false
+var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
+var _sell_confirm: Panel = null
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -253,6 +255,8 @@ func _toggle_shop() -> void:
 	if _shop_panel.visible:
 		_render_shop_buy()
 		_load_shop_sell()
+	else:
+		_close_sell_confirm()
 
 func _my_credits() -> int:
 	var pf = _find_fighter(_player_id)
@@ -286,15 +290,19 @@ func _load_shop_sell() -> void:
 		return
 	var items: Array = r.get("items", [])
 	var sell: Dictionary = _shop_info.get("sell", {})
+	_shop_sell_cache.clear()
 	var lines := ["[b]SELL[/b]   [color=#7f93a8]click to sell[/color]\n"]
 	if items.is_empty():
 		lines.append("[color=#7f93a8]nothing to sell — go earn some loot[/color]")
 	for it in items:
-		var col: String = RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
-		var price: int = int(sell.get(str(it.get("rarity", "common")), 0))
+		var iid: String = str(it.get("id", ""))
+		var rar: String = str(it.get("rarity", "common"))
+		var col: String = RARITY_COLORS.get(rar, "#cfd6df")
+		var price: int = int(sell.get(rar, 0))
 		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
+		_shop_sell_cache[iid] = {"name": str(it.get("name", "?")), "rarity": rar, "price": price}
 		lines.append("[url=sell|%s][color=%s]%s[/color][/url]%s [color=#7f93a8](%s)[/color] — [color=#ffd24d]%d[/color]" % [
-			str(it.get("id", "")), col, _esc(str(it.get("name", "?"))), eq, str(it.get("slot", "")), price])
+			iid, col, _esc(str(it.get("name", "?"))), eq, str(it.get("slot", "")), price])
 	_shop_sell_lbl.text = "\n".join(lines)
 
 func _on_shop_meta(meta) -> void:
@@ -310,7 +318,43 @@ func _on_shop_meta(meta) -> void:
 				net.shop_roll.rpc_id(1, p[1])
 		"sell":
 			if p.size() >= 2:
-				net.shop_sell.rpc_id(1, p[1])
+				_show_sell_confirm(p[1])        # confirm before selling (avoid mis-clicks)
+
+func _show_sell_confirm(item_id: String) -> void:
+	var info = _shop_sell_cache.get(item_id)
+	if info == null:
+		return
+	_close_sell_confirm()
+	_sell_confirm = Panel.new()
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	_sell_confirm.add_child(vb)
+	var lbl := Label.new()
+	lbl.text = "Sell %s (%s) for ◈%d?" % [str(info["name"]), str(info["rarity"]), int(info["price"])]
+	vb.add_child(lbl)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	vb.add_child(row)
+	var yes := Button.new()
+	yes.text = "Sell"
+	yes.pressed.connect(func() -> void:
+		if net != null and _connected:
+			net.shop_sell.rpc_id(1, item_id)
+		_close_sell_confirm())
+	row.add_child(yes)
+	var no := Button.new()
+	no.text = "Cancel"
+	no.pressed.connect(_close_sell_confirm)
+	row.add_child(no)
+	_hud.add_child(_sell_confirm)
+	_sell_confirm.reset_size()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_sell_confirm.position = Vector2((vp.x - _sell_confirm.size.x) / 2.0, vp.y / 2.0 - 40.0)
+
+func _close_sell_confirm() -> void:
+	if _sell_confirm != null:
+		_sell_confirm.queue_free()
+		_sell_confirm = null
 
 # the gold shop pad in the home base + the "press B" proximity prompt
 func _render_shop_pad() -> void:
@@ -379,6 +423,7 @@ func _update_shop_proximity() -> void:
 		_shop_hint.visible = false
 	if not _near_shop and _shop_panel != null and _shop_panel.visible:
 		_shop_panel.visible = false                  # walked away → close the shop
+		_close_sell_confirm()
 
 # ---- admin tool (only the admin account ever receives recv_admin) ----
 func recv_admin(on: bool) -> void:
@@ -526,25 +571,36 @@ func _update_focus() -> void:
 	var t = _find_fighter(_focus_id) if _focus_id != "" else null
 	if t != null:
 		_focus_marker.visible = true
-		_focus_marker.position = _world(t) + Vector3(0.0, 0.08, 0.0)
+		_focus_marker.position = _world(t) + Vector3(0.0, 0.09, 0.0)
+		_focus_marker.scale = Vector3.ONE * _ring_pulse()
 	else:
 		_focus_marker.visible = false
+
+func _ring_pulse() -> float:
+	return 1.0 + 0.09 * sin(Time.get_ticks_msec() / 1000.0 * 5.0)   # gentle in/out so it draws the eye
 
 func _make_focus_marker() -> Node3D:
 	if _world_root == null:
 		return null
+	return _make_target_ring(Color(1.0, 0.32, 0.26))   # enemy target = red, encircling the base disc
+
+# a bright flat ring that sits AROUND the fighter's base disc (radius ~1.25) so it reads at a glance
+func _make_target_ring(col: Color) -> Node3D:
+	if _world_root == null:
+		return null
 	var m := MeshInstance3D.new()
 	var torus := TorusMesh.new()
-	torus.inner_radius = 0.55
-	torus.outer_radius = 0.80
+	torus.inner_radius = 1.28
+	torus.outer_radius = 1.62
+	torus.rings = 6
 	m.mesh = torus
 	m.rotation_degrees.x = 90.0                  # lay the ring flat on the ground
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = Color(1.0, 0.42, 0.32)
+	mat.albedo_color = col
 	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.42, 0.32)
-	mat.emission_energy_multiplier = 2.2
+	mat.emission = col
+	mat.emission_energy_multiplier = 4.0
 	m.material_override = mat
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	m.visible = false
@@ -562,7 +618,8 @@ func _update_party() -> void:
 		var t = _find_fighter(_friend_id) if _friend_id != "" else null
 		_friend_marker.visible = t != null
 		if t != null:
-			_friend_marker.position = _world(t) + Vector3(0.0, 0.06, 0.0)
+			_friend_marker.position = _world(t) + Vector3(0.0, 0.07, 0.0)
+			_friend_marker.scale = Vector3.ONE * _ring_pulse()
 
 func _in_party(fid: String) -> bool:
 	for m in _party:
@@ -651,25 +708,7 @@ func _cycle_friend() -> void:
 	_friend_id = ids[(cur + 1) % ids.size()] if cur >= 0 else ids[0]
 
 func _make_friend_marker() -> Node3D:
-	if _world_root == null:
-		return null
-	var m := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.55
-	torus.outer_radius = 0.80
-	m.mesh = torus
-	m.rotation_degrees.x = 90.0
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_color = Color(0.35, 0.95, 0.5)
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.95, 0.5)
-	mat.emission_energy_multiplier = 2.2
-	m.material_override = mat
-	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	m.visible = false
-	_world_root.add_child(m)
-	return m
+	return _make_target_ring(Color(0.35, 0.95, 0.5))   # ally heal/buff target = green
 
 # the OTHER player nearest the cursor in screen space (for click-to-invite)
 func _player_under_cursor() -> Dictionary:
@@ -866,8 +905,13 @@ func _unhandled_input(e: InputEvent) -> void:
 				_inv_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _sell_confirm != null:
+				_close_sell_confirm()
+				get_viewport().set_input_as_handled()
+				return
 			elif _shop_panel != null and _shop_panel.visible:
 				_shop_panel.visible = false
+				_close_sell_confirm()
 				get_viewport().set_input_as_handled()
 				return
 			elif _invite_prompt != null or _invite_popup != null:
