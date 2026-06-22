@@ -36,6 +36,7 @@ var _friend_marker: Node3D = null
 var _party := []             # party roster from the snapshot (live HP)
 var _party_panel: VBoxContainer = null
 var _party_frames := []      # [{root, fid, fill, name}]
+var _leave_btn: Button = null
 var _invite_popup: Panel = null      # "Invite <name>?" after clicking a player
 var _invite_prompt: Panel = null     # an incoming invite (accept/decline)
 var _invite_from_fid := ""
@@ -386,6 +387,13 @@ func _sync_party_panel() -> void:
 		_party_panel.add_theme_constant_override("separation", 4)
 		_party_panel.position = Vector2(12.0, 150.0)
 		_hud.add_child(_party_panel)
+		_leave_btn = Button.new()
+		_leave_btn.text = "Leave Party"
+		_leave_btn.pressed.connect(func() -> void:
+			if net != null and _connected:
+				net.party_leave.rpc_id(1)
+			_friend_id = "")
+		_party_panel.add_child(_leave_btn)
 	var fids := []
 	for m in _party:
 		fids.append(str(m["fid"]))
@@ -398,6 +406,8 @@ func _sync_party_panel() -> void:
 		_party_frames.clear()
 		for fid in fids:
 			_party_frames.append(_make_party_frame(fid))
+		_party_panel.move_child(_leave_btn, _party_panel.get_child_count() - 1)   # keep it at the bottom
+	_leave_btn.visible = _party.size() > 0           # only while actually in a party
 	for i in _party_frames.size():
 		var m = _party[i]
 		var fr = _party_frames[i]
