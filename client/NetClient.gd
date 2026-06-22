@@ -25,6 +25,8 @@ var _chatting := false       # typing in the chat box (suppresses movement/abili
 var _chat_log: RichTextLabel
 var _chat_input: LineEdit
 var _chat_lines := []
+var _chat_idle := 0.0        # seconds since the last chat/loot line — the log fades out after CHAT_FADE_AFTER
+const CHAT_FADE_AFTER := 20.0
 var _inv_panel: Control
 var _inv_label: RichTextLabel
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
@@ -83,6 +85,17 @@ func _on_chat_submit(text: String) -> void:
 		net.send_chat.rpc_id(1, msg)
 	_close_chat()
 
+# the chat/loot log fades out after CHAT_FADE_AFTER seconds of no new line (and while not typing)
+func _update_chat_fade(delta: float) -> void:
+	if _chat_log == null:
+		return
+	if _chatting:
+		_chat_idle = 0.0
+	else:
+		_chat_idle += delta
+	var target := 0.0 if _chat_idle > CHAT_FADE_AFTER else 1.0
+	_chat_log.modulate.a = lerpf(_chat_log.modulate.a, target, clampf(delta * 2.5, 0.0, 1.0))
+
 func recv_chat(sender: String, text: String) -> void:
 	print("[chat] %s: %s" % [sender, text])
 	# escape user-supplied brackets so they can't inject BBCode into the log
@@ -90,6 +103,8 @@ func recv_chat(sender: String, text: String) -> void:
 	if _chat_lines.size() > 9:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
 	_chat_log.text = "\n".join(_chat_lines)
+	_chat_idle = 0.0                              # new line → pop the log back up
+	_chat_log.modulate.a = 1.0
 
 func _esc(s: String) -> String:
 	return s.replace("[", "[lb]")
@@ -175,6 +190,8 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 	if _chat_lines.size() > 9:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
 	_chat_log.text = "\n".join(_chat_lines)
+	_chat_idle = 0.0                              # new line → pop the log back up
+	_chat_log.modulate.a = 1.0
 	if _inv_panel.visible:
 		_load_inventory()
 
@@ -193,6 +210,7 @@ func _auto_equip() -> void:                          # debug: equip the first lo
 func _physics_process(_delta: float) -> void:
 	if _player == null or _player_id == "":
 		return
+	_update_chat_fade(_delta)
 	if _chat_grace > 0:
 		_chat_grace -= 1
 	if _chatting or _chat_grace > 0:

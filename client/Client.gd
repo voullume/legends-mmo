@@ -136,7 +136,10 @@ func _load_meshy() -> void:
 		for cn in ["idle", "run", "walk", "attack", "hit", "death", "throw", "kick", "cast"]:
 			var p := "res://models/meshy/clips/%s_%s.res" % [prefix, cn]
 			if ResourceLoader.exists(p):
-				entry["clips"][cn] = load(p)
+				var clip: Animation = load(p)
+				if cn in ["idle", "run", "walk"]:        # cyclic clips shipped as LOOP_NONE → make them loop
+					clip.loop_mode = Animation.LOOP_LINEAR  # smooth cycle (no freeze/pop at the end of each stride)
+				entry["clips"][cn] = clip
 		if entry["clips"].has("idle") and entry["clips"].has("attack"):
 			_meshy[sport] = entry
 	print("[client] Meshy characters loaded: ", _meshy.keys(), " (", _meshy.size(), "/4 sports)")
