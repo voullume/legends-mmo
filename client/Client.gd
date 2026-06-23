@@ -351,8 +351,9 @@ func _spawn(f: Dictionary) -> void:
 	ring.mesh = rcyl
 	ring.position.y = 0.05
 	var ring_col: Color = TEAM_COLOR[f["team"]]
-	if bool(_state.get("pvp", false)) and int(f["team"]) == 0 and str(f["id"]) != _player_id:
-		ring_col = Color(1.0, 0.4, 0.4)              # a hostile player in a PvP (FFA) zone reads red
+	var lpf = _find_fighter(_player_id)
+	if lpf != null and _hostile_pair(lpf, f):
+		ring_col = Color(1.0, 0.4, 0.4)              # a hostile (non-party) player in a PvP zone reads red
 	var rmat := _mat(ring_col)
 	rmat.emission_enabled = true
 	rmat.emission = ring_col
@@ -693,7 +694,8 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 			label.text = "Lv %d" % lvl
 			label.modulate = Color(0.92, 0.82, 0.6)
 	elif f.has("level"):
-		var hostile: bool = bool(_state.get("pvp", false)) and str(f["id"]) != _player_id
+		var lpf = _find_fighter(_player_id)
+		var hostile: bool = lpf != null and _hostile_pair(lpf, f)
 		label.text = ("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))
 		label.modulate = Color(1.0, 0.45, 0.45) if hostile else Color(0.6, 0.85, 1.0)
 	elif label.text != "":
@@ -815,13 +817,23 @@ func _find_fighter(id) -> Variant:
 			return f
 	return null
 
+# is fighter b hostile to fighter a? Mirrors the server's Combat.is_hostile (cross-team always; in a
+# PvP zone two players are hostile unless they share a non-empty party key, both carried in snapshots).
+func _hostile_pair(a: Dictionary, b: Dictionary) -> bool:
+	if str(a["id"]) == str(b["id"]):
+		return false
+	if int(a.get("team", 0)) != int(b.get("team", 0)):
+		return true
+	if not bool(_state.get("pvp", false)) or int(a.get("team", 0)) != 0:
+		return false
+	var pa := str(a.get("party", ""))
+	return pa == "" or pa != str(b.get("party", ""))   # hostile unless same non-empty party
+
 func _enemy_dir(f: Dictionary) -> Vector2:
 	var best = null
 	var bd := INF
-	var pvp := bool(_state.get("pvp", false))
 	for e in _state["fighters"]:
-		var hostile: bool = e["team"] != f["team"] or (pvp and int(e["team"]) == 0 and str(e["id"]) != str(f["id"]))
-		if hostile and e["alive"]:
+		if _hostile_pair(f, e) and e["alive"]:
 			var d := Geom.dist(f, e)
 			if d < bd:
 				bd = d

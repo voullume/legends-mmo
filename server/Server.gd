@@ -409,6 +409,22 @@ func _party_leave(pid: int) -> void:
 			rest.append(m)
 	_party_set(rest)                              # rebuild the remainder (disbands at < 2)
 
+# a stable party key shared by all members (sorted member fids); "" = solo. Stamped on each player
+# fighter every tick so the deterministic engine's is_hostile/is_ally can treat party-mates as allies
+# (and everyone else as hostile) in a PvP zone.
+func _party_key(pid: int) -> String:
+	if not _session.has(pid):
+		return ""
+	var party: Array = _session[pid]["party"]
+	if party.size() < 2:
+		return ""
+	var fids := []
+	for m in party:
+		if _session.has(m):
+			fids.append(str(_session[m]["fid"]))
+	fids.sort()
+	return ",".join(fids)
+
 # the party roster for a player's snapshot: live HP so the HUD frames stay current
 func _party_roster(pid: int) -> Array:
 	var out := []
@@ -604,6 +620,9 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		if str(_session[pid].get("map", World.HOME)) != mapname:
 			continue
 		var fid: String = _session[pid]["fid"]
+		var pfr = _find(fid)
+		if pfr != null:
+			pfr["party"] = _party_key(pid)            # party-aware PvP hostility (read by Sim.sim_tick below)
 		_intent_age[pid] = int(_intent_age.get(pid, 0)) + 1
 		var mv = _move.get(pid, {"mx": 0.0, "my": 0.0})
 		var mx: float = mv["mx"]
@@ -646,7 +665,12 @@ func _advance_respawns(dt: float) -> void:
 			done.append(id)
 	for id in done:
 		_respawn.erase(id)
-		_revive(_find(id))
+		var f = _find(id)
+		if f != null and f["team"] == 0 and bool(_worlds.get(str(f["map"]), {}).get("pvp", false)):
+			var s = _session_by_fid(id)               # died in a PvP zone → respawn at the home safe zone
+			if s != null:
+				_relocate(f, s, World.HOME, World.HOME_SPAWN)
+		_revive(f)
 
 # step into a portal pad → move the player's fighter to the other world at the pad's destination
 func _check_portals() -> void:
@@ -1291,6 +1315,8 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				"x": f["x"], "y": f["y"], "hp": f["hp"], "maxHP": f["maxHP"],
 				"alive": f["alive"], "flash": f["flash"], "cds": f["cds"].duplicate(),
 			}
+			if str(f.get("party", "")) != "":         # party key → client mirrors party-aware hostility
+				d["party"] = str(f["party"])
 			if pinfo.has(f["id"]):
 				var pi = pinfo[f["id"]]
 				d["level"] = pi["level"]

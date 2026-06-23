@@ -96,11 +96,12 @@ static func sim_tick(state, dt) -> void:
 		if d <= step + 14:
 			var src = _find_fighter(state, p["owner"])
 			if src != null:
-				Combat.deal_damage(state, src, tgt, p["dmg"], {"projectile": true, "basic": p.get("basic", false), "key": p["key"]})
-				if p.get("stun", null) != null: tgt["stun"] = max(tgt["stun"], p["stun"])
-				if p.get("slow", null) != null:
-					tgt["slowT"] = p["slow"]["dur"]
-					tgt["slowAmt"] = p["slow"]["amt"]
+				if Combat.is_hostile(state, src, tgt):   # re-check at impact (target may have joined the party mid-flight)
+					Combat.deal_damage(state, src, tgt, p["dmg"], {"projectile": true, "basic": p.get("basic", false), "key": p["key"]})
+					if p.get("stun", null) != null: tgt["stun"] = max(tgt["stun"], p["stun"])
+					if p.get("slow", null) != null:
+						tgt["slowT"] = p["slow"]["dur"]
+						tgt["slowAmt"] = p["slow"]["amt"]
 				if p.get("teamShieldPct", null) != null:
 					for a in fighters:
 						if (a["id"] == src["id"] or Combat.is_ally(state, src, a)) and a["alive"]:
@@ -176,7 +177,7 @@ static func sim_tick(state, dt) -> void:
 				var ctgt: Variant = null
 				if f["casting"].has("targetId") and f["casting"]["targetId"] != null:
 					ctgt = _find_fighter(state, f["casting"]["targetId"])
-				if ab["type"] == "melee" and ctgt != null and ctgt["alive"] and Geom.dist(f, ctgt) < ab["range"] + 30:
+				if ab["type"] == "melee" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt) and Geom.dist(f, ctgt) < ab["range"] + 30:
 					Combat.deal_damage(state, f, ctgt, ab["dmg"], {"melee": true, "key": ab["key"]})
 					if ab.has("knockback"):
 						var kd = Vector2(ctgt["x"] - f["x"], ctgt["y"] - f["y"]).length()
@@ -194,9 +195,9 @@ static func sim_tick(state, dt) -> void:
 								e["x"] += ((e["x"] - f["x"]) / kd) * ab["knockback"]
 								e["y"] += ((e["y"] - f["y"]) / kd) * ab["knockback"]
 								Geom.clamp_arena(e)
-				elif ab["type"] == "dashAttack" and ctgt != null and ctgt["alive"]:
+				elif ab["type"] == "dashAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):
 					Abilities.exec_dash_attack(state, f, ctgt, ab)
-				elif ab["type"] == "leapAttack" and ctgt != null and ctgt["alive"]:
+				elif ab["type"] == "leapAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):
 					Combat.deal_damage(state, f, ctgt, ab["dmg"], {"melee": true, "airborne": ab.get("airborne", false), "key": ab["key"]})
 				f["casting"] = null
 			continue

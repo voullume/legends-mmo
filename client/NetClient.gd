@@ -896,13 +896,6 @@ func _send_movement() -> void:
 	elif net != null and _connected:
 		net.submit_intent.rpc_id(1, mv)
 
-# is this fighter hostile to me? (mirrors the server's Combat.is_hostile: cross-team always, plus
-# any other player in a PvP zone). _player_id is excluded by callers.
-func _hostile_to_me(f: Dictionary, pf: Dictionary, pvp: bool) -> bool:
-	if int(f.get("team", 0)) != int(pf.get("team", 0)):
-		return true
-	return pvp and int(f.get("team", 0)) == 0
-
 # Tab-target: sticky cycle through alive enemies, nearest-first. Holds the chosen target until Tab
 # (next), Esc (clear), or it dies/leaves (cleared in _update_focus).
 func _cycle_focus() -> void:
@@ -910,11 +903,10 @@ func _cycle_focus() -> void:
 	if pf == null:
 		return
 	var enemies := []
-	var pvp := bool(_state.get("pvp", false))
 	for f in _state.get("fighters", []):
 		if str(f["id"]) == _player_id or not bool(f.get("alive", true)):
 			continue
-		if _hostile_to_me(f, pf, pvp):              # in a PvP zone, other players are valid targets too
+		if _hostile_pair(pf, f):                     # team enemies + non-party players in a PvP zone
 			enemies.append(f)
 	if enemies.is_empty():
 		_focus_id = ""
@@ -1088,12 +1080,8 @@ func _player_under_cursor() -> Dictionary:
 	var mp: Vector2 = _hud.get_viewport().get_mouse_position()
 	var best := {}
 	var bestd := 54.0
-	var pf = _find_fighter(_player_id)
-	var pvp := bool(_state.get("pvp", false))
 	for f in _state.get("fighters", []):
 		if int(f.get("team", 0)) != 0 or str(f["id"]) == _player_id or not _nodes.has(f["id"]):
-			continue
-		if pf != null and _hostile_to_me(f, pf, pvp):    # don't offer to party an FFA opponent
 			continue
 		var wp: Vector3 = _world(f) + Vector3(0.0, 1.0, 0.0)
 		if _cam.is_position_behind(wp):

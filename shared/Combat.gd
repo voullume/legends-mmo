@@ -16,16 +16,20 @@ static func _find(fighters: Array, id) -> Variant:
 	return null
 
 # --- hostility (PvP) ---------------------------------------------------------------------------
-# PvE: cross-team = enemy, same-team = ally. In a PvP zone (state.pvp), ALL players (team 0) are
-# mutually hostile (free-for-all) and NOT allies — mobs (team 1) are unaffected, and safe zones
-# (no pvp flag) are unchanged. The balance harness (create_match, no "pvp" key) keeps pure
-# team-vs-team behaviour, so PvE balance/determinism are byte-identical.
+# PvE: cross-team = enemy, same-team = ally. In a PvP zone (state.pvp), players (team 0) are hostile
+# to each other UNLESS they share a party (party-based PvP: party-mates can't hit each other and CAN
+# support each other; everyone else is an enemy). Mobs (team 1) are unaffected, and safe zones (no
+# pvp flag) are unchanged. The balance harness (create_match, no "pvp" key) keeps pure team-vs-team,
+# so PvE balance/determinism are byte-identical. The party key is stamped on each player fighter by
+# the server (Server._party_key); absent/"" means solo (hostile to everyone).
 static func is_hostile(state, a, b) -> bool:
 	if a["id"] == b["id"]:
 		return false                                 # never hostile to yourself
 	if a["team"] != b["team"]:
 		return true                                  # players↔mobs (and any cross-team) always fight
-	return a["team"] == 0 and bool(state.get("pvp", false))   # same team 0 in a PvP zone → enemies
+	if a["team"] == 0 and bool(state.get("pvp", false)):
+		return not _same_party(a, b)                 # two players in a PvP zone: hostile unless same party
+	return false
 
 static func is_ally(state, a, b) -> bool:
 	if a["id"] == b["id"]:
@@ -33,8 +37,12 @@ static func is_ally(state, a, b) -> bool:
 	if a["team"] != b["team"]:
 		return false
 	if a["team"] == 0 and bool(state.get("pvp", false)):
-		return false                                 # two players in a PvP zone are not allies
+		return _same_party(a, b)                      # in a PvP zone, allies only within the same party
 	return true
+
+static func _same_party(a, b) -> bool:
+	var pa := str(a.get("party", ""))
+	return pa != "" and pa == str(b.get("party", ""))
 
 # effectiveDR — sum of all damage-reduction sources, capped at 0.75.
 static func effective_dr(t: Dictionary) -> float:
