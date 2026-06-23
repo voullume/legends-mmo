@@ -976,8 +976,22 @@ func _quest_lock(pid: int) -> bool:
 	_quest_next[pid] = now + 300
 	return true
 
+# quests are accepted / turned in only at the quest giver in the home base (an NPC interaction),
+# re-validated server-side: in HOME and within QUESTGIVER_RADIUS of the giver. (Reward RECOVERY on
+# reconnect goes through _grant_quest_rewards directly and is NOT gated by this.)
+func _at_questgiver(pid: int) -> bool:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return false
+	var f = _find(_session[pid]["fid"])
+	if f == null:
+		return false
+	return Vector2(f["x"] - World.QUESTGIVER_POS.x, f["y"] - World.QUESTGIVER_POS.y).length() <= World.QUESTGIVER_RADIUS
+
 func quest_action(pid: int, action: String, qid: String) -> void:
 	if not _quest_lock(pid):
+		return
+	if not _at_questgiver(pid):                    # must be standing at the home-base quest giver
+		_quest_busy.erase(pid)
 		return
 	if action == "accept":
 		await _do_quest_accept(pid, qid)
@@ -1244,8 +1258,9 @@ func _broadcast() -> void:
 			continue
 		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
 		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
-		if str(s["map"]) == World.HOME:           # the shop pad only exists in the home base
+		if str(s["map"]) == World.HOME:           # the shop pad + quest giver only exist in the home base
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
+			snap["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
 		net.receive_snapshot.rpc_id(pid, snap)
 	for mapname in _worlds:
 		_worlds[mapname]["events"].clear()

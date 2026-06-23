@@ -61,6 +61,12 @@ var _quest_panel: Control = null
 var _quest_label: RichTextLabel = null
 var _quest_tracker: VBoxContainer = null    # always-on HUD list of active quests
 var _quest_tracker_title: Label = null
+var _qgiver_panel: Control = null           # the home-base quest-giver dialog (accept / turn in)
+var _qgiver_label: RichTextLabel = null
+var _qgiver_root: Node3D = null             # the 3D quest-giver marker in the home base
+var _qgiver_sig := ""
+var _qgiver_hint: Label = null              # "Press E to talk" proximity prompt
+var _near_qgiver := false
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -72,6 +78,7 @@ func _enter_mode() -> void:
 	_build_inventory()
 	_build_shop()
 	_build_questlog()
+	_build_qgiver_dialog()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -236,7 +243,7 @@ func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void
 		if completed and (was == null or not bool(was.get("completed", false))):
 			_quest_toast("[color=#ffd24d]✔ Quest complete:[/color] %s" % _esc(str(q["name"])))
 		elif progress >= cnt and (was == null or int(was.get("progress", 0)) < cnt):
-			_quest_toast("[color=#9fe8a0]Quest ready to turn in:[/color] %s [color=#7f93a8](press J)[/color]" % _esc(str(q["name"])))
+			_quest_toast("[color=#9fe8a0]Quest ready to turn in:[/color] %s [color=#7f93a8](see the Quest Giver)[/color]" % _esc(str(q["name"])))
 	_refresh_quests()
 
 func _quest_toast(line: String) -> void:
@@ -251,6 +258,8 @@ func _refresh_quests() -> void:
 	_update_quest_tracker()
 	if _quest_panel != null and _quest_panel.visible:
 		_render_questlog()
+	if _qgiver_panel != null and _qgiver_panel.visible:
+		_render_qgiver()
 
 # the always-on HUD tracker (active quests + progress). Rebuilt only on a quest event, not per frame.
 func _update_quest_tracker() -> void:
@@ -313,14 +322,13 @@ func _build_questlog() -> void:
 	vb.add_theme_constant_override("separation", 8)
 	m.add_child(vb)
 	var t := Label.new()
-	t.text = "Quest Log   (J to close)"
+	t.text = "Quest Journal   (J to close)"
 	t.add_theme_font_size_override("font_size", 22)
 	vb.add_child(t)
 	_quest_label = RichTextLabel.new()
 	_quest_label.bbcode_enabled = true
 	_quest_label.scroll_active = true
 	_quest_label.custom_minimum_size = Vector2(520, 440)
-	_quest_label.meta_clicked.connect(_on_quest_meta)
 	vb.add_child(_quest_label)
 
 func _toggle_questlog() -> void:
@@ -332,6 +340,8 @@ func _toggle_questlog() -> void:
 			_inv_panel.visible = false
 		if _shop_panel != null:
 			_shop_panel.visible = false
+		if _qgiver_panel != null:
+			_qgiver_panel.visible = false
 		_render_questlog()
 
 func _render_questlog() -> void:
@@ -357,7 +367,7 @@ func _render_questlog() -> void:
 			else:
 				var prog := int(st.get("progress", 0))
 				if prog >= cnt:
-					active.append("[color=#9fe8a0]%s  (%d/%d)[/color]  [url=turnin|%s][color=#ffd24d][b][Turn In][/b][/color][/url]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, qid, desc])
+					active.append("[color=#9fe8a0]%s  (%d/%d) — ready, turn in at the Quest Giver[/color]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, desc])
 				else:
 					active.append("[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, desc])
 		else:
@@ -365,11 +375,11 @@ func _render_questlog() -> void:
 			var minl := int(q.get("min_level", 1))
 			var prereq_ok: bool = prereq == "" or (_quests.has(prereq) and bool(_quests[prereq].get("completed", false)))
 			if lvl >= minl and prereq_ok:
-				avail.append("[color=#dfe6f0]%s[/color]  [url=accept|%s][color=#9fe8a0][b][Accept][/b][/color][/url]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [nm, qid, desc, _reward_text(q)])
+				avail.append("[color=#dfe6f0]%s[/color]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [nm, desc, _reward_text(q)])
 			else:
 				var reason: String = ("needs lvl %d" % minl) if lvl < minl else ("requires: %s" % _esc(_prereq_name(prereq)))
 				locked.append("[color=#5a6472]🔒 %s  (%s)[/color]" % [nm, reason])
-	var out := []
+	var out := ["[color=#7f93a8]Accept & turn in quests at the [color=#ffd24d]Quest Giver[/color] in the Home Base (press E near it).[/color]\n"]
 	if not active.is_empty():
 		out.append("[b][color=#8ad6ff]Active[/color][/b]")
 		out.append_array(active)
@@ -382,7 +392,7 @@ func _render_questlog() -> void:
 	if not done.is_empty():
 		out.append("\n[b][color=#6b7686]Completed[/color][/b]")
 		out.append_array(done)
-	if out.is_empty():
+	if active.is_empty() and avail.is_empty() and locked.is_empty() and done.is_empty():
 		out.append("[color=#7f93a8]No quests available yet.[/color]")
 	_quest_label.text = "\n".join(out)
 
@@ -406,7 +416,159 @@ func _on_quest_meta(meta) -> void:
 		return
 	var p := str(meta).split("|")
 	if p.size() >= 2 and (p[0] == "accept" or p[0] == "turnin"):
-		net.quest_action.rpc_id(1, p[0], p[1])
+		net.quest_action.rpc_id(1, p[0], p[1])      # server re-validates you're at the home-base giver
+
+# ---- quest giver (home-base NPC: the ONLY place to accept / turn in; J is a read-only journal) ----
+func _build_qgiver_dialog() -> void:
+	_qgiver_panel = CenterContainer.new()
+	_qgiver_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_qgiver_panel.visible = false
+	_hud.add_child(_qgiver_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(560, 0)
+	_qgiver_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "📜 Quest Giver   (E to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_qgiver_label = RichTextLabel.new()
+	_qgiver_label.bbcode_enabled = true
+	_qgiver_label.scroll_active = true
+	_qgiver_label.custom_minimum_size = Vector2(520, 440)
+	_qgiver_label.meta_clicked.connect(_on_quest_meta)
+	vb.add_child(_qgiver_label)
+
+func _toggle_qgiver() -> void:
+	if _qgiver_panel == null:
+		return
+	_qgiver_panel.visible = not _qgiver_panel.visible
+	if _qgiver_panel.visible:
+		if _inv_panel != null:                       # only one full-screen panel at a time
+			_inv_panel.visible = false
+		if _shop_panel != null:
+			_shop_panel.visible = false
+		if _quest_panel != null:
+			_quest_panel.visible = false
+		_render_qgiver()
+
+func _render_qgiver() -> void:
+	if _qgiver_label == null:
+		return
+	var pf = _find_fighter(_player_id)
+	var lvl := int(pf.get("level", 1)) if pf != null else 1
+	var ready := []
+	var avail := []
+	var active := []
+	for qid in Quests.order():
+		var q = Quests.get_quest(qid)
+		if q == null:
+			continue
+		var cnt := int(q["objective"]["count"])
+		var nm: String = _esc(str(q["name"]))
+		var desc: String = _esc(str(q.get("desc", "")))
+		if _quests.has(qid):
+			var st = _quests[qid]
+			if bool(st.get("completed", false)):
+				continue
+			var prog := int(st.get("progress", 0))
+			if prog >= cnt:
+				ready.append("[url=turnin|%s][color=#ffd24d][b][Turn In][/b][/color][/url]  [color=#9fe8a0]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [qid, nm, _reward_text(q)])
+			else:
+				active.append("[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]" % [nm, prog, cnt])
+		else:
+			var prereq := str(q.get("prereq", ""))
+			var minl := int(q.get("min_level", 1))
+			var prereq_ok: bool = prereq == "" or (_quests.has(prereq) and bool(_quests[prereq].get("completed", false)))
+			if lvl >= minl and prereq_ok:
+				avail.append("[url=accept|%s][color=#9fe8a0][b][Accept][/b][/color][/url]  [color=#dfe6f0]%s[/color]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [qid, nm, desc, _reward_text(q)])
+	var out := []
+	if not ready.is_empty():
+		out.append("[b][color=#ffd24d]Ready to turn in[/color][/b]")
+		out.append_array(ready)
+	if not avail.is_empty():
+		out.append(("\n" if not ready.is_empty() else "") + "[b][color=#9fe8a0]Available[/color][/b]")
+		out.append_array(avail)
+	if not active.is_empty():
+		out.append("\n[b][color=#8ad6ff]In progress[/color][/b]")
+		out.append_array(active)
+	if out.is_empty():
+		out.append("[color=#7f93a8]Nothing for you right now — come back after you level up or finish a quest.[/color]")
+	_qgiver_label.text = "\n".join(out)
+
+# the blue quest-giver marker in the home base + the "press E" proximity prompt (mirrors the shop pad)
+func _render_questgiver_pad() -> void:
+	var qg = _state.get("questgiver")
+	var sig := JSON.stringify(qg)
+	if sig == _qgiver_sig:
+		return
+	_qgiver_sig = sig
+	if _qgiver_root != null:
+		_qgiver_root.queue_free()
+		_qgiver_root = null
+	if qg == null or _world_root == null:
+		return
+	_qgiver_root = Node3D.new()
+	_world_root.add_child(_qgiver_root)
+	var pos := Vector3((float(qg["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(qg["y"]) - _ah() / 2.0) * SCALE)
+	var pillar := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = World.QUESTGIVER_RADIUS * SCALE * 0.5
+	cyl.bottom_radius = World.QUESTGIVER_RADIUS * SCALE * 0.6
+	cyl.height = 2.6
+	pillar.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.5, 0.74, 1.0, 0.32)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(0.42, 0.66, 1.0)
+	mat.emission_energy_multiplier = 1.6
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	pillar.material_override = mat
+	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
+	_qgiver_root.add_child(pillar)
+	var lbl := Label3D.new()
+	lbl.text = "📜 Quest Giver"
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0016
+	lbl.font_size = 52
+	lbl.outline_size = 16
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	lbl.modulate = Color(0.72, 0.85, 1.0)
+	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
+	_qgiver_root.add_child(lbl)
+
+func _update_questgiver_proximity() -> void:
+	if _qgiver_hint == null:
+		_qgiver_hint = Label.new()
+		_qgiver_hint.add_theme_font_size_override("font_size", 18)
+		_qgiver_hint.modulate = Color(0.72, 0.85, 1.0)
+		_qgiver_hint.visible = false
+		_hud.add_child(_qgiver_hint)
+	var qg = _state.get("questgiver")
+	var pf = _find_fighter(_player_id)
+	_near_qgiver = false
+	if qg != null and pf != null:
+		var d := Vector2(float(pf["x"]) - float(qg["x"]), float(pf["y"]) - float(qg["y"])).length()
+		_near_qgiver = d <= World.QUESTGIVER_RADIUS
+	if _near_qgiver and (_qgiver_panel == null or not _qgiver_panel.visible):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_qgiver_hint.text = "Press [E] to talk to the Quest Giver"
+		_qgiver_hint.position = Vector2(vp.x / 2.0 - 140.0, vp.y - 180.0)
+		_qgiver_hint.visible = true
+	else:
+		_qgiver_hint.visible = false
+	if not _near_qgiver and _qgiver_panel != null and _qgiver_panel.visible:
+		_qgiver_panel.visible = false                  # walked away → close the dialog
 
 # ---- shop (home-zone economy: buy from a catalog, gamble a roll, sell inventory back) ----
 func recv_shop_info(info: Dictionary) -> void:
@@ -1022,6 +1184,8 @@ func _process(delta: float) -> void:
 	_update_party()
 	_render_shop_pad()
 	_update_shop_proximity()
+	_render_questgiver_pad()
+	_update_questgiver_proximity()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -1108,6 +1272,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_quest_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _qgiver_panel != null and _qgiver_panel.visible:
+				_qgiver_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _sell_confirm != null:
 				_close_sell_confirm()
 				get_viewport().set_input_as_handled()
@@ -1155,6 +1323,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_toggle_shop()                  # open/close the shop while on the home pad
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_E and not _chatting and (_near_qgiver or (_qgiver_panel != null and _qgiver_panel.visible)):
+			_toggle_qgiver()                # talk to the quest giver while near it
+			get_viewport().set_input_as_handled()
+			return
 	if e is InputEventMouseButton:
 		if e.button_index == MOUSE_BUTTON_RIGHT:
 			if e.pressed:
@@ -1192,7 +1364,7 @@ func _update_hud() -> void:
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
 	var zone := _zone_name(str(_state.get("map", "")))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#8ad6ff]◗ %s[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]J[/b] quests[/color]" % [
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#8ad6ff]◗ %s[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]J[/b] journal[/color]" % [
 		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), zone]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)

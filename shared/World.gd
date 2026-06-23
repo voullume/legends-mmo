@@ -33,6 +33,8 @@ const DUMMY_CLASS := "linebacker"            # a tanky punching bag
 const PORTAL_RADIUS := 42.0                  # stepping this close to a pad teleports you
 const SHOP_POS := Vector2(700, 150)          # the shop pad (home base only) — stand near it to open the shop
 const SHOP_RADIUS := 80.0
+const QUESTGIVER_POS := Vector2(250, 150)    # the quest giver (home base only) — stand near it to accept/turn in quests
+const QUESTGIVER_RADIUS := 80.0
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
 # Zone graph:  Home ↔ Combat,  Home ↔ Arena,  Combat ↔ Frontier  (Frontier sits past the Combat camps).
