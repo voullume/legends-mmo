@@ -859,7 +859,7 @@ func _build_admin_panel() -> void:
 		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
 		["God Mode", "god", {}], ["Heal", "heal", {}],
 		["→ Home", "goto", {"map": "home"}], ["→ Combat", "goto", {"map": "combat"}],
-		["→ Frontier", "goto", {"map": "frontier"}], ["→ Arena", "goto", {"map": "arena"}],
+		["→ Frontier", "goto", {"map": "frontier"}], ["→ Depths", "goto", {"map": "depths"}], ["→ Arena", "goto", {"map": "arena"}],
 		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}],
 	]
 	for c in cmds:
@@ -1478,5 +1478,6 @@ func _zone_name(map: String) -> String:
 		"home": return "Home Base"
 		"combat": return "Combat Zone"
 		"frontier": return "Frontier"
+		"depths": return "The Depths"
 		"arena": return "Arena"
 		_: return map.capitalize() if map != "" else "—"

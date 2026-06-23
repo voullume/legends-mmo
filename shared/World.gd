@@ -9,12 +9,14 @@ extends RefCounted
 const HOME := "home"
 const COMBAT := "combat"
 const FRONTIER := "frontier"               # higher-tier PvE zone (lvl 4-7 + a boss), gated behind Combat
+const DEPTHS := "depths"                    # endgame PvE zone (lvl 8-12 + a boss), gated behind the Frontier
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
 const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
 const COMBAT_SPAWN := Vector2(200, 540)      # the home portal drops you here (west, clear of the camps)
 const FRONTIER_SPAWN := Vector2(220, 620)    # the Combat→Frontier portal drops you here (west)
+const DEPTHS_SPAWN := Vector2(220, 650)      # the Frontier→Depths portal drops you here (west)
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
@@ -25,6 +27,7 @@ const MAPS := {
 	HOME:     {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12,  "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": HOME_SPAWN},
 	COMBAT:   {"type": "combat", "w": 1920, "h": 1080, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": COMBAT_SPAWN},
 	FRONTIER: {"type": "combat", "w": 2200, "h": 1240, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": FRONTIER_SPAWN},
+	DEPTHS:   {"type": "combat", "w": 2400, "h": 1300, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": DEPTHS_SPAWN},
 	ARENA:    {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 }
 
@@ -50,6 +53,11 @@ const PORTALS := {
 	FRONTIER: [
 		# arrive SE in Combat — clear of the lvl-3 elite camp at (1700,540) so you aren't instantly aggroed on return
 		{"x": 120.0,  "y": 620.0,  "to": COMBAT,   "tx": 1850.0, "ty": 900.0, "label": "▶ Combat Zone"},
+		# the Depths pad sits past the Frontier boss (far SE) — gated behind clearing the Frontier
+		{"x": 2120.0, "y": 980.0,  "to": DEPTHS,   "tx": 220.0,  "ty": 650.0, "label": "▶ The Depths"},
+	],
+	DEPTHS: [
+		{"x": 120.0,  "y": 650.0,  "to": FRONTIER, "tx": 1900.0, "ty": 1000.0, "label": "▶ Frontier"},
 	],
 	ARENA: [
 		{"x": 110.0,  "y": 400.0,  "to": HOME,     "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -74,6 +82,14 @@ const MOBS := {
 		{"class": "setter",      "level": 5, "tier": "minion", "x": 1080.0, "y": 860.0},
 		{"class": "batter",      "level": 6, "tier": "elite",  "x": 1600.0, "y": 640.0},
 		{"class": "goalkeeper",  "level": 7, "tier": "boss",   "x": 2000.0, "y": 640.0},
+	],
+	DEPTHS: [
+		{"class": "quarterback", "level": 8,  "tier": "minion", "x": 560.0,  "y": 430.0},
+		{"class": "spiker",      "level": 8,  "tier": "minion", "x": 560.0,  "y": 870.0},
+		{"class": "pitcher",     "level": 9,  "tier": "minion", "x": 1100.0, "y": 430.0},
+		{"class": "striker",     "level": 9,  "tier": "minion", "x": 1100.0, "y": 870.0},
+		{"class": "goalkeeper",  "level": 10, "tier": "elite",  "x": 1650.0, "y": 650.0},
+		{"class": "linebacker",  "level": 12, "tier": "boss",   "x": 2150.0, "y": 650.0},
 	],
 }
 

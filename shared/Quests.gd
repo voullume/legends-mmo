@@ -52,10 +52,34 @@ const QUESTS := {
 		"rewards": {"xp": 700, "credits": 350,
 			"item": {"name": "Keeper's Gauntlets", "rarity": "epic", "slot": "weapon", "bonus_stat": "PWR", "bonus_amt": 20}},
 	},
+	"depths_access": {
+		"name": "Descent into the Depths",
+		"desc": "Beyond the Frontier lies the Depths. Brave it and put down 6 of its denizens.",
+		"min_level": 8, "prereq": "frontier_boss",
+		"objective": {"type": "kill", "match": {"map": "depths"}, "count": 6},
+		"rewards": {"xp": 900, "credits": 400},
+	},
+	"depths_elites": {
+		"name": "Deep Cull",
+		"desc": "The Depths' elites guard its heart. Bring down 2 of them.",
+		"min_level": 9, "prereq": "depths_access",
+		"objective": {"type": "kill", "match": {"map": "depths", "tier": "elite"}, "count": 2},
+		"rewards": {"xp": 1100, "credits": 500,
+			"item": {"name": "Abyssal Charm", "rarity": "epic", "slot": "trinket", "bonus_stat": "CLU", "bonus_amt": 24}},
+	},
+	"depths_lord": {
+		"name": "The Deep Warden",
+		"desc": "Slay the Warden that rules the Depths — the toughest foe yet.",
+		"min_level": 10, "prereq": "depths_access",
+		"objective": {"type": "kill", "match": {"map": "depths", "tier": "boss"}, "count": 1},
+		"rewards": {"xp": 1500, "credits": 700,
+			"item": {"name": "Warden's Bulwark", "rarity": "epic", "slot": "armor", "bonus_stat": "END", "bonus_amt": 28}},
+	},
 }
 
 # stable display/iteration order (also the chain order)
-const ORDER := ["combat_intro", "combat_elite", "frontier_access", "frontier_elites", "frontier_boss"]
+const ORDER := ["combat_intro", "combat_elite", "frontier_access", "frontier_elites", "frontier_boss",
+	"depths_access", "depths_elites", "depths_lord"]
 
 static func order() -> Array:
 	return ORDER
