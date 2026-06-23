@@ -28,6 +28,8 @@ const BAR_H := 0.26
 const UI_Y := 3.6
 const DMG_NUM_Y := 4.4
 const HIT_Y := 1.7
+const SHAKE_MAX := 1.1                      # camera screen-shake cap (world units of jitter)
+const SHAKE_DECAY := 5.0                     # how fast a shake settles
 const RESPAWN_DELAY := 3.0
 const MAP_ID := "stadium"                 # open field; obstacle rendering supports any venue
 
@@ -77,6 +79,7 @@ var _field: MeshInstance3D
 var _arena_sig := ""
 var _proj_pool := []
 var _fx_active := []                       # {node, t, life, vel}
+var _shake := 0.0                          # current camera screen-shake magnitude (decays each frame)
 var _num_pool := []
 var _pop_pool := []
 
@@ -296,7 +299,12 @@ func _build_world() -> void:
 func _update_cam() -> void:
 	var dir := Vector3(cos(_pitch) * sin(_yaw), sin(_pitch), cos(_pitch) * cos(_yaw))
 	_cam.position = _focus + dir * _dist
+	if _shake > 0.001:                       # screen shake: jitter the camera, still aimed at the focus
+		_cam.position += Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5) * (_shake * 2.0)
 	_cam.look_at(_focus, Vector3.UP)
+
+func _add_shake(amt: float) -> void:
+	_shake = minf(SHAKE_MAX, _shake + amt)
 
 # ============================================================ match setup
 func _setup_match(player_class: String) -> void:
@@ -526,9 +534,25 @@ func _render_portals() -> void:
 
 func _handle_events() -> void:
 	for ev in _state["events"]:
-		if ev["type"] == "dmg":
-			_spawn_num(ev["tgt"], ev["amt"], ev["crit"])
-			_spawn_pop(ev["tgt"])
+		var t = ev.get("type", "")
+		if t == "dmg":
+			var tgt := str(ev["tgt"])
+			var crit := bool(ev["crit"])
+			var taken := tgt == _player_id                 # I got hit
+			var dealt := str(ev.get("src", "")) == _player_id   # I landed the hit
+			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
+			_spawn_pop(tgt, crit)
+			if taken:                                       # shake when I take damage (more for a big/crit hit)
+				var pf = _find_fighter(_player_id)
+				var frac: float = (float(ev["amt"]) / maxf(1.0, float(pf["maxHP"]))) if pf != null else 0.0
+				_add_shake(clampf(0.15 + frac * 2.4 + (0.12 if crit else 0.0), 0.0, SHAKE_MAX))
+		elif t == "kill":
+			var victim := str(ev["victim"])
+			_spawn_death(victim)
+			if str(ev.get("killer", "")) == _player_id:
+				_add_shake(0.35)                            # a satisfying thump on your kill
+			elif victim == _player_id:
+				_add_shake(SHAKE_MAX)                       # you died — full shake
 	_state["events"].clear()
 
 func _tick_respawns(dt: float) -> void:
@@ -702,7 +726,9 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 		label.text = ""
 
 # ============================================================ FX
-func _spawn_num(tgt_id, amt: int, crit: bool) -> void:
+# amt floater. `taken` = the local player got hit (red), `dealt` = the local player landed it
+# (white / gold crit); anyone else's combat shows dimmer + smaller so the screen doesn't clutter.
+func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false) -> void:
 	var f = _find_fighter(tgt_id)
 	if f == null:
 		return
@@ -720,15 +746,24 @@ func _spawn_num(tgt_id, amt: int, crit: bool) -> void:
 	else:
 		l = _num_pool.pop_back()
 	l.visible = true
-	l.text = str(amt)
-	l.modulate = (Color(1.0, 0.82, 0.3) if crit else Color(1, 1, 1))
-	l.scale = Vector3.ONE * (1.5 if crit else 1.0)
+	l.text = ("%d!" % amt) if crit else str(amt)
+	if taken:
+		l.modulate = Color(1.0, 0.36, 0.3)              # damage I take = red
+	elif dealt:
+		l.modulate = Color(1.0, 0.85, 0.35) if crit else Color(1.0, 1.0, 0.95)
+	else:
+		l.modulate = Color(0.78, 0.8, 0.86)             # someone else's hit = dim
+	var s := 1.0
+	if crit: s = 1.85
+	if taken: s *= 1.15
+	if not (taken or dealt): s *= 0.7
+	l.scale = Vector3.ONE * s
 	var pos := _world(f)
 	pos.y = DMG_NUM_Y
 	l.position = pos
-	_fx_active.append({"node": l, "t": 0.0, "life": 0.85, "vel": 2.6, "kind": "num"})
+	_fx_active.append({"node": l, "t": 0.0, "life": (1.0 if crit else 0.82), "vel": (3.2 if crit else 2.6), "kind": "num"})
 
-func _spawn_pop(tgt_id) -> void:
+func _spawn_pop(tgt_id, crit := false) -> void:
 	var f = _find_fighter(tgt_id)
 	if f == null:
 		return
@@ -745,20 +780,52 @@ func _spawn_pop(tgt_id) -> void:
 		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		mt.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		mt.albedo_color = Color(1, 0.95, 0.7)
 		p.material_override = mt
 		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_fx_root.add_child(p)
 	else:
 		p = _pop_pool.pop_back()
+	(p.material_override as StandardMaterial3D).albedo_color = Color(1, 0.95, 0.7)   # set per spawn (pool shared w/ death)
 	p.visible = true
 	var pos := _world(f)
 	pos.y = HIT_Y
 	p.position = pos
-	p.scale = Vector3.ONE * 0.5
-	_fx_active.append({"node": p, "t": 0.0, "life": 0.22, "vel": 0.0, "kind": "pop"})
+	p.scale = Vector3.ONE * (0.8 if crit else 0.5)
+	_fx_active.append({"node": p, "t": 0.0, "life": (0.32 if crit else 0.22), "vel": 0.0, "kind": "pop", "big": crit})
+
+# a bigger, redder burst when a fighter dies (driven by the kill event)
+func _spawn_death(tgt_id) -> void:
+	var f = _find_fighter(tgt_id)
+	if f == null:
+		return
+	var p: MeshInstance3D
+	if _pop_pool.is_empty():
+		p = MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.45
+		sm.height = 0.9
+		sm.radial_segments = 8
+		sm.rings = 5
+		p.mesh = sm
+		var mt := StandardMaterial3D.new()
+		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mt.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		p.material_override = mt
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_fx_root.add_child(p)
+	else:
+		p = _pop_pool.pop_back()
+	(p.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.5, 0.35)
+	p.visible = true
+	var pos := _world(f)
+	pos.y = HIT_Y
+	p.position = pos
+	p.scale = Vector3.ONE * 0.6
+	_fx_active.append({"node": p, "t": 0.0, "life": 0.5, "vel": 0.0, "kind": "death"})
 
 func _update_fx(delta: float) -> void:
+	_shake = maxf(0.0, _shake - delta * SHAKE_DECAY)
 	var keep := []
 	for fx in _fx_active:
 		fx["t"] += delta
@@ -774,8 +841,11 @@ func _update_fx(delta: float) -> void:
 		if fx["kind"] == "num":
 			node.position.y += fx["vel"] * delta
 			(node as Label3D).modulate.a = 1.0 - k
+		elif fx["kind"] == "death":
+			node.scale = Vector3.ONE * (0.6 + k * 6.0)       # big expanding burst
+			(node.material_override as StandardMaterial3D).albedo_color.a = 1.0 - k
 		else:
-			var s: float = 0.5 + k * 2.4
+			var s: float = (0.5 + k * 2.4) * (1.7 if fx.get("big", false) else 1.0)
 			node.scale = Vector3.ONE * s
 			(node.material_override as StandardMaterial3D).albedo_color.a = 1.0 - k
 		keep.append(fx)
