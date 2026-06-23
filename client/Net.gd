@@ -119,6 +119,22 @@ func recv_shop_info(info: Dictionary) -> void:
 	if client != null:
 		client.recv_shop_info(info)
 
+# ---- quests (client → server: accept/turn-in; server → client: state + progress) ----
+@rpc("any_peer", "call_remote", "reliable")
+func quest_action(action: String, quest_id: String) -> void:
+	if server != null:
+		server.quest_action(multiplayer.get_remote_sender_id(), action, quest_id)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_quest_state(states: Dictionary) -> void:
+	if client != null:
+		client.recv_quest_state(states)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void:
+	if client != null:
+		client.recv_quest_update(quest_id, progress, completed)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

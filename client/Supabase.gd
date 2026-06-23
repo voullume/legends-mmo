@@ -187,6 +187,33 @@ func sell_item_as(char_id: String, item_id: String) -> Dictionary:
 		return {"ok": true, "rarity": str(d["data"][0].get("rarity", "common"))}
 	return {"ok": false}
 
+# --- quests (server-authoritative progress; clients READ their own rows, server WRITES) ---
+# READ on the player's token (RLS-scoped to their own character's quest rows)
+func get_quests_as(token: String) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/character_quests?select=quest_id,progress,completed,rewarded", "", PackedStringArray(), token)
+	if r["code"] == 200 and r["data"] is Array:
+		return {"ok": true, "items": r["data"]}
+	return {"ok": false, "items": []}
+
+# UPSERT a quest row as service_role (accept + turn-in: writes completed/rewarded). Keyed on the
+# (character_id, quest_id) unique constraint via on_conflict + merge-duplicates. Server-only.
+func quest_save_as(char_id: String, quest_id: String, progress: int, completed: bool, rewarded: bool) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var body := {"character_id": char_id, "quest_id": quest_id, "progress": progress, "completed": completed, "rewarded": rewarded}
+	var extra := PackedStringArray(["Prefer: resolution=merge-duplicates,return=minimal"])
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/character_quests?on_conflict=character_id,quest_id", JSON.stringify(body), extra, service_key)
+	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
+
+# PATCH only the progress column (the kill path). Deliberately does NOT touch completed/rewarded, so
+# an out-of-order in-flight progress write can never clobber a turn-in's completed=true (dupe fix).
+func quest_progress_as(char_id: String, quest_id: String, progress: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var filter := "character_id=eq.%s&quest_id=eq.%s" % [char_id, quest_id]
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/character_quests?" + filter, JSON.stringify({"progress": progress}), PackedStringArray(["Prefer: return=minimal"]), service_key)
+	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
+
 func refresh_as(rtoken: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))
 	if r["code"] == 200 and r["data"] is Dictionary and r["data"].has("access_token"):

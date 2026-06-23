@@ -23,6 +23,7 @@ const GameData := preload("res://shared/GameData.gd")
 const Geom := preload("res://shared/Geom.gd")
 const Rng := preload("res://shared/Rng.gd")
 const World := preload("res://shared/World.gd")
+const Quests := preload("res://shared/Quests.gd")
 
 const PORT := 7777
 const MAP_ID := "stadium"
@@ -197,6 +198,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_party_invite_next.erase(pid)
 	_shop_busy.erase(pid)
 	_shop_next.erase(pid)
+	_quest_busy.erase(pid)
+	_quest_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -218,7 +221,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_peers.append(pid)
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
 		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
-		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": int(ch.get("credits", 0))}
+		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": int(ch.get("credits", 0)),
+		"quests": {}}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -226,6 +230,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	net.assign_fighter.rpc_id(pid, fid)
 	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE})
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
+	await _load_quests(pid)                           # load + push the player's quest progress
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
 		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
 		_session[pid]["admin"] = is_admin
@@ -710,6 +715,7 @@ func _award_kills() -> void:
 					_award_credits(pid, _mob_credits(victim))   # credits before xp's save persists both
 					_award_xp(pid, _mob_xp(victim))
 					_grant_loot(pid, victim)
+					_quest_on_kill(pid, victim)             # advance any matching kill-quest
 					break
 
 func _award_xp(pid: int, amt: int) -> void:
@@ -900,6 +906,173 @@ func _recompute_player_stats(f, level: int, bonus: Dictionary) -> void:
 	f["clutchDmg"] = d["clutchDmg"]
 	f["clutchDR"] = d["clutchDR"]
 	f["hp"] = f["maxHP"] * frac
+
+# ---- quests (server-authoritative kill-quest progress; see shared/Quests.gd) ----
+var _quest_busy := {}                             # pid -> a quest accept/turn-in is in flight
+var _quest_next := {}                             # pid -> earliest next quest op (ms)
+
+# load this character's quest progress from the DB into the session, then push the full state.
+func _load_quests(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var r = await supa.get_quests_as(_session[pid]["access"])
+	if not _session.has(pid):
+		return
+	var q := {}
+	if r.get("ok"):
+		for row in r["items"]:
+			q[str(row["quest_id"])] = {"progress": int(row.get("progress", 0)),
+				"completed": bool(row.get("completed", false)), "rewarded": bool(row.get("rewarded", false))}
+	_session[pid]["quests"] = q
+	if net != null:
+		net.recv_quest_state.rpc_id(pid, q.duplicate(true))
+	for qid in q:                                  # recover a turn-in whose reward didn't fully grant (disconnect)
+		if bool(q[qid].get("completed", false)) and not bool(q[qid].get("rewarded", false)):
+			await _grant_quest_rewards(pid, qid)
+
+# upsert one quest row. Fire-and-forget from _quest_on_kill: the progress/completed values are read
+# before the await, so a mid-write disconnect still persists the right numbers.
+func _persist_quest(pid: int, qid: String) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	var st = s["quests"].get(qid)
+	if st == null:
+		return
+	await supa.quest_progress_as(s["char_id"], qid, int(st["progress"]))   # progress only — never clobbers completed/rewarded
+
+# advance any active kill-quest whose objective matches the slain mob. Called from _award_kills in
+# the same tick (before events are cleared), once per (killer, victim).
+func _quest_on_kill(pid: int, victim) -> void:
+	if not _session.has(pid):
+		return
+	var qs: Dictionary = _session[pid]["quests"]
+	var v := {"tier": str(victim.get("mobTier", "minion")), "map": str(victim.get("map", "")),
+		"class": str(victim.get("classId", "")), "level": int(victim.get("mobLevel", 1))}
+	for qid in qs:
+		var st = qs[qid]
+		if bool(st.get("completed", false)):
+			continue
+		var quest = Quests.get_quest(qid)
+		if quest == null:
+			continue
+		var count := int(quest["objective"]["count"])
+		if int(st["progress"]) >= count:              # already ready to turn in
+			continue
+		if not Quests.kill_matches(quest, v):
+			continue
+		st["progress"] = int(st["progress"]) + 1
+		_persist_quest(pid, qid)                      # fire-and-forget DB save (like _grant_loot)
+		if net != null:
+			net.recv_quest_update.rpc_id(pid, qid, int(st["progress"]), bool(st["completed"]))
+
+# accept / turn-in are mutating + DB-backed → rate-limited AND serialized (mirrors the shop), so a
+# flood of RPCs can't interleave across the awaits to double-grant a turn-in reward.
+func _quest_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_quest_busy.get(pid, false)) or now < int(_quest_next.get(pid, 0)):
+		return false
+	_quest_busy[pid] = true
+	_quest_next[pid] = now + 300
+	return true
+
+func quest_action(pid: int, action: String, qid: String) -> void:
+	if not _quest_lock(pid):
+		return
+	if action == "accept":
+		await _do_quest_accept(pid, qid)
+	elif action == "turnin":
+		await _do_quest_turnin(pid, qid)
+	_quest_busy.erase(pid)
+
+func _do_quest_accept(pid: int, qid: String) -> void:
+	if not _session.has(pid):
+		return
+	var quest = Quests.get_quest(qid)
+	if quest == null:
+		return
+	var s = _session[pid]
+	var qs: Dictionary = s["quests"]
+	if qs.has(qid):                                       # already accepted (active or completed)
+		return
+	if int(s["level"]) < int(quest.get("min_level", 1)):
+		return
+	var prereq := str(quest.get("prereq", ""))
+	if prereq != "" and not (qs.has(prereq) and bool(qs[prereq].get("completed", false))):
+		return                                            # prerequisite not completed
+	qs[qid] = {"progress": 0, "completed": false, "rewarded": false}   # optimistic in memory; persist next
+	var wr = await supa.quest_save_as(s["char_id"], qid, 0, false, false)
+	if not _session.has(pid):
+		return
+	if not wr.get("ok"):                                  # write failed → roll back so it can be retried
+		(s["quests"] as Dictionary).erase(qid)
+		return
+	if net != null:
+		net.recv_quest_update.rpc_id(pid, qid, 0, false)
+	print("[quest] %s accepted '%s'" % [s["name"], qid])
+
+func _do_quest_turnin(pid: int, qid: String) -> void:
+	if not _session.has(pid):
+		return
+	var quest = Quests.get_quest(qid)
+	if quest == null:
+		return
+	var s = _session[pid]
+	var qs: Dictionary = s["quests"]
+	var st = qs.get(qid)
+	if st == null or bool(st.get("completed", false)):    # not active / already turned in
+		return
+	if int(st["progress"]) < int(quest["objective"]["count"]):
+		return                                            # objective not finished
+	st["completed"] = true                                # set BEFORE the await; blocks re-entry this session
+	var wr = await supa.quest_save_as(s["char_id"], qid, int(st["progress"]), true, false)
+	if not _session.has(pid):
+		return                                            # completed durable → reconnect recovery grants it
+	if not wr.get("ok"):                                  # not durable → roll back, grant nothing (no dupe)
+		st["completed"] = false
+		return
+	await _grant_quest_rewards(pid, qid)
+	print("[quest] %s turned in '%s'" % [s["name"], qid])
+
+# grant a completed quest's rewards exactly once (turn-in OR reconnect recovery). rewarded=true is
+# persisted BEFORE granting, so a re-grant can never double-pay; the item write uses char_id so it
+# still lands if the peer drops. A grant that partially completes on disconnect is a rare loss, never
+# a dupe — recovery only fires while rewarded is still false.
+func _grant_quest_rewards(pid: int, qid: String) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	var st = s["quests"].get(qid)
+	if st == null or not bool(st.get("completed", false)) or bool(st.get("rewarded", false)):
+		return
+	var quest = Quests.get_quest(qid)
+	if quest == null:
+		return
+	var char_id := str(s["char_id"])
+	var access := str(s["access"])
+	st["rewarded"] = true
+	var wr = await supa.quest_save_as(char_id, qid, int(st["progress"]), true, true)
+	if not wr.get("ok"):                                  # not durable → let recovery retry on next login
+		if _session.has(pid):
+			st["rewarded"] = false
+		return
+	var rw: Dictionary = quest.get("rewards", {})
+	if rw.has("item"):                                    # item first: service-role write, survives a disconnect
+		await _grant_quest_item(pid, char_id, access, rw["item"])
+	if _session.has(pid):                                 # xp/credits live in the session → only while connected
+		if int(rw.get("credits", 0)) > 0:
+			_award_credits(pid, int(rw["credits"]))
+			_save_one(_session[pid], _find(_session[pid]["fid"]))
+		if int(rw.get("xp", 0)) > 0:
+			_award_xp(pid, int(rw["xp"]))
+		if net != null:
+			net.recv_quest_update.rpc_id(pid, qid, int(st["progress"]), true)
+
+func _grant_quest_item(pid: int, char_id: String, access: String, item: Dictionary) -> void:
+	var r = await supa.add_item_as(access, char_id, item)   # service-role write; no live session required
+	if r.get("ok") and _session.has(pid) and net != null:
+		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+		net.recv_inventory_changed.rpc_id(pid)
 
 # ---- admin / god-mode (gated: only sessions flagged admin via the service-role admins table) ----
 func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:

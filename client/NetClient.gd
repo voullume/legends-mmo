@@ -10,6 +10,7 @@ extends "res://client/Client.gd"
 const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
 const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
 const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff"}
+const Quests := preload("res://shared/Quests.gd")
 
 var net: Node = null         # RPC bridge
 var server = null            # in-process server (unused in the shared zone)
@@ -55,6 +56,11 @@ var _shop_hint: Label = null  # "Press B to shop" proximity prompt
 var _near_shop := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
+var _quests := {}             # quest_id -> {progress, completed} — server-pushed, server-authoritative
+var _quest_panel: Control = null
+var _quest_label: RichTextLabel = null
+var _quest_tracker: VBoxContainer = null    # always-on HUD list of active quests
+var _quest_tracker_title: Label = null
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -65,6 +71,7 @@ func _enter_mode() -> void:
 	_build_chat()
 	_build_inventory()
 	_build_shop()
+	_build_questlog()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -162,6 +169,8 @@ func _build_inventory() -> void:
 func _toggle_inventory() -> void:
 	_inv_panel.visible = not _inv_panel.visible
 	if _inv_panel.visible:
+		if _quest_panel != null:                     # only one full-screen modal at a time
+			_quest_panel.visible = false
 		_load_inventory()
 
 func _load_inventory() -> void:
@@ -208,6 +217,196 @@ func recv_inventory_changed() -> void:
 	if _shop_panel != null and _shop_panel.visible:   # a buy/sell/roll changed our items + credits
 		_render_shop_buy()
 		_load_shop_sell()
+
+# ---- quests (server-authoritative; the log + tracker render from server-pushed state) ----
+# server pushes the full quest state once on join (recv_quest_state) and an update per change.
+func recv_quest_state(states: Dictionary) -> void:
+	_quests = {}
+	for qid in states:
+		var st = states[qid]
+		_quests[str(qid)] = {"progress": int(st.get("progress", 0)), "completed": bool(st.get("completed", false))}
+	_refresh_quests()
+
+func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void:
+	var was = _quests.get(quest_id)
+	_quests[quest_id] = {"progress": progress, "completed": completed}
+	var q = Quests.get_quest(quest_id)
+	if q != null:                                    # toast on newly-ready or newly-completed
+		var cnt := int(q["objective"]["count"])
+		if completed and (was == null or not bool(was.get("completed", false))):
+			_quest_toast("[color=#ffd24d]✔ Quest complete:[/color] %s" % _esc(str(q["name"])))
+		elif progress >= cnt and (was == null or int(was.get("progress", 0)) < cnt):
+			_quest_toast("[color=#9fe8a0]Quest ready to turn in:[/color] %s [color=#7f93a8](press J)[/color]" % _esc(str(q["name"])))
+	_refresh_quests()
+
+func _quest_toast(line: String) -> void:
+	_chat_lines.append(line)
+	if _chat_lines.size() > 9:
+		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
+	_chat_log.text = "\n".join(_chat_lines)
+	_chat_idle = 0.0
+	_chat_log.modulate.a = 1.0
+
+func _refresh_quests() -> void:
+	_update_quest_tracker()
+	if _quest_panel != null and _quest_panel.visible:
+		_render_questlog()
+
+# the always-on HUD tracker (active quests + progress). Rebuilt only on a quest event, not per frame.
+func _update_quest_tracker() -> void:
+	if _quest_tracker == null:
+		_quest_tracker = VBoxContainer.new()
+		_quest_tracker.add_theme_constant_override("separation", 2)
+		_hud.add_child(_quest_tracker)
+		_reposition_quest_tracker()
+		_hud.get_viewport().size_changed.connect(_reposition_quest_tracker)   # stay pinned on window resize
+		_quest_tracker_title = Label.new()
+		_quest_tracker_title.add_theme_font_size_override("font_size", 13)
+		_quest_tracker_title.modulate = Color(1.0, 0.86, 0.5)
+		_quest_tracker_title.text = "✦ Quests  (J)"
+		_quest_tracker.add_child(_quest_tracker_title)
+	for c in _quest_tracker.get_children():          # clear the per-quest lines, keep the title
+		if c != _quest_tracker_title:
+			c.queue_free()
+	var any := false
+	for qid in Quests.order():
+		if not _quests.has(qid):
+			continue
+		var st = _quests[qid]
+		if bool(st.get("completed", false)):
+			continue
+		var q = Quests.get_quest(qid)
+		if q == null:
+			continue
+		any = true
+		var cnt := int(q["objective"]["count"])
+		var prog := int(st.get("progress", 0))
+		var lbl := Label.new()
+		lbl.add_theme_font_size_override("font_size", 12)
+		if prog >= cnt:
+			lbl.text = "✓ %s  (ready)" % str(q["name"])
+			lbl.modulate = Color(0.62, 0.9, 0.55)
+		else:
+			lbl.text = "• %s  %d/%d" % [str(q["name"]), prog, cnt]
+			lbl.modulate = Color(0.85, 0.88, 0.95)
+		_quest_tracker.add_child(lbl)
+	_quest_tracker.visible = any
+
+func _reposition_quest_tracker() -> void:
+	if _quest_tracker != null:
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_quest_tracker.position = Vector2(vp.x - 250.0, 150.0)
+
+func _build_questlog() -> void:
+	_quest_panel = CenterContainer.new()
+	_quest_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_quest_panel.visible = false
+	_hud.add_child(_quest_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(560, 0)
+	_quest_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "Quest Log   (J to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_quest_label = RichTextLabel.new()
+	_quest_label.bbcode_enabled = true
+	_quest_label.scroll_active = true
+	_quest_label.custom_minimum_size = Vector2(520, 440)
+	_quest_label.meta_clicked.connect(_on_quest_meta)
+	vb.add_child(_quest_label)
+
+func _toggle_questlog() -> void:
+	if _quest_panel == null:
+		return
+	_quest_panel.visible = not _quest_panel.visible
+	if _quest_panel.visible:
+		if _inv_panel != null:                       # only one full-screen modal at a time
+			_inv_panel.visible = false
+		if _shop_panel != null:
+			_shop_panel.visible = false
+		_render_questlog()
+
+func _render_questlog() -> void:
+	if _quest_label == null:
+		return
+	var pf = _find_fighter(_player_id)
+	var lvl := int(pf.get("level", 1)) if pf != null else 1
+	var active := []
+	var avail := []
+	var locked := []
+	var done := []
+	for qid in Quests.order():
+		var q = Quests.get_quest(qid)
+		if q == null:
+			continue
+		var cnt := int(q["objective"]["count"])
+		var nm: String = _esc(str(q["name"]))
+		var desc: String = _esc(str(q.get("desc", "")))
+		if _quests.has(qid):
+			var st = _quests[qid]
+			if bool(st.get("completed", false)):
+				done.append("[color=#6b7686]✓ %s[/color]" % nm)
+			else:
+				var prog := int(st.get("progress", 0))
+				if prog >= cnt:
+					active.append("[color=#9fe8a0]%s  (%d/%d)[/color]  [url=turnin|%s][color=#ffd24d][b][Turn In][/b][/color][/url]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, qid, desc])
+				else:
+					active.append("[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, desc])
+		else:
+			var prereq := str(q.get("prereq", ""))
+			var minl := int(q.get("min_level", 1))
+			var prereq_ok: bool = prereq == "" or (_quests.has(prereq) and bool(_quests[prereq].get("completed", false)))
+			if lvl >= minl and prereq_ok:
+				avail.append("[color=#dfe6f0]%s[/color]  [url=accept|%s][color=#9fe8a0][b][Accept][/b][/color][/url]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [nm, qid, desc, _reward_text(q)])
+			else:
+				var reason: String = ("needs lvl %d" % minl) if lvl < minl else ("requires: %s" % _esc(_prereq_name(prereq)))
+				locked.append("[color=#5a6472]🔒 %s  (%s)[/color]" % [nm, reason])
+	var out := []
+	if not active.is_empty():
+		out.append("[b][color=#8ad6ff]Active[/color][/b]")
+		out.append_array(active)
+	if not avail.is_empty():
+		out.append("\n[b][color=#9fe8a0]Available[/color][/b]")
+		out.append_array(avail)
+	if not locked.is_empty():
+		out.append("\n[b][color=#7f93a8]Locked[/color][/b]")
+		out.append_array(locked)
+	if not done.is_empty():
+		out.append("\n[b][color=#6b7686]Completed[/color][/b]")
+		out.append_array(done)
+	if out.is_empty():
+		out.append("[color=#7f93a8]No quests available yet.[/color]")
+	_quest_label.text = "\n".join(out)
+
+func _reward_text(q: Dictionary) -> String:
+	var rw: Dictionary = q.get("rewards", {})
+	var parts := []
+	if int(rw.get("xp", 0)) > 0:
+		parts.append("%d xp" % int(rw["xp"]))
+	if int(rw.get("credits", 0)) > 0:
+		parts.append("◈%d" % int(rw["credits"]))
+	if rw.has("item"):
+		parts.append("%s item" % str((rw["item"] as Dictionary).get("rarity", "")))
+	return ", ".join(parts)
+
+func _prereq_name(prereq: String) -> String:
+	var q = Quests.get_quest(prereq)
+	return str(q["name"]) if q != null else prereq
+
+func _on_quest_meta(meta) -> void:
+	if net == null or not _connected:
+		return
+	var p := str(meta).split("|")
+	if p.size() >= 2 and (p[0] == "accept" or p[0] == "turnin"):
+		net.quest_action.rpc_id(1, p[0], p[1])
 
 # ---- shop (home-zone economy: buy from a catalog, gamble a roll, sell inventory back) ----
 func recv_shop_info(info: Dictionary) -> void:
@@ -905,6 +1104,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_inv_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _quest_panel != null and _quest_panel.visible:
+				_quest_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _sell_confirm != null:
 				_close_sell_confirm()
 				get_viewport().set_input_as_handled()
@@ -931,6 +1134,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				return
 		elif e.keycode == KEY_I and not _chatting:
 			_toggle_inventory()
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_J and not _chatting:
+			_toggle_questlog()
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_TAB and not _chatting:
@@ -985,7 +1192,7 @@ func _update_hud() -> void:
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
 	var zone := _zone_name(str(_state.get("map", "")))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#8ad6ff]◗ %s[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally[/color]" % [
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#8ad6ff]◗ %s[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]J[/b] quests[/color]" % [
 		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), zone]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
