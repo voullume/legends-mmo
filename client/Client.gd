@@ -542,13 +542,19 @@ func _handle_events() -> void:
 			var dealt := str(ev.get("src", "")) == _player_id   # I landed the hit
 			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
 			_spawn_pop(tgt, crit)
+			var tf = _find_fighter(tgt)
+			if tf != null:
+				AudioManager.play_sfx("crit" if crit else "hit", _world(tf))
 			if taken:                                       # shake when I take damage (more for a big/crit hit)
 				var pf = _find_fighter(_player_id)
 				var frac: float = (float(ev["amt"]) / maxf(1.0, float(pf["maxHP"]))) if pf != null else 0.0
 				_add_shake(clampf(0.15 + frac * 2.4 + (0.12 if crit else 0.0), 0.0, SHAKE_MAX))
 		elif t == "kill":
 			var victim := str(ev["victim"])
+			var vf = _find_fighter(victim)
 			_spawn_death(victim)
+			if vf != null:
+				AudioManager.play_sfx("death", _world(vf))
 			if str(ev.get("killer", "")) == _player_id:
 				_add_shake(0.35)                            # a satisfying thump on your kill
 			elif victim == _player_id:

@@ -67,6 +67,9 @@ var _qgiver_root: Node3D = null             # the 3D quest-giver marker in the h
 var _qgiver_sig := ""
 var _qgiver_hint: Label = null              # "Press E to talk" proximity prompt
 var _near_qgiver := false
+var _settings_panel: Control = null         # audio/options panel
+var _last_level := 0                         # for the level-up sound
+var _last_map := ""                          # for zone-change sound + music crossfade
 
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
@@ -79,6 +82,7 @@ func _enter_mode() -> void:
 	_build_shop()
 	_build_questlog()
 	_build_qgiver_dialog()
+	_build_settings()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -241,6 +245,7 @@ func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void
 	if q != null:                                    # toast on newly-ready or newly-completed
 		var cnt := int(q["objective"]["count"])
 		if completed and (was == null or not bool(was.get("completed", false))):
+			AudioManager.play_sfx("quest")
 			_quest_toast("[color=#ffd24d]✔ Quest complete:[/color] %s" % _esc(str(q["name"])))
 		elif progress >= cnt and (was == null or int(was.get("progress", 0)) < cnt):
 			_quest_toast("[color=#9fe8a0]Quest ready to turn in:[/color] %s [color=#7f93a8](see the Quest Giver)[/color]" % _esc(str(q["name"])))
@@ -570,6 +575,56 @@ func _update_questgiver_proximity() -> void:
 	if not _near_qgiver and _qgiver_panel != null and _qgiver_panel.visible:
 		_qgiver_panel.visible = false                  # walked away → close the dialog
 
+# ---- settings (audio volumes + mute; persisted by AudioManager to user://settings.cfg) ----
+func _build_settings() -> void:
+	_settings_panel = CenterContainer.new()
+	_settings_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_settings_panel.visible = false
+	_hud.add_child(_settings_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(400, 0)
+	_settings_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "Settings   (O to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	for bus in ["Master", "Music", "SFX"]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var lbl := Label.new()
+		lbl.text = bus
+		lbl.custom_minimum_size = Vector2(70, 0)
+		row.add_child(lbl)
+		var sl := HSlider.new()
+		sl.min_value = 0.0
+		sl.max_value = 1.0
+		sl.step = 0.01
+		sl.custom_minimum_size = Vector2(240, 0)
+		sl.value = float(AudioManager.vol.get(bus, 0.9))
+		sl.value_changed.connect(_set_vol.bind(bus))
+		row.add_child(sl)
+		vb.add_child(row)
+	var mute := CheckBox.new()
+	mute.text = "Mute all"
+	mute.button_pressed = AudioManager.muted
+	mute.toggled.connect(func(on: bool) -> void: AudioManager.set_muted(on))
+	vb.add_child(mute)
+
+func _set_vol(v: float, bus: String) -> void:
+	AudioManager.set_volume(bus, v)
+
+func _toggle_settings() -> void:
+	if _settings_panel == null:
+		return
+	_settings_panel.visible = not _settings_panel.visible
+
 # ---- shop (home-zone economy: buy from a catalog, gamble a roll, sell inventory back) ----
 func recv_shop_info(info: Dictionary) -> void:
 	_shop_info = info
@@ -825,6 +880,7 @@ func _admin(cmd: String, args: Dictionary) -> void:
 
 func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: String) -> void:
 	print("[loot] %s [%s] +%d %s" % [item, rarity, amt, stat])
+	AudioManager.play_sfx("loot")
 	var col: String = RARITY_COLORS.get(rarity, "#cfd6df")
 	var bonus := ("   +%d %s" % [amt, stat]) if amt != 0 else ""
 	_chat_lines.append("[color=#ffd24d]★ Looted[/color] [color=%s]%s[/color] [color=#7f93a8](%s · %s)%s[/color]" % [col, _esc(item), rarity, slot, bonus])
@@ -1164,11 +1220,36 @@ func _close_invite_prompt() -> void:
 		_invite_prompt = null
 
 func _send_ability(key: String) -> void:
+	_play_cast_sound(key)
 	_aseq += 1
 	if server != null:
 		server.submit_ability_local(1, key, _aseq)
 	elif net != null and _connected:
 		net.submit_ability.rpc_id(1, key, _aseq)
+
+# a cast sound for the local player's ability, mapped from its type (only if it's off cooldown,
+# so spamming a key on cooldown doesn't machine-gun the sound).
+func _play_cast_sound(key: String) -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null:
+		return
+	if float((pf.get("cds", {}) as Dictionary).get(key, 0.0)) > 0.0:
+		return
+	var c = GameData.CLASSES.get(pf["classId"])
+	if c == null:
+		return
+	for ab in c["abilities"]:
+		if ab["key"] == key:
+			var nm := "cast_ability"
+			if ab.get("ult", false):
+				nm = "cast_ult"
+			else:
+				match ab["type"]:
+					"melee", "meleeAoe", "dashAttack", "leapAttack": nm = "cast_melee"
+					"projectile", "barrage": nm = "cast_ranged"
+					"allybuff", "allyheal", "teamheal": nm = "cast_support"
+			AudioManager.play_sfx(nm, _world(pf))
+			return
 
 # render only — the server owns the sim
 func _process(delta: float) -> void:
@@ -1214,6 +1295,18 @@ func receive_snapshot(snap: Dictionary) -> void:
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
 			_player.class_id = pf["classId"]
+	var map := str(snap.get("map", ""))          # zone change → portal whoosh + music crossfade
+	if map != _last_map:
+		if _last_map != "":
+			AudioManager.play_sfx("portal")
+		_last_map = map
+		AudioManager.play_music(map)
+	var lpf = _find_fighter(_player_id)           # level-up fanfare
+	if lpf != null:
+		var lvl := int(lpf.get("level", 1))
+		if _last_level > 0 and lvl > _last_level:
+			AudioManager.play_sfx("level_up")
+		_last_level = lvl
 	_handle_events()             # spawn damage-number / hit FX from this snapshot's events
 
 func assign_fighter(fid: String) -> void:
@@ -1278,6 +1371,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_qgiver_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _settings_panel != null and _settings_panel.visible:
+				_settings_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _sell_confirm != null:
 				_close_sell_confirm()
 				get_viewport().set_input_as_handled()
@@ -1329,6 +1426,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_toggle_qgiver()                # talk to the quest giver while near it
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_O and not _chatting:
+			_toggle_settings()              # audio / options
+			get_viewport().set_input_as_handled()
+			return
 	if e is InputEventMouseButton:
 		if e.button_index == MOUSE_BUTTON_RIGHT:
 			if e.pressed:
@@ -1367,7 +1468,7 @@ func _update_hud() -> void:
 	var xpn := int(pf.get("xpNext", 100))
 	var zone := _zone_name(str(_state.get("map", "")))
 	var zone_chip := ("[color=#ff6b6b][b]⚔ %s · PvP[/b][/color]" % zone) if bool(_state.get("pvp", false)) else ("[color=#8ad6ff]◗ %s[/color]" % zone)
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]J[/b] journal[/color]" % [
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]J[/b] journal · [b]O[/b] options[/color]" % [
 		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), zone_chip]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
