@@ -442,7 +442,8 @@ func _build_admin_panel() -> void:
 		["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}],
 		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
 		["God Mode", "god", {}], ["Heal", "heal", {}],
-		["→ Home", "to_home", {}], ["→ Combat", "to_combat", {}],
+		["→ Home", "goto", {"map": "home"}], ["→ Combat", "goto", {"map": "combat"}],
+		["→ Frontier", "goto", {"map": "frontier"}], ["→ Arena", "goto", {"map": "arena"}],
 		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}],
 	]
 	for c in cmds:
@@ -983,7 +984,16 @@ func _update_hud() -> void:
 	var lvl := int(pf.get("level", 1))
 	var xp := int(pf.get("xp", 0))
 	var xpn := int(pf.get("xpNext", 100))
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally[/color]" % [
-		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0))]
+	var zone := _zone_name(str(_state.get("map", "")))
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#8ad6ff]◗ %s[/color]   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally[/color]" % [
+		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), zone]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
+
+func _zone_name(map: String) -> String:
+	match map:
+		"home": return "Home Base"
+		"combat": return "Combat Zone"
+		"frontier": return "Frontier"
+		"arena": return "Arena"
+		_: return map.capitalize() if map != "" else "—"

@@ -1,9 +1,12 @@
 extends Node
 ## SHARED ZONE SERVER (Phase 4 + 5). Persistent, server-authoritative overworld for several accounts.
-## TWO worlds run side by side (see shared/World.gd):
-##   home   — a safe base: roam freely + a passive training dummy that instantly respawns.
-##   combat — aggressive mobs, XP, and loot. A portal pad in each world teleports you to the other.
-## Each world is an independent sim in the same 960×540 arena space; players only see/affect their own.
+## Several worlds run side by side (see shared/World.gd — one independent sim each):
+##   home     — a safe base: roam freely + a passive training dummy that instantly respawns.
+##   combat   — aggressive mobs (lvl 1-3), XP, and loot.
+##   frontier — a higher-tier PvE zone (lvl 4-7 + a boss), reached through the Combat camps.
+##   arena    — a dedicated PvP space (PvE-safe for now; open-PvP lands in a later phase).
+## Portal pads teleport between worlds; each world carries its own arena bounds. Players only
+## see/affect entities in their own world.
 ##
 ## - Players are team 0 (they coexist — abilities target enemies, so they don't hit each other).
 ## - Mobs are team 1 with aggro/leash; killing one grants XP + a loot roll. Progression persists.
@@ -35,10 +38,13 @@ const LEASH_RANGE := 1600.0           # once engaged, stays engaged until player
 const MAX_LEASH := 1600.0             # a mob chases up to this far from its camp before it resets (big combat arena)
 const MOB_HP_SCALE := 0.35            # base mob HP fraction (scaled up by level + tier)
 const MOB_DMG_SCALE := 0.28           # base mob damage fraction (scaled up by level + tier)
-const MOB_XP_BASE := 15               # mob XP = base × level × (elite ? 4 : 1)
+const MOB_XP_BASE := 15               # mob XP = base × level × tier mult (minion 1 / elite 4 / boss 6)
 const MOB_ELITE_HP := 2.2
 const MOB_ELITE_DMG := 1.6
 const MOB_ELITE_XP := 4
+const MOB_BOSS_HP := 6.0              # a boss is a tanky, rewarding zone target (group/well-geared)
+const MOB_BOSS_DMG := 1.8
+const MOB_BOSS_XP := 6                # ≈ 0.9 of a level at its tier — rewarding but kept under a full level
 const LEVEL_HP := 60.0                # bonus max HP per player level
 const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob scaling)
 const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity to re-triggering a pad
@@ -113,23 +119,10 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	# vary loot per launch with process-unique, high-res entropy (no same-second seed collisions)
 	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ Time.get_ticks_usec() ^ (OS.get_process_id() << 13))
 	Engine.max_fps = 60
-	_worlds[World.HOME] = _new_world(World.HOME)
-	_worlds[World.COMBAT] = _new_world(World.COMBAT)
-	# home: a single passive training dummy
-	var did := _spawn_fighter(World.DUMMY_CLASS, 1, World.DUMMY_POS, World.HOME)
-	var dummy = _find(did)
-	if dummy != null:
-		dummy["dummy"] = true
-		dummy["maxHP"] = DUMMY_HP
-		dummy["hp"] = DUMMY_HP
-	# combat: the mob gradient
-	for m in World.MOBS:
-		var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), World.COMBAT)
-		var f = _find(fid)
-		f["mobLevel"] = int(m["level"])
-		f["mobTier"] = str(m["tier"])
-		_scale_mob(f)
-	print("[zone] online on UDP %d  (home + combat worlds, %d mobs%s)" % [port, World.MOBS.size(), "  · DTLS" if use_dtls else ""])
+	for mapname in World.MAPS:                   # one independent sim per zone (home/combat/frontier/arena)
+		_worlds[mapname] = _new_world(mapname)
+	_spawn_world_actors()                        # the home dummy + every combat zone's mob camps
+	print("[zone] online on UDP %d  (%d zones, %d mobs%s)" % [port, _worlds.size(), _mob_count(), "  · DTLS" if use_dtls else ""])
 	_check_service_key()                         # verify loot/equip will be able to save
 	return true
 
@@ -148,13 +141,37 @@ func _check_service_key() -> void:
 func _new_world(map: String) -> Dictionary:
 	var w: Dictionary = Sim.create_match([], [], SEED, MAP_ID)
 	w["zone"] = true                             # persistent: no match-end / no overtime ramp
-	var c := World.cfg(map)                      # per-map size + regen + aggro
+	var c := World.cfg(map)                      # per-map size + regen + aggro + pvp
 	w["arenaW"] = int(c["w"])
 	w["arenaH"] = int(c["h"])
 	w["regen"] = float(c["regen"])
 	w["regenDelay"] = float(c["regen_delay"])
 	w["aggro"] = bool(c["aggro"])
+	w["pvp"] = bool(c.get("pvp", false))         # reserved: open-PvP phase reads this (inert today)
 	return w
+
+# spawn the home training dummy + every combat zone's mob camps. Shared by boot and the admin
+# Reset Mobs command so the two can't drift (a desync used to mean reset repopulated the wrong set).
+func _spawn_world_actors() -> void:
+	var did := _spawn_fighter(World.DUMMY_CLASS, 1, World.DUMMY_POS, World.HOME)
+	var dummy = _find(did)
+	if dummy != null:
+		dummy["dummy"] = true
+		dummy["maxHP"] = DUMMY_HP
+		dummy["hp"] = DUMMY_HP
+	for mapname in World.MOBS:                    # MOBS is keyed by world → spawn each zone's camps
+		for m in World.MOBS[mapname]:
+			var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), mapname)
+			var f = _find(fid)
+			f["mobLevel"] = int(m["level"])
+			f["mobTier"] = str(m["tier"])
+			_scale_mob(f)
+
+func _mob_count() -> int:
+	var n := 0
+	for mapname in World.MOBS:
+		n += (World.MOBS[mapname] as Array).size()
+	return n
 
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
@@ -244,11 +261,12 @@ func _spawn_player(ch, level: int) -> String:
 	if not GameData.CLASSES.has(cls):
 		cls = "striker"
 	var map: String = str(ch.get("last_map", World.HOME))
-	if not _worlds.has(map):
+	if not _worlds.has(map):                       # stale/unknown map (e.g. the DB default 'stadium') → home
 		map = World.HOME
-	var pos: Vector2 = World.HOME_SPAWN           # home is a hub: always spawn at the safe pad-free point
-	if map == World.COMBAT:                        # in combat, resume where you logged out
-		pos = Vector2(float(ch.get("last_x", World.COMBAT_SPAWN.x)), float(ch.get("last_y", World.COMBAT_SPAWN.y)))
+	var c := World.cfg(map)
+	var pos: Vector2 = World.spawn_for(map)        # safe maps (hubs) always spawn at the fixed point
+	if str(c.get("type", "")) != "safe":           # combat zones resume where you logged out
+		pos = Vector2(float(ch.get("last_x", pos.x)), float(ch.get("last_y", pos.y)))
 	var fid := _spawn_fighter(cls, 0, pos, map)
 	var f = _find(fid)
 	if f != null:
@@ -414,7 +432,10 @@ func _is_uuid(s: String) -> bool:
 
 func _mob_credits(mob) -> int:
 	var base := 8 + int(mob.get("mobLevel", 1)) * 5
-	if str(mob.get("mobTier", "")) == "elite":
+	var tier := str(mob.get("mobTier", ""))
+	if tier == "boss":
+		base *= 4
+	elif tier == "elite":
 		base *= 2
 	return base
 
@@ -730,17 +751,20 @@ func _revive(f) -> void:
 
 func _scale_mob(f) -> void:
 	var lvl := int(f.get("mobLevel", 1))
-	var elite: bool = str(f.get("mobTier", "minion")) == "elite"
-	var hp_s := MOB_HP_SCALE * (1.0 + (lvl - 1) * 0.3) * (MOB_ELITE_HP if elite else 1.0)
-	var dmg_s := MOB_DMG_SCALE * (1.0 + (lvl - 1) * 0.2) * (MOB_ELITE_DMG if elite else 1.0)
+	var tier := str(f.get("mobTier", "minion"))
+	var hp_t := MOB_BOSS_HP if tier == "boss" else (MOB_ELITE_HP if tier == "elite" else 1.0)
+	var dmg_t := MOB_BOSS_DMG if tier == "boss" else (MOB_ELITE_DMG if tier == "elite" else 1.0)
+	var hp_s := MOB_HP_SCALE * (1.0 + (lvl - 1) * 0.3) * hp_t
+	var dmg_s := MOB_DMG_SCALE * (1.0 + (lvl - 1) * 0.2) * dmg_t
 	f["maxHP"] = f["maxHP"] * hp_s
 	f["hp"] = f["maxHP"]
 	f["dmgMult"] *= dmg_s
 
 func _mob_xp(mob) -> int:
 	var lvl := int(mob.get("mobLevel", 1))
-	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"
-	return MOB_XP_BASE * lvl * (MOB_ELITE_XP if elite else 1)
+	var tier := str(mob.get("mobTier", "minion"))
+	var mult := MOB_BOSS_XP if tier == "boss" else (MOB_ELITE_XP if tier == "elite" else 1)
+	return MOB_XP_BASE * lvl * mult
 
 func _grant_loot(pid: int, mob) -> void:
 	if not _session.has(pid):
@@ -758,20 +782,21 @@ func _grant_loot(pid: int, mob) -> void:
 		print("[loot] %s looted [%s] %s (+%d %s)" % [s["name"], item["rarity"], item["name"], item["bonus_amt"], item["bonus_stat"]])
 
 func _roll_loot(mob) -> Dictionary:
-	var elite: bool = str(mob.get("mobTier", "minion")) == "elite"
+	var tier := str(mob.get("mobTier", "minion"))
 	var lvl := int(mob.get("mobLevel", 1))
-	var chance := 1.0 if elite else 0.65
+	var chance := 1.0 if tier != "minion" else 0.65    # elites and bosses always drop
 	if _loot_rng.next() > chance:
 		return {}
-	var rar := _roll_rarity(elite)
+	var rar := _roll_rarity(tier)
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
 	var bases: Array = LOOT_SLOTS[slot]
 	var base: String = bases[_loot_rng.next_int(bases.size())]
 	var stat: String = LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())]
-	return {"name": base, "rarity": str(rar["name"]), "slot": slot, "bonus_stat": stat, "bonus_amt": int(rar["mult"]) * (2 + lvl)}
+	var qty := 3 if tier == "boss" else 2              # bosses roll a beefier bonus (capped on equip)
+	return {"name": base, "rarity": str(rar["name"]), "slot": slot, "bonus_stat": stat, "bonus_amt": int(rar["mult"]) * (qty + lvl)}
 
-func _roll_rarity(elite: bool) -> Dictionary:
+func _roll_rarity(tier: String) -> Dictionary:
 	var total := 0
 	for r in RARITIES:
 		total += int(r["weight"])
@@ -783,7 +808,9 @@ func _roll_rarity(elite: bool) -> Dictionary:
 		if roll < acc:
 			idx = i
 			break
-	if elite:
+	if tier == "boss":
+		idx = RARITIES.size() - 1                      # bosses always drop the top rarity
+	elif tier == "elite":
 		idx = min(idx + 2, RARITIES.size() - 1)
 	return RARITIES[idx]
 
@@ -911,10 +938,10 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 				f["hp"] = f["maxHP"]
 		"heal":
 			f["hp"] = f["maxHP"]
-		"to_home":
-			_relocate(f, s, World.HOME, World.HOME_SPAWN)
-		"to_combat":
-			_relocate(f, s, World.COMBAT, World.COMBAT_SPAWN)
+		"goto":
+			var m := str(args.get("map", ""))
+			if _worlds.has(m):
+				_relocate(f, s, m, World.spawn_for(m))
 		"spawn_mob":
 			var mid := _spawn_fighter("linebacker", 1, Vector2(f["x"] + 100.0, f["y"]), str(s["map"]))
 			var mf = _find(mid)
@@ -950,17 +977,7 @@ func _reset_mobs() -> void:
 			else:
 				keep.append(ff)
 		w["fighters"] = keep
-	var did := _spawn_fighter(World.DUMMY_CLASS, 1, World.DUMMY_POS, World.HOME)
-	var dummy = _find(did)
-	dummy["dummy"] = true
-	dummy["maxHP"] = DUMMY_HP
-	dummy["hp"] = DUMMY_HP
-	for m in World.MOBS:
-		var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), World.COMBAT)
-		var f = _find(fid)
-		f["mobLevel"] = int(m["level"])
-		f["mobTier"] = str(m["tier"])
-		_scale_mob(f)
+	_spawn_world_actors()                         # rebuild the dummy + every zone's camps (same as boot)
 
 # real god-mode: keep flagged players topped up + alive every tick so they take hits (flash/numbers)
 # but can't be drained or one-shot — and clear stun/slow so they're never locked.
@@ -1068,7 +1085,8 @@ func _broadcast() -> void:
 				if f["team"] == 0:
 					np += 1
 			counts.append("%s:%dp" % [mapname, np])
-		print("[zone] t=%.0f  %s" % [_worlds[World.COMBAT]["t"], " ".join(counts)])
+		var any_t: float = _worlds[_worlds.keys()[0]]["t"]   # every world ticks in lockstep — read any
+		print("[zone] t=%.0f  %s" % [any_t, " ".join(counts)])
 
 func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dictionary) -> Dictionary:
 	var fs := []

@@ -678,9 +678,17 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 		label.text = "Training Dummy"
 		label.modulate = Color(0.72, 0.74, 0.8)
 	elif f.has("mobTier"):
-		var elite: bool = str(f["mobTier"]) == "elite"
-		label.text = "Lv %d%s" % [int(f.get("mobLevel", 1)), ("  ★ ELITE" if elite else "")]
-		label.modulate = Color(1.0, 0.55, 0.4) if elite else Color(0.92, 0.82, 0.6)
+		var tier: String = str(f["mobTier"])
+		var lvl := int(f.get("mobLevel", 1))
+		if tier == "boss":
+			label.text = "Lv %d  ☠ BOSS" % lvl
+			label.modulate = Color(1.0, 0.3, 0.32)
+		elif tier == "elite":
+			label.text = "Lv %d  ★ ELITE" % lvl
+			label.modulate = Color(1.0, 0.55, 0.4)
+		else:
+			label.text = "Lv %d" % lvl
+			label.modulate = Color(0.92, 0.82, 0.6)
 	elif f.has("level"):
 		label.text = "Lv %d" % int(f["level"])
 		label.modulate = Color(0.6, 0.85, 1.0)
