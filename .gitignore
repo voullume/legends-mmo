@@ -3,3 +3,4 @@
 .DS_Store
 *.import
 .env
+dist/

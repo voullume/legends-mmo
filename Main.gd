@@ -21,6 +21,7 @@ const NetClientScript := preload("res://client/NetClient.gd")
 const AccountScript := preload("res://client/Account.gd")
 const SupaScript := preload("res://client/Supabase.gd")
 const SERVER_PORT := 7777
+const PUBLIC_HOST := "159.89.132.86"   # exported/distributed builds connect straight here (double-click → online, DTLS)
 
 func _ready() -> void:
 	var args := OS.get_cmdline_args()
@@ -48,6 +49,13 @@ func _ready() -> void:
 	elif "--practice" in args:
 		print("[boot] PRACTICE sandbox (local, no account)")
 		add_child(ClientScript.new())
+	elif PUBLIC_HOST != "" and not OS.has_feature("editor"):
+		# a distributed/exported build (double-click, no args) goes straight to the live public server;
+		# running from source/the editor still drops into the local single-player world below.
+		print("[boot] PUBLIC build — account → live zone @ %s:%d · DTLS" % [PUBLIC_HOST, port])
+		var acct := AccountScript.new()
+		acct.entered.connect(func(supa, character): _enter_online(supa, character, PUBLIC_HOST, port, true))
+		add_child(acct)
 	else:
 		print("[boot] ACCOUNT — login → local world")
 		var acct := AccountScript.new()
