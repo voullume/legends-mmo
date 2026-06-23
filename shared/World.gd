@@ -3,13 +3,13 @@ extends RefCounted
 ##   safe   — no mob aggro, strong health regen, fixed login spawn (the home base / future towns).
 ##   combat — mobs chase, weak out-of-combat regen, bigger arena; you resume where you logged out.
 ## Worlds are independent sims; portal pads teleport between them. Arena size is per-map (each fighter
-## carries its world's bounds), so maps can differ in size. A per-map `pvp` flag is reserved for the
-## Arena — open-PvP lands in a later phase, so it stays inert (false) until the combat engine consults it.
+## carries its world's bounds), so maps can differ in size. A per-map `pvp` flag (true for the Arena)
+## drives open-PvP: Combat.is_hostile/is_ally make all players mutually hostile (free-for-all) there.
 
 const HOME := "home"
 const COMBAT := "combat"
 const FRONTIER := "frontier"               # higher-tier PvE zone (lvl 4-7 + a boss), gated behind Combat
-const ARENA := "arena"                     # dedicated PvP space (PvE-safe for now; pvp flips on in the PvP phase)
+const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
 const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
@@ -20,12 +20,12 @@ const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
 # (0 = always); aggro = whether mobs chase players here; pvp = players are mutually hostile here
-# (reserved — inert until the open-PvP phase); spawn = login/arrival point.
+# (true for the Arena — free-for-all); spawn = login/arrival point.
 const MAPS := {
 	HOME:     {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12,  "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": HOME_SPAWN},
 	COMBAT:   {"type": "combat", "w": 1920, "h": 1080, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": COMBAT_SPAWN},
 	FRONTIER: {"type": "combat", "w": 2200, "h": 1240, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": FRONTIER_SPAWN},
-	ARENA:    {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": false, "spawn": ARENA_SPAWN},
+	ARENA:    {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 }
 
 const DUMMY_POS := Vector2(660, 300)         # the training dummy (home only)

@@ -350,9 +350,12 @@ func _spawn(f: Dictionary) -> void:
 	rcyl.height = 0.05
 	ring.mesh = rcyl
 	ring.position.y = 0.05
-	var rmat := _mat(TEAM_COLOR[f["team"]])
+	var ring_col: Color = TEAM_COLOR[f["team"]]
+	if bool(_state.get("pvp", false)) and int(f["team"]) == 0 and str(f["id"]) != _player_id:
+		ring_col = Color(1.0, 0.4, 0.4)              # a hostile player in a PvP (FFA) zone reads red
+	var rmat := _mat(ring_col)
 	rmat.emission_enabled = true
-	rmat.emission = TEAM_COLOR[f["team"]]
+	rmat.emission = ring_col
 	rmat.emission_energy_multiplier = 0.5
 	ring.material_override = rmat
 	holder.add_child(ring)
@@ -690,8 +693,9 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 			label.text = "Lv %d" % lvl
 			label.modulate = Color(0.92, 0.82, 0.6)
 	elif f.has("level"):
-		label.text = "Lv %d" % int(f["level"])
-		label.modulate = Color(0.6, 0.85, 1.0)
+		var hostile: bool = bool(_state.get("pvp", false)) and str(f["id"]) != _player_id
+		label.text = ("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))
+		label.modulate = Color(1.0, 0.45, 0.45) if hostile else Color(0.6, 0.85, 1.0)
 	elif label.text != "":
 		label.text = ""
 
@@ -814,8 +818,10 @@ func _find_fighter(id) -> Variant:
 func _enemy_dir(f: Dictionary) -> Vector2:
 	var best = null
 	var bd := INF
+	var pvp := bool(_state.get("pvp", false))
 	for e in _state["fighters"]:
-		if e["team"] != f["team"] and e["alive"]:
+		var hostile: bool = e["team"] != f["team"] or (pvp and int(e["team"]) == 0 and str(e["id"]) != str(f["id"]))
+		if hostile and e["alive"]:
 			var d := Geom.dist(f, e)
 			if d < bd:
 				bd = d

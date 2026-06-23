@@ -26,7 +26,7 @@ static func _nearest_enemy(state, f) -> Variant:
 	var best: Variant = null
 	var bd = INF
 	for e in state["fighters"]:
-		if e["team"] != f["team"] and e["alive"]:
+		if Combat.is_hostile(state, f, e) and e["alive"]:
 			var dd = Geom.dist(f, e)
 			if dd < bd:
 				bd = dd
@@ -56,14 +56,14 @@ static func sim_tick(state, dt) -> void:
 		if not qb["alive"] or not c.has("pocketDR"): continue
 		var has_allies = false
 		for a in fighters:
-			if a["team"] == qb["team"] and a["alive"] and a["id"] != qb["id"]:
+			if Combat.is_ally(state, qb, a) and a["alive"] and a["id"] != qb["id"]:
 				has_allies = true
 				break
 		if not has_allies:
 			qb["_pocketDR"] = c["pocketDR"]
 			continue
 		for a in fighters:
-			if a["team"] == qb["team"] and a["alive"] and a["id"] != qb["id"] and Geom.dist(qb, a) < c["pocketRange"]:
+			if Combat.is_ally(state, qb, a) and a["alive"] and a["id"] != qb["id"] and Geom.dist(qb, a) < c["pocketRange"]:
 				a["_pocketDR"] = c["pocketDR"]
 
 	# team focus (0.5s cadence)
@@ -103,7 +103,7 @@ static func sim_tick(state, dt) -> void:
 					tgt["slowAmt"] = p["slow"]["amt"]
 				if p.get("teamShieldPct", null) != null:
 					for a in fighters:
-						if a["team"] == src["team"] and a["alive"]:
+						if (a["id"] == src["id"] or Combat.is_ally(state, src, a)) and a["alive"]:
 							Combat.apply_shield(state, src, a, a["maxHP"] * p["teamShieldPct"], 3.0)
 			p["dead"] = true
 		else:
@@ -161,7 +161,7 @@ static func sim_tick(state, dt) -> void:
 				var bfrac = min(1.0, f["barrierStored"] / 300.0)
 				var blast = bab["blastDmg"] * (0.45 + 0.55 * bfrac)
 				for e in fighters:
-					if e["team"] != f["team"] and e["alive"] and Geom.dist(f, e) < bab["blastRadius"]:
+					if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < bab["blastRadius"]:
 						Combat.deal_damage(state, f, e, blast / f["dmgMult"], {"key": "penaltysave"})
 				f["barrier"] = 0.0
 				f["_barrierAb"] = null
@@ -186,7 +186,7 @@ static func sim_tick(state, dt) -> void:
 						Geom.clamp_arena(ctgt)
 				elif ab["type"] == "meleeAoe":
 					for e in fighters:
-						if e["team"] != f["team"] and e["alive"] and Geom.dist(f, e) < ab["radius"]:
+						if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < ab["radius"]:
 							Combat.deal_damage(state, f, e, ab["dmg"], {"melee": true, "key": ab["key"]})
 							if ab.has("knockback"):
 								var kd = Vector2(e["x"] - f["x"], e["y"] - f["y"]).length()
@@ -243,15 +243,15 @@ static func sim_tick(state, dt) -> void:
 		if not ranged and c["lane"] == 1:
 			var has_front = false
 			for a in fighters:
-				if a["team"] == f["team"] and a["alive"] and a["id"] != f["id"] and GameData.CLASSES[a["classId"]]["lane"] == 0:
+				if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"] and GameData.CLASSES[a["classId"]]["lane"] == 0:
 					has_front = true
 					break
 			var front_engaged = false
 			if has_front:
 				for a in fighters:
-					if a["team"] == f["team"] and a["alive"] and GameData.CLASSES[a["classId"]]["lane"] == 0:
+					if Combat.is_ally(state, f, a) and a["alive"] and GameData.CLASSES[a["classId"]]["lane"] == 0:
 						for e in fighters:
-							if e["team"] != f["team"] and e["alive"] and Geom.dist(a, e) < 100:
+							if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(a, e) < 100:
 								front_engaged = true
 								break
 					if front_engaged: break
@@ -289,7 +289,7 @@ static func sim_tick(state, dt) -> void:
 				var blind: Variant = null
 				var blind_frac = 1.0e9
 				for a in fighters:
-					if a["team"] == f["team"] and a["alive"] and a["id"] != f["id"] and a["hp"] / a["maxHP"] < 0.5 and not Geom.has_los(state, f, a):
+					if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"] and a["hp"] / a["maxHP"] < 0.5 and not Geom.has_los(state, f, a):
 						var fr = a["hp"] / a["maxHP"]
 						if fr < blind_frac:
 							blind_frac = fr
@@ -423,7 +423,7 @@ static func _ability_by_key(c, key):
 static func _friend_or_lowest(state, f, friend_id) -> Dictionary:
 	if str(friend_id) != "":                         # a chosen party/ally target (click a frame / Ctrl+Tab)
 		var ft = _find_alive(state, str(friend_id))
-		if ft != null and ft["team"] == f["team"]:
+		if ft != null and Combat.is_ally(state, f, ft):
 			return ft
 	return _lowest_ally_or_self(state, f)
 
@@ -431,7 +431,7 @@ static func _lowest_ally_or_self(state, f) -> Dictionary:
 	var best: Dictionary = f
 	var best_frac: float = f["hp"] / f["maxHP"]
 	for a in state["fighters"]:
-		if a["team"] == f["team"] and a["alive"] and a["id"] != f["id"]:
+		if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"]:
 			var fr = a["hp"] / a["maxHP"]
 			if fr < best_frac:
 				best_frac = fr
@@ -453,7 +453,7 @@ static func _player_support_cast(state, f, ab, friend_id := "") -> void:
 				Combat.apply_heal(state, f, t, t["maxHP"] * ab["healPct"] * e_heal)
 		"teamheal":
 			for a in state["fighters"]:
-				if a["team"] == f["team"] and a["alive"]:
+				if (a["id"] == f["id"] or Combat.is_ally(state, f, a)) and a["alive"]:
 					Combat.apply_heal(state, f, a, a["maxHP"] * ab["healPct"])
 					if ab.get("cleanse", false):
 						a["stun"] = 0.0
@@ -569,7 +569,7 @@ static func _player_step(state, f, intent, dt) -> void:
 					var tid: String = str(intent.get("target", ""))
 					if tid != "":
 						var ft = _find_alive(state, tid)
-						if ft != null and ft["team"] != f["team"]:
+						if ft != null and Combat.is_hostile(state, f, ft):
 							tgt = ft
 					if tgt == null:
 						tgt = _nearest_enemy(state, f)

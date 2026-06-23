@@ -14,7 +14,7 @@ static func _nearest_enemy(state, f) -> Variant:
 	var best: Variant = null
 	var bd = INF
 	for e in state["fighters"]:
-		if e["team"] != f["team"] and e["alive"]:
+		if Combat.is_hostile(state, f, e) and e["alive"]:
 			var dd = Geom.dist(f, e)
 			if dd < bd:
 				bd = dd
@@ -23,7 +23,7 @@ static func _nearest_enemy(state, f) -> Variant:
 
 static func _enemy_within(state, f, r) -> bool:
 	for e in state["fighters"]:
-		if e["team"] != f["team"] and e["alive"] and Geom.dist(f, e) < r:
+		if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < r:
 			return true
 	return false
 
@@ -75,7 +75,7 @@ static func try_cast(state, f, ab, target) -> bool:
 		"meleeAoe":
 			var in_r = []
 			for e in state["fighters"]:
-				if e["team"] != f["team"] and e["alive"] and Geom.dist(f, e) < ab["radius"]:
+				if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < ab["radius"]:
 					in_r.append(e)
 			if in_r.is_empty():
 				return false

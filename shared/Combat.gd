@@ -15,6 +15,27 @@ static func _find(fighters: Array, id) -> Variant:
 			return f
 	return null
 
+# --- hostility (PvP) ---------------------------------------------------------------------------
+# PvE: cross-team = enemy, same-team = ally. In a PvP zone (state.pvp), ALL players (team 0) are
+# mutually hostile (free-for-all) and NOT allies — mobs (team 1) are unaffected, and safe zones
+# (no pvp flag) are unchanged. The balance harness (create_match, no "pvp" key) keeps pure
+# team-vs-team behaviour, so PvE balance/determinism are byte-identical.
+static func is_hostile(state, a, b) -> bool:
+	if a["id"] == b["id"]:
+		return false                                 # never hostile to yourself
+	if a["team"] != b["team"]:
+		return true                                  # players↔mobs (and any cross-team) always fight
+	return a["team"] == 0 and bool(state.get("pvp", false))   # same team 0 in a PvP zone → enemies
+
+static func is_ally(state, a, b) -> bool:
+	if a["id"] == b["id"]:
+		return true                                  # you are your own ally (self-heal / self-buff)
+	if a["team"] != b["team"]:
+		return false
+	if a["team"] == 0 and bool(state.get("pvp", false)):
+		return false                                 # two players in a PvP zone are not allies
+	return true
+
 # effectiveDR — sum of all damage-reduction sources, capped at 0.75.
 static func effective_dr(t: Dictionary) -> float:
 	var dr := 0.0
@@ -48,10 +69,11 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 	# 6. strike zone (own + ally projectile boost)
 	if opts.get("projectile", false):
 		for z in state["zones"]:
-			if z["team"] == src["team"] and Vector2(z["x"] - tgt["x"], z["y"] - tgt["y"]).length() < z["radius"] + 30:
-				var p = _find(state["fighters"], z["owner"])
-				if p:
-					dmg *= GameData.CLASSES[p["classId"]]["zoneSelfBoost"] if p["id"] == src["id"] else GameData.CLASSES[p["classId"]]["zoneAllyBoost"]
+			if Vector2(z["x"] - tgt["x"], z["y"] - tgt["y"]).length() >= z["radius"] + 30:
+				continue
+			var p = _find(state["fighters"], z["owner"])
+			if p != null and (p["id"] == src["id"] or is_ally(state, p, src)):   # own/ally zone boosts the shot
+				dmg *= GameData.CLASSES[p["classId"]]["zoneSelfBoost"] if p["id"] == src["id"] else GameData.CLASSES[p["classId"]]["zoneAllyBoost"]
 				break
 	# 7. hat trick (Striker)
 	if sc.has("hatTrickEvery"):

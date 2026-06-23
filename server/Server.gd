@@ -30,7 +30,8 @@ const MAP_ID := "stadium"
 const SEED := 20260621
 const SIM_DT := 1.0 / 30.0
 const ZONE_TEAM_SIZE := 5
-const RESPAWN_DELAY := 4.0
+const RESPAWN_DELAY := 4.0            # player respawn delay
+const MOB_RESPAWN_DELAY := 6.0        # mobs respawn a bit slower than players (less camp churn)
 const SAVE_INTERVAL := 15.0
 const INTEREST_RADIUS := 450.0
 const STALE_INTENT_TICKS := 30
@@ -148,7 +149,7 @@ func _new_world(map: String) -> Dictionary:
 	w["regen"] = float(c["regen"])
 	w["regenDelay"] = float(c["regen_delay"])
 	w["aggro"] = bool(c["aggro"])
-	w["pvp"] = bool(c.get("pvp", false))         # reserved: open-PvP phase reads this (inert today)
+	w["pvp"] = bool(c.get("pvp", false))         # open-PvP: Combat.is_hostile/is_ally consult this per world
 	return w
 
 # spawn the home training dummy + every combat zone's mob camps. Shared by boot and the admin
@@ -614,9 +615,14 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		_pending_ability[pid] = ""
 	Sim.sim_tick(w, SIM_DT)
 	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)
-	for f in w["fighters"]:                       # queue the dead for respawn (instant for the dummy)
+	for f in w["fighters"]:                       # queue the dead for respawn (dummy instant; mobs slower than players)
 		if not f["alive"] and not _respawn.has(f["id"]):
-			_respawn[f["id"]] = 0.0 if f.get("dummy", false) else RESPAWN_DELAY
+			if f.get("dummy", false):
+				_respawn[f["id"]] = 0.0
+			elif f["team"] == 1:
+				_respawn[f["id"]] = MOB_RESPAWN_DELAY
+			else:
+				_respawn[f["id"]] = RESPAWN_DELAY
 
 # heal living players toward max HP; fast on safe maps, slow + delayed-after-damage on combat maps.
 # Gate on the engine's noDmgT (seconds since the last hit) — it resets on ANY hit, even one fully
@@ -1306,5 +1312,5 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
 			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
 	return {"fighters": fs, "projectiles": ps, "events": w["events"].duplicate(true), "t": w["t"],
-		"map": mapname, "portals": World.portals_for(mapname),
+		"map": mapname, "portals": World.portals_for(mapname), "pvp": bool(w.get("pvp", false)),
 		"arenaW": int(w.get("arenaW", GameData.ARENA_W)), "arenaH": int(w.get("arenaH", GameData.ARENA_H))}

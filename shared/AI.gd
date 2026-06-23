@@ -53,10 +53,10 @@ static func pick_focus_target(state, team) -> Variant:
 
 static func peel_target(state, f) -> Variant:
 	for a in state["fighters"]:
-		if a["team"] == f["team"] and a["alive"] and a["id"] != f["id"]:
+		if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"]:
 			if a["hp"] / a["maxHP"] < GameData.PEEL_HP:
 				for e in state["fighters"]:
-					if e["team"] != f["team"] and e["alive"] and Geom.dist(e, a) < GameData.PEEL_RANGE:
+					if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(e, a) < GameData.PEEL_RANGE:
 						return {"ally": a, "threat": e}
 	return null
 
@@ -119,7 +119,7 @@ static func step_toward(state, f, tx, ty, dt, speed_mult := 1.0) -> void:
 
 static func separation(state, f, dt) -> void:
 	for a in state["fighters"]:
-		if a["team"] != f["team"] or a["id"] == f["id"] or not a["alive"]: continue
+		if not Combat.is_ally(state, a, f) or a["id"] == f["id"] or not a["alive"]: continue   # only space out from allies
 		var d = Geom.dist(f, a)
 		if d < GameData.SPREAD_DIST and d > 0.1:
 			var push = (GameData.SPREAD_DIST - d) * 1.6 * dt
@@ -157,7 +157,7 @@ static func solo_support_tick(state, f) -> bool:
 	var c = GameData.CLASSES[f["classId"]]
 	var enemy_near = false
 	for e in state["fighters"]:
-		if e["team"] != f["team"] and e["alive"] and Geom.dist(f, e) < 320:
+		if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < 320:
 			enemy_near = true
 			break
 	for ab in c["abilities"]:
@@ -196,7 +196,7 @@ static func support_tick(state, f, dt) -> bool:
 	var c = GameData.CLASSES[f["classId"]]
 	var allies = []
 	for a in state["fighters"]:
-		if a["team"] == f["team"] and a["alive"] and a["id"] != f["id"]:
+		if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"]:
 			allies.append(a)
 	if allies.is_empty(): return solo_support_tick(state, f)
 
