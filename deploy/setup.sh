@@ -19,7 +19,8 @@ set -euo pipefail
 PORT="${PORT:-7777}"
 APP_DIR="${APP_DIR:-/opt/legends-mmo}"
 REPO_URL="${REPO_URL:-}"
-IMAGE="legends-zone"
+IMAGE="legends-zone"                                   # local build tag (fallback only)
+IMAGE_REF="${IMAGE_REF:-ghcr.io/voullume/legends-mmo:latest}"   # prebuilt image (built off-box by CI)
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo -E bash setup.sh)"; exit 1; }
 
@@ -53,8 +54,15 @@ case "${SUPABASE_SERVICE_KEY:-}" in
      exit 1 ;;
 esac
 
-echo "==> [3/5] Build the server image (downloads Godot + imports assets — a few minutes)"
-docker build -t "$IMAGE" .
+echo "==> [3/5] Image — pull the CI-built image (fast, no on-box build); build locally only as a fallback"
+if docker pull "$IMAGE_REF" >/dev/null 2>&1; then
+  IMAGE="$IMAGE_REF"
+  echo "    using prebuilt $IMAGE_REF"
+else
+  echo "    prebuilt image unavailable (registry private/unreachable?) — building on-box instead."
+  echo "    (this needs RAM/swap; the droplet now has a swapfile, so it won't OOM, just slower.)"
+  docker build -t "$IMAGE" .
+fi
 
 echo "==> [4/5] Firewall (allow SSH + UDP $PORT, if ufw is in use)"
 if command -v ufw >/dev/null 2>&1; then ufw allow OpenSSH >/dev/null 2>&1 || true; ufw allow "${PORT}/udp" >/dev/null 2>&1 || true; fi
