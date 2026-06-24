@@ -33,6 +33,7 @@ const ZONE_TEAM_SIZE := 5
 const RESPAWN_DELAY := 4.0            # player respawn delay
 const MOB_RESPAWN_DELAY := 6.0        # mobs respawn a bit slower than players (less camp churn)
 const SAVE_INTERVAL := 15.0
+const HEALTH_INTERVAL := 60.0         # log a players + CPU + RAM line once a minute (upgrade-signal)
 const INTEREST_RADIUS := 450.0
 const STALE_INTENT_TICKS := 30
 const AGGRO_RANGE := 320.0            # a mob engages a player within this range (covers ranged basics)
@@ -95,6 +96,8 @@ var _fseq := 0
 var _acc := 0.0
 var _save_t := 0.0
 var _snap_count := 0
+var _health_t := 0.0
+var _tick_us_peak := 0                # peak server compute time per frame this minute (CPU headroom)
 
 static func _xp_to_next(level: int) -> int:
 	return level * 100
@@ -592,6 +595,7 @@ func submit_ability(pid: int, key, seq) -> void:
 func _physics_process(delta: float) -> void:
 	if _worlds.is_empty():
 		return
+	var work_t0 := Time.get_ticks_usec()         # measure the server's compute this frame (CPU signal)
 	_acc += delta
 	var steps := 0
 	while _acc >= SIM_DT and steps < 5:
@@ -611,6 +615,59 @@ func _physics_process(delta: float) -> void:
 	if steps > 0:
 		_award_kills()                            # grant XP for mob kills before events are cleared
 		_broadcast()
+	_tick_us_peak = maxi(_tick_us_peak, int(Time.get_ticks_usec() - work_t0))
+	_health_t += delta
+	if _health_t >= HEALTH_INTERVAL:
+		_health_t = 0.0
+		_health_log()
+
+# Once a minute: players + the two signals that decide an upgrade — CPU (host 1-min load average +
+# peak per-frame compute vs the 33ms tick budget) and RAM (host free + this server's footprint), read
+# from /proc (the server runs on Linux/Docker; reads no-op gracefully off-Linux). Read the log with
+# `docker logs -f legends-zone | grep health`. RAM tight (free_ram low) → more RAM; load near/over 1.00
+# or peak_tick near 33ms while players are on → more vCPU (or shard zones).
+func _health_log() -> void:
+	var players := _peers.size()
+	var counts := []
+	for mapname in _worlds:
+		var np := 0
+		for f in _worlds[mapname]["fighters"]:
+			if f["team"] == 0:
+				np += 1
+		if np > 0:
+			counts.append("%s:%d" % [mapname, np])
+	var zones: String = " ".join(counts) if not counts.is_empty() else "-"
+	var load := _proc_first_token("/proc/loadavg")
+	var free_mb := _proc_kb("/proc/meminfo", "MemAvailable:") / 1024
+	var rss_mb := _proc_kb("/proc/self/status", "VmRSS:") / 1024
+	print("[health] players=%d [%s]  load=%s (1 vCPU)  peak_tick=%.1fms/33ms  free_ram=%dMB  server_rss=%dMB" % [
+		players, zones, load, _tick_us_peak / 1000.0, free_mb, rss_mb])
+	_tick_us_peak = 0
+
+func _proc_first_token(path: String) -> String:
+	var f = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return "?"
+	var line := f.get_line()
+	f.close()
+	var parts := line.split(" ", false)
+	return parts[0] if parts.size() > 0 else "?"
+
+func _proc_kb(path: String, key: String) -> int:                  # value (kB) of a "Key:  N kB" line
+	var f = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return 0
+	# /proc files report length 0, so read line-by-line (get_as_text reads `length` bytes → empty)
+	while not f.eof_reached():
+		var line := f.get_line()
+		if line.begins_with(key):
+			var nums := line.replace("\t", " ").split(" ", false)
+			for i in range(1, nums.size()):
+				if nums[i].is_valid_int():
+					f.close()
+					return int(nums[i])
+	f.close()
+	return 0
 
 func _tick_world(w: Dictionary, mapname: String) -> void:
 	_update_mob_ai(w)                             # aggro / leash before the sim resolves actions
