@@ -48,6 +48,8 @@ const BOTS := ["linebacker", "setter"]
 
 # Meshy clip-name map (sport → renderer anim roles). Soccer throws by kicking.
 const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"}}
+const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
+const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
 
 var _state: Dictionary
 var _meshy := {}
@@ -149,6 +151,8 @@ func _load_meshy() -> void:
 				var clip: Animation = load(p)
 				if cn in ["idle", "run", "walk"]:        # cyclic clips shipped as LOOP_NONE → make them loop
 					clip.loop_mode = Animation.LOOP_LINEAR  # smooth cycle (no freeze/pop at the end of each stride)
+				else:                                    # action clips bake big root (Hips) drift → pin it in place
+					_strip_root_motion(clip, cn != "death")   # keep Y for the death collapse; flatten it everywhere else
 				entry["clips"][cn] = clip
 		if entry["clips"].has("idle") and entry["clips"].has("attack"):
 			_meshy[sport] = entry
@@ -639,9 +643,32 @@ func _revive(f) -> void:
 			_safe_play(n["anim"], n["anims"].get("idle", "idle"))
 
 # ============================================================ animation
-func _safe_play(ap: AnimationPlayer, clip: String) -> void:
+func _safe_play(ap: AnimationPlayer, clip: String, speed := 1.0) -> void:
 	if ap != null and ap.has_animation(clip):
-		ap.play(clip)
+		ap.play(clip, -1, speed)
+
+# Meshy action clips bake huge root (Hips) translation — the hit clip drifts ~128u, sliding the whole
+# mesh off its ground ring. The server owns position, so action animation must play IN PLACE: pin the
+# Hips X/Z (and Y, except for the death collapse) to the clip's first frame. Idempotent; no-op on the
+# already-clean idle/run/walk. (Path is "Armature/Skeleton3D:Hips" across all four rigs.)
+static func _strip_root_motion(clip: Animation, clamp_y: bool) -> void:
+	for i in clip.get_track_count():
+		if clip.track_get_type(i) != Animation.TYPE_POSITION_3D:
+			continue
+		if not str(clip.track_get_path(i)).ends_with(":Hips"):
+			continue
+		var kc := clip.track_get_key_count(i)
+		if kc == 0:
+			return
+		var base: Vector3 = clip.track_get_key_value(i, 0)
+		for k in kc:
+			var v: Vector3 = clip.track_get_key_value(i, k)
+			v.x = base.x
+			v.z = base.z
+			if clamp_y:
+				v.y = base.y
+			clip.track_set_key_value(i, k, v)
+		return
 
 func _ability_type(class_id: String, key) -> String:
 	if key == null or key == "":
@@ -692,8 +719,8 @@ func _drive_anim(n: Dictionary, f: Dictionary, moving: bool) -> void:
 		_safe_play(ap, n["atk_clip"])
 	elif f["flash"] > 0.0 and n["pflash"] <= 0.0 and n["hit_cd"] <= 0.0:
 		n["busy"] = am.get("hit", "hit")
-		n["hit_cd"] = 0.7
-		_safe_play(ap, am.get("hit", "hit"))
+		n["hit_cd"] = HIT_FLINCH_CD
+		_safe_play(ap, am.get("hit", "hit"), HIT_SPEED)   # snappy in-place flinch (root motion stripped at load)
 	else:
 		var clip: String = am.get("run", "run") if moving else am.get("idle", "idle")
 		if ap.current_animation != clip or not ap.is_playing():
