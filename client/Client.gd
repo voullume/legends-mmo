@@ -19,7 +19,6 @@ const PlayerCtl := preload("res://client/Player.gd")
 # --- world scale / look ---
 const SCALE := 0.05                       # sim units → world units (960×540 → 48×27)
 const MESHY_SCALE := 1.9
-const IDLE_SCALE := 0.87                   # standing shrinks to match the (lower) run height — no pop on move
 const MESHY_FLIP := false
 const CHAR_Y := 0.0
 const SIM_DT := 1.0 / 30.0
@@ -474,10 +473,7 @@ func _render_world(delta: float) -> void:
 		var moving: bool = n["vel"].length() > 0.0016
 		# face heading while moving, else the nearest enemy
 		var flip: float = PI if MESHY_FLIP else 0.0
-		var model: Node3D = n["model"]
-		var msc: float = float(n.get("mscale", MESHY_SCALE))   # shrink toward run height when idle, back when moving
-		var ts: float = msc if moving else msc * IDLE_SCALE
-		model.scale = model.scale.lerp(Vector3(ts, ts, ts), clampf(delta * 8.0, 0.0, 1.0))
+		var model: Node3D = n["model"]   # scale is constant (set at spawn) — idle stands tall, run crouches, blended
 		var tgt_yaw: float = model.rotation.y
 		if moving:
 			tgt_yaw = atan2(n["vel"].x, n["vel"].y) + flip
