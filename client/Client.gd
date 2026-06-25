@@ -50,6 +50,11 @@ const BOTS := ["linebacker", "setter"]
 const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"}}
 const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
 const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
+# Action clips are authored 2.7–4.3s — far longer than abilities actually fire. Play each one to ~a
+# fraction of its cooldown (clamped) so frequent basics read snappy and long-cooldown ults read heavier.
+const CAST_DUR_FRAC := 0.6
+const CAST_DUR_MIN := 0.55      # quick floor for frequent basics
+const CAST_DUR_MAX := 1.5       # ceiling so even long-cooldown abilities stay punchy
 
 var _state: Dictionary
 var _meshy := {}
@@ -405,7 +410,7 @@ func _spawn(f: Dictionary) -> void:
 	_nodes[f["id"]] = {
 		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"], "mscale": msc,
 		"ui": ui, "fill": fill, "label": label, "last": holder.position, "vel": Vector2.ZERO,
-		"pcds": {}, "busy": "", "atk_clip": "", "died": false, "hit_cd": 0.0, "pflash": 0.0,
+		"pcds": {}, "busy": "", "atk_clip": "", "atk_speed": 1.0, "died": false, "hit_cd": 0.0, "pflash": 0.0,
 	}
 
 # ============================================================ main loop
@@ -681,6 +686,7 @@ func _ability_type(class_id: String, key) -> String:
 # Detect a fresh cast by a cooldown rising, then queue the right one-shot clip.
 func _detect_cast(n: Dictionary, f: Dictionary) -> void:
 	var atk := ""
+	var spd := 1.0
 	for k in f["cds"]:
 		# derive the clip from the specific ability whose cooldown rose this frame (not the
 		# global lastCastKey, which can mismatch when two casts land in one render frame).
@@ -695,9 +701,23 @@ func _detect_cast(n: Dictionary, f: Dictionary) -> void:
 				atk = am.get("melee", "")
 			elif t == "selfbuff" or t == "allybuff" or t == "allyheal" or t == "teamheal" or t == "zone" or t == "barrier":
 				atk = am.get("cast", "")
+			if atk != "":
+				spd = _cast_speed(n["anim"], atk, float(f["cds"][k]))   # snap to the ability's cadence
 			break
 	n["pcds"] = f["cds"].duplicate()
 	n["atk_clip"] = atk
+	n["atk_speed"] = spd
+
+# Speed so an action clip plays in ~CAST_DUR_FRAC of the ability's cooldown (clamped). Only ever speeds
+# up (>=1x); cap at 6x to avoid a blur. cd = the cooldown just set by the cast (its rising-edge value).
+func _cast_speed(ap: AnimationPlayer, clip: String, cd: float) -> float:
+	if ap == null or not ap.has_animation(clip):
+		return 1.0
+	var clen: float = ap.get_animation(clip).length
+	if clen <= 0.0:
+		return 1.0
+	var target := clampf(cd * CAST_DUR_FRAC, CAST_DUR_MIN, CAST_DUR_MAX)
+	return clampf(clen / target, 1.0, 6.0)
 
 func _drive_anim(n: Dictionary, f: Dictionary, moving: bool) -> void:
 	var ap: AnimationPlayer = n["anim"]
@@ -716,7 +736,7 @@ func _drive_anim(n: Dictionary, f: Dictionary, moving: bool) -> void:
 	n["busy"] = ""
 	if n["atk_clip"] != "":
 		n["busy"] = n["atk_clip"]
-		_safe_play(ap, n["atk_clip"])
+		_safe_play(ap, n["atk_clip"], n.get("atk_speed", 1.0))   # snappy, scaled to the ability's cadence
 	elif f["flash"] > 0.0 and n["pflash"] <= 0.0 and n["hit_cd"] <= 0.0:
 		n["busy"] = am.get("hit", "hit")
 		n["hit_cd"] = HIT_FLINCH_CD
