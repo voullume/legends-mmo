@@ -100,11 +100,14 @@ func play_music(name: String) -> void:
 		return
 	var s = _try_load(MUSIC_DIR + name)
 	_music_cur = name
-	var fade_in: AudioStreamPlayer = _music_b if _music_on_a else _music_a
 	var fade_out: AudioStreamPlayer = _music_a if _music_on_a else _music_b
+	var has_out: bool = is_instance_valid(fade_out) and fade_out.playing
+	if not has_out and s == null:
+		return                            # silent zone, nothing playing → no crossfade (avoid an empty Tween → error)
+	var fade_in: AudioStreamPlayer = _music_b if _music_on_a else _music_a
 	_music_on_a = not _music_on_a
 	var tw := create_tween()
-	if is_instance_valid(fade_out) and fade_out.playing:
+	if has_out:
 		tw.parallel().tween_property(fade_out, "volume_db", -40.0, 1.2)
 		tw.chain().tween_callback(fade_out.stop)
 	if s != null:
