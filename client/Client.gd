@@ -21,6 +21,11 @@ const SCALE := 0.05                       # sim units → world units (960×540 
 const MESHY_SCALE := 1.9
 const MESHY_FLIP := false
 const CHAR_Y := 0.0
+# In-hand sport prop (the Batter's bat) attached to the Meshy "RightHand" bone, so it follows the swing.
+const PROP_SCALE := 1.0                     # bump if the bat looks too big/small in hand
+const MESHY_BAT_MUL := 95.0                 # the Meshy RightHand bone has a ~0.02 internal scale — counter it
+const MESHY_PROP_ROT := Vector3(0, 0, 0)    # tweak if the bat sits at the wrong angle
+const MESHY_PROP_OFS := Vector3(0, 0, 0)
 const SIM_DT := 1.0 / 30.0
 const BAR_W := 2.2
 const BAR_H := 0.26
@@ -46,6 +51,7 @@ const PLAYABLE := ["striker", "batter", "spiker", "linebacker", "pitcher", "quar
 const BOTS := ["linebacker", "setter"]
 
 # Meshy clip-name map (sport → renderer anim roles). Soccer throws by kicking.
+# Per-ability clip overrides (classId → {ability key → clip name}), beyond the by-type default.
 const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"}}
 const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
 const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
@@ -53,7 +59,7 @@ const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of h
 # fraction of its cooldown (clamped) so frequent basics read snappy and long-cooldown ults read heavier.
 const CAST_DUR_FRAC := 0.6
 const CAST_DUR_MIN := 0.55      # quick floor for frequent basics
-const CAST_DUR_MAX := 1.5       # ceiling so even long-cooldown abilities stay punchy
+const CAST_DUR_MAX := 1.0       # ceiling so even long-cooldown abilities (power swings/ults) stay punchy, not slow
 
 var _state: Dictionary
 var _meshy := {}
@@ -157,6 +163,7 @@ func _load_meshy() -> void:
 					clip.loop_mode = Animation.LOOP_LINEAR  # smooth cycle (no freeze/pop at the end of each stride)
 				else:                                    # action clips bake big root (Hips) drift → pin it in place
 					_strip_root_motion(clip, cn != "death")   # keep Y for the death collapse; flatten it everywhere else
+				_strip_hips_scale(clip)              # idle bakes a 1.176 Hips scale → strip it so size stays constant
 				entry["clips"][cn] = clip
 		if entry["clips"].has("idle") and entry["clips"].has("attack"):
 			_meshy[sport] = entry
@@ -211,6 +218,25 @@ func _mat(col) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = (Color(col) if col is String else col)
 	return m
+
+# A held sport prop for the class, or null. The Batter carries a bat (a tapered cylinder); _spawn pins
+# it to the RightHand bone so it tracks the swing. (Balls are intentionally omitted — a ball stuck in
+# the hand reads oddly during a throw, where the projectile is its own FX.)
+func _class_prop(class_id: String) -> Node3D:
+	if class_id != "batter":
+		return null
+	var root := Node3D.new()
+	root.scale = Vector3(PROP_SCALE, PROP_SCALE, PROP_SCALE)
+	var bat := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.055
+	cm.bottom_radius = 0.02
+	cm.height = 0.82
+	bat.mesh = cm
+	bat.material_override = _mat(Color(0.66, 0.45, 0.26))
+	bat.position = Vector3(0, 0.40, 0)
+	root.add_child(bat)
+	return root
 
 func _quad(w: float, h: float, col: Color) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -387,6 +413,18 @@ func _spawn(f: Dictionary) -> void:
 	if ap != null:
 		ap.playback_default_blend_time = 0.12
 		_safe_play(ap, kit["anims"].get("idle", "idle"))
+
+	var prop := _class_prop(str(f["classId"]))   # held sport prop (the Batter's bat) on the hand bone
+	if prop != null:
+		var skel := _find_skeleton(model)
+		if skel != null:
+			var ba := BoneAttachment3D.new()
+			skel.add_child(ba)
+			ba.bone_name = "RightHand"
+			prop.scale *= MESHY_BAT_MUL          # counter the hand bone's tiny internal scale
+			prop.rotation_degrees = MESHY_PROP_ROT
+			prop.position = MESHY_PROP_OFS
+			ba.add_child(prop)
 
 	var ui := Node3D.new()
 	ui.position.y = UI_Y
@@ -670,6 +708,14 @@ static func _strip_root_motion(clip: Animation, clamp_y: bool) -> void:
 				v.y = base.y
 			clip.track_set_key_value(i, k, v)
 		return
+
+# The Meshy idle clip bakes a Hips SCALE of ~1.176 (the character balloons 17% when idle, then snaps
+# back the instant it runs/acts — reads as a shrink). No other clip animates scale, so remove any Hips
+# scale track → the bone uses its rest scale and the character stays one constant size.
+static func _strip_hips_scale(clip: Animation) -> void:
+	for i in range(clip.get_track_count() - 1, -1, -1):
+		if clip.track_get_type(i) == Animation.TYPE_SCALE_3D and str(clip.track_get_path(i)).ends_with(":Hips"):
+			clip.remove_track(i)
 
 func _ability_type(class_id: String, key) -> String:
 	if key == null or key == "":
