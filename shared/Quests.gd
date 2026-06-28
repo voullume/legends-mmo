@@ -50,7 +50,7 @@ const QUESTS := {
 		"min_level": 5, "prereq": "frontier_access",
 		"objective": {"type": "kill", "match": {"map": "frontier", "tier": "boss"}, "count": 1},
 		"rewards": {"xp": 700, "credits": 350,
-			"item": {"name": "Keeper's Gauntlets", "rarity": "epic", "slot": "weapon", "bonus_stat": "PWR", "bonus_amt": 20}},
+			"item": {"name": "Keeper's Gauntlets", "rarity": "epic", "slot": "main_hand", "bonus_stat": "PWR", "bonus_amt": 20}},
 	},
 	"depths_access": {
 		"name": "Descent into the Depths",
@@ -73,7 +73,7 @@ const QUESTS := {
 		"min_level": 10, "prereq": "depths_access",
 		"objective": {"type": "kill", "match": {"map": "depths", "tier": "boss"}, "count": 1},
 		"rewards": {"xp": 1500, "credits": 700,
-			"item": {"name": "Warden's Bulwark", "rarity": "epic", "slot": "armor", "bonus_stat": "END", "bonus_amt": 28}},
+			"item": {"name": "Warden's Bulwark", "rarity": "epic", "slot": "chest", "bonus_stat": "END", "bonus_amt": 28}},
 	},
 }
 

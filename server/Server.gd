@@ -53,25 +53,51 @@ const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob sc
 const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity to re-triggering a pad
 
 # --- loot ---
+# 10 item-TYPE slots. There are 11 EQUIP slots because `ring` has equip capacity 2 (see SLOT_CAP) — the
+# stored item.slot only needs the 10 type strings; the second ring is a capacity, not a separate type.
 const LOOT_SLOTS := {
-	"weapon": ["Bat", "Cleats", "Gauntlets", "Glove", "Racket"],
-	"armor": ["Jersey", "Shoulder Pads", "Helmet", "Shin Guards"],
-	"trinket": ["Medal", "Lucky Charm", "Whistle", "Captain's Band"],
+	"head":      ["Helmet", "Cap", "Visor", "Headguard"],
+	"chest":     ["Jersey", "Chest Pad", "Vest", "Breastplate"],
+	"legs":      ["Leggings", "Shin Guards", "Trousers", "Greaves"],
+	"hands":     ["Gauntlets", "Gloves", "Wraps", "Mitts"],
+	"feet":      ["Cleats", "Boots", "Sneakers", "Treads"],
+	"main_hand": ["Bat", "Racket", "Club", "Driver"],
+	"off_hand":  ["Glove", "Shield", "Buckler", "Catcher's Mitt"],
+	"neck":      ["Medal", "Chain", "Pendant", "Amulet"],
+	"ring":      ["Ring", "Band", "Signet", "Loop"],
+	"trinket":   ["Lucky Charm", "Whistle", "Captain's Band", "Token"],
 }
+# rarity: weight (drop chance, float) + mult (scales item budgets). legendary/mythic stay rare so their
+# higher ceilings are aspirational, not routine.
 const RARITIES := [
-	{"name": "common", "weight": 60, "mult": 1},
-	{"name": "uncommon", "weight": 28, "mult": 2},
-	{"name": "rare", "weight": 10, "mult": 4},
-	{"name": "epic", "weight": 2, "mult": 8},
+	{"name": "common",    "weight": 60.0, "mult": 1},
+	{"name": "uncommon",  "weight": 27.0, "mult": 2},
+	{"name": "rare",      "weight": 9.0,  "mult": 4},
+	{"name": "epic",      "weight": 3.0,  "mult": 8},
+	{"name": "legendary", "weight": 0.9,  "mult": 14},
+	{"name": "mythic",    "weight": 0.1,  "mult": 20},
 ]
 const LOOT_STATS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]
+const SLOT_CAP := {"ring": 2}                # equip-slot capacity per item type (default 1; rings stack 2)
+const AFFIX_COUNT_BY_RARITY := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 4}
+const SHOP_ILVL := 8                         # the shop catalog/roll's fixed item level (a reliable baseline)
 # economy (Credits): buy from a fixed catalog, gamble a random roll, or sell inventory back
-const BUY_PRICE := {"common": 40, "uncommon": 110, "rare": 280, "epic": 650}
+const BUY_PRICE := {"common": 40, "uncommon": 110, "rare": 280, "epic": 650}     # shop sells common..epic only
 const ROLL_PRICE := {"common": 50, "uncommon": 130, "rare": 320, "epic": 720}
-const SELL_PRICE := {"common": 14, "uncommon": 38, "rare": 95, "epic": 230}
-const SHOP_SLOT_STAT := {"weapon": "PWR", "armor": "END", "trinket": "INS"}
+const SELL_PRICE := {"common": 14, "uncommon": 38, "rare": 95, "epic": 230, "legendary": 560, "mythic": 1200}
+const SHOP_SLOT_STAT := {"head": "END", "chest": "END", "legs": "SPD", "hands": "PWR", "feet": "SPD",
+	"main_hand": "PWR", "off_hand": "PRE", "neck": "INS", "ring": "CLU", "trinket": "INS"}
 const SHOP_RARITIES := ["common", "uncommon", "rare", "epic"]
-const RARITY_CAP := {"common": 4, "uncommon": 10, "rare": 20, "epic": 40}   # caps an equipped bonus (anti-forge)
+# RARITY_CAP caps EACH equipped item's EACH stat (primary + every affix) independently — the single
+# anti-forge chokepoint (see _apply_equipment). ABS_CAP is the hard ceiling P4 upgrades climb toward.
+const RARITY_CAP := {"common": 4, "uncommon": 10, "rare": 20, "epic": 40, "legendary": 60, "mythic": 80}
+const ABS_CAP := 100
+# Per-item RARITY_CAP gives items flavor (higher rarity = bigger single-item numbers), but with 11 equip
+# slots the SUMMED bonus per stat would reach ~+200 at full epic — which the AI-duel balance harness shows
+# blows the class win-rate spread from ~17 to ~50. EQUIP_STAT_CAP bounds the TOTAL equipment bonus per
+# stat so full gear stays balance-neutral (harness: +60/stat → spread 13 ≤ the no-gear baseline). Every
+# power source (primary, affixes, and later upgrades/gems/sets) funnels through this aggregate ceiling.
+const EQUIP_STAT_CAP := 60
 
 var net: Node = null
 var supa: Node = null
@@ -474,7 +500,54 @@ func _award_credits(pid: int, amt: int) -> void:
 	if _session.has(pid):
 		_session[pid]["credits"] = int(_session[pid]["credits"]) + amt
 
-# the fixed catalog: one item per slot × rarity (varied base name, slot-appropriate stat)
+# the single item builder — loot, the shop catalog, and the gamble roll all go through this so power is
+# consistent (replaces the old divergent mult*6 / mult*(qty+lvl) formulas). rng-driven (deterministic via
+# _loot_rng) when picking a stat/affixes/base; pass a fixed primary_stat + base_name + with_affixes=false
+# for the STABLE shop catalog (then it makes ZERO rng calls, so loot determinism is untouched). Returns
+# primary_* and mirrors them to the legacy bonus_* (kept one release), plus ilvl/affixes/item_power.
+func _make_item(slot: String, rarity: String, ilvl: int, primary_stat: String = "", with_affixes: bool = true, base_name: String = "") -> Dictionary:
+	var mult := 1
+	for r in RARITIES:
+		if r["name"] == rarity:
+			mult = int(r["mult"])
+			break
+	var lv := clampi(ilvl, 1, 80)
+	var ps: String = primary_stat if primary_stat != "" else LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())]
+	var pamt := int(round(mult * (3.0 + lv * 0.4)))
+	var affixes := []
+	if with_affixes:
+		var n := int(AFFIX_COUNT_BY_RARITY.get(rarity, 0))
+		if n > 0:
+			var budget := int(round(mult * (1.0 + lv * 0.18)))
+			if budget < n:
+				budget = n                                   # guarantee at least +1 per affix
+			var pool: Array = LOOT_STATS.duplicate()         # prefer affix stats distinct from the primary
+			pool.erase(ps)
+			for i in range(pool.size() - 1, 0, -1):          # Fisher-Yates with the deterministic loot rng
+				var j: int = _loot_rng.next_int(i + 1)
+				var t = pool[i]; pool[i] = pool[j]; pool[j] = t
+			var each := budget / n                           # split the budget evenly, remainder to the first
+			var rem := budget - each * n
+			for i in n:
+				var st: String = str(pool[i]) if i < pool.size() else LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())]
+				var amt := each + (1 if i < rem else 0)
+				if amt < 1:
+					amt = 1
+				affixes.append({"stat": st, "amt": amt})
+	var atotal := 0
+	for a in affixes:
+		atotal += int(a["amt"])
+	var bases: Array = LOOT_SLOTS.get(slot, ["Relic"])
+	var base: String = base_name if base_name != "" else str(bases[_loot_rng.next_int(bases.size())])
+	return {
+		"name": "%s %s" % [rarity.capitalize(), base], "rarity": rarity, "slot": slot, "ilvl": lv,
+		"primary_stat": ps, "primary_amt": pamt, "bonus_stat": ps, "bonus_amt": pamt,
+		"affixes": affixes, "item_power": pamt + atotal + lv,
+	}
+
+# the fixed shop catalog: one CLEAN (affix-free) item per slot × shop-rarity, built deterministically so
+# it stays stable across calls + the recv_shop_info push. Drops/rolls carry the affixes; the shop is the
+# reliable baseline.
 func _catalog() -> Array:
 	var out := []
 	for slot in LOOT_SLOTS:
@@ -482,12 +555,9 @@ func _catalog() -> Array:
 		var stat: String = str(SHOP_SLOT_STAT.get(slot, "PWR"))
 		for i in SHOP_RARITIES.size():
 			var rar: String = SHOP_RARITIES[i]
-			var mult := 1
-			for r in RARITIES:
-				if r["name"] == rar:
-					mult = int(r["mult"])
-			out.append({"slot": slot, "rarity": rar, "bonus_stat": stat, "bonus_amt": mult * 6,
-				"price": int(BUY_PRICE[rar]), "name": "%s %s" % [rar.capitalize(), str(bases[i % bases.size()])]})
+			var item := _make_item(slot, rar, SHOP_ILVL, stat, false, str(bases[i % bases.size()]))
+			item["price"] = int(BUY_PRICE[rar])
+			out.append(item)
 	return out
 
 func _give_and_charge(pid: int, item: Dictionary, price: int) -> void:
@@ -572,8 +642,9 @@ func _do_shop_buy(pid: int, slot: String, rarity: String) -> void:
 			break
 	if entry == null or int(_session[pid]["credits"]) < int(entry["price"]):
 		return
-	await _give_and_charge(pid, {"name": str(entry["name"]), "rarity": rarity, "slot": slot,
-		"bonus_stat": str(entry["bonus_stat"]), "bonus_amt": int(entry["bonus_amt"])}, int(entry["price"]))
+	var item: Dictionary = (entry as Dictionary).duplicate()
+	item.erase("price")                                       # "price" is display-only, not an inventory column
+	await _give_and_charge(pid, item, int(entry["price"]))
 
 func _do_shop_roll(pid: int, rarity: String) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not ROLL_PRICE.has(rarity):
@@ -582,14 +653,7 @@ func _do_shop_roll(pid: int, rarity: String) -> void:
 		return
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	var bases: Array = LOOT_SLOTS[slot]
-	var mult := 1
-	for r in RARITIES:
-		if r["name"] == rarity:
-			mult = int(r["mult"])
-	await _give_and_charge(pid, {"name": "%s %s" % [rarity.capitalize(), str(bases[_loot_rng.next_int(bases.size())])],
-		"rarity": rarity, "slot": slot, "bonus_stat": LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())],
-		"bonus_amt": mult * 6}, int(ROLL_PRICE[rarity]))
+	await _give_and_charge(pid, _make_item(slot, rarity, SHOP_ILVL), int(ROLL_PRICE[rarity]))   # rolls carry affixes
 
 # bulk sell: ONE locked, serialized loop of atomic per-row deletes, crediting each row the instant it's
 # removed, then ONE save + push. Dupe-safe by construction — see the per-row note below and the §2 contract.
@@ -960,16 +1024,13 @@ func _roll_loot(mob) -> Dictionary:
 	var rar := _roll_rarity(tier)
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	var bases: Array = LOOT_SLOTS[slot]
-	var base: String = bases[_loot_rng.next_int(bases.size())]
-	var stat: String = LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())]
-	var qty := 3 if tier == "boss" else 2              # bosses roll a beefier bonus (capped on equip)
-	return {"name": base, "rarity": str(rar["name"]), "slot": slot, "bonus_stat": stat, "bonus_amt": int(rar["mult"]) * (qty + lvl)}
+	var tbonus := 12 if tier == "boss" else (5 if tier == "elite" else 0)   # drop ilvl = mob level + tier
+	return _make_item(slot, str(rar["name"]), clampi(lvl + tbonus, 1, 80))
 
 func _roll_rarity(tier: String) -> Dictionary:
-	var total := 0
+	var total := 0.0
 	for r in RARITIES:
-		total += int(r["weight"])
+		total += float(r["weight"])
 	var roll: float = _loot_rng.next() * total
 	var acc := 0.0
 	var idx := 0
@@ -978,10 +1039,12 @@ func _roll_rarity(tier: String) -> Dictionary:
 		if roll < acc:
 			idx = i
 			break
+	# tiers bump the rolled rarity up (bosses floor at epic) WITHOUT auto-granting the top tier — the
+	# upper tail must still roll, so legendary/mythic stay special even on bosses.
 	if tier == "boss":
-		idx = RARITIES.size() - 1                      # bosses always drop the top rarity
+		idx = clampi(idx + 2, 3, RARITIES.size() - 1)  # floor at epic (index 3)
 	elif tier == "elite":
-		idx = min(idx + 2, RARITIES.size() - 1)
+		idx = clampi(idx + 1, 0, RARITIES.size() - 1)
 	return RARITIES[idx]
 
 # ---- equipment ----
@@ -1004,13 +1067,25 @@ func equip(pid: int, item_id: String, _slot: String) -> void:
 				break
 	if item != null:                                 # only if it's this player's item
 		var islot: String = str(item["slot"])
+		var cap_n := int(SLOT_CAP.get(islot, 1))     # most slots hold 1; rings hold 2
 		var ok: bool
 		if bool(item["equipped"]):                   # toggle OFF: unequip this item
 			ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, false)).get("ok"))
-		else:                                        # toggle ON: equip it FIRST, then clear others in the slot
+		else:                                        # toggle ON: equip it FIRST, then trim the slot to capacity
 			ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)).get("ok"))
-			if ok:                                   # (so a failed clear can't strand the slot empty)
-				await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s&id=neq.%s" % [s["char_id"], islot, item_id], false)
+			var trim_ok := true                      # a failed trim could strand >cap equipped in the DB
+			if ok and cap_n <= 1:                    # 1-per-slot: clear every other item in this slot
+				trim_ok = bool((await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s&id=neq.%s" % [s["char_id"], islot, item_id], false)).get("ok"))
+			elif ok:                                 # multi (rings): keep the newest cap_n-1 OTHERS, unequip older excess
+				var others := []                     # from the pre-toggle read: other equipped items of this slot
+				for it2 in inv["items"]:
+					if str(it2["slot"]) == islot and bool(it2["equipped"]) and str(it2["id"]) != item_id:
+						others.append(it2)
+				others.sort_custom(func(a, b): return str(a.get("created_at", "")) > str(b.get("created_at", "")))  # newest first
+				for i in range(cap_n - 1, others.size()):
+					trim_ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + str(others[i]["id"]), false)).get("ok")) and trim_ok
+			if ok and not trim_ok:                   # equip stuck but a trim write failed → DB may hold >cap equipped
+				print("[zone] equip slot-trim failed for %s (%s) — equipped set may exceed capacity until the next toggle" % [s["name"], islot])
 		if not ok:                                   # surface the failure (e.g. SUPABASE_SERVICE_KEY unset → 403)
 			print("[zone] equip write failed for %s — is SUPABASE_SERVICE_KEY set?" % s["name"])
 		await _apply_equipment(pid)                  # re-derive from the actually-persisted DB state either way
@@ -1029,19 +1104,39 @@ func _apply_equipment(pid: int) -> void:
 	if not inv.get("ok") or not _session.has(pid):
 		return
 	var bonus := {}
-	var used := {}
+	var used := {}                                       # slot -> how many equipped items of it we've counted
 	for it in inv["items"]:
 		if not bool(it["equipped"]):
 			continue
 		var slot := str(it["slot"])
-		if used.has(slot):                           # defensive: only one item per slot counts
+		var cap_n := int(SLOT_CAP.get(slot, 1))          # respect the per-slot equip capacity (rings: 2)
+		var n := int(used.get(slot, 0))
+		if n >= cap_n:                                   # defensive: ignore any extras beyond capacity
 			continue
-		used[slot] = true
-		var st := str(it.get("bonus_stat", ""))
-		if st == "":
-			continue
-		var cap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
-		bonus[st] = int(bonus.get(st, 0)) + min(int(it.get("bonus_amt", 0)), cap)
+		used[slot] = n + 1
+		var rcap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
+		# primary stat (fall back to the legacy bonus_* for pre-P2 / quest-reward items). Coerce JSON null
+		# to "" — a nullable column comes back as null, and str(null) is "<null>", which would defeat the fallback.
+		var psv = it.get("primary_stat")
+		var ps: String = "" if psv == null else str(psv)
+		if ps == "":
+			var bsv = it.get("bonus_stat")
+			ps = "" if bsv == null else str(bsv)
+		var pa := int(it.get("primary_amt", 0))
+		if pa == 0:
+			pa = int(it.get("bonus_amt", 0))
+		if ps != "":
+			bonus[ps] = int(bonus.get(ps, 0)) + min(pa, rcap)            # primary capped independently
+		var affs = it.get("affixes", [])                                 # each affix capped independently too
+		if affs is Array:
+			for a in affs:
+				if typeof(a) != TYPE_DICTIONARY:
+					continue
+				var ast := str(a.get("stat", ""))
+				if ast != "":
+					bonus[ast] = int(bonus.get(ast, 0)) + min(int(a.get("amt", 0)), rcap)
+	for st in bonus.keys():                              # aggregate per-stat ceiling — the balance bound
+		bonus[st] = min(int(bonus[st]), EQUIP_STAT_CAP)
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_recompute_player_stats(_find(_session[pid]["fid"]), int(_session[pid]["level"]), bonus)
 
@@ -1247,7 +1342,17 @@ func _grant_quest_rewards(pid: int, qid: String) -> void:
 			net.recv_quest_update.rpc_id(pid, qid, int(st["progress"]), true)
 
 func _grant_quest_item(pid: int, char_id: String, access: String, item: Dictionary) -> void:
-	var r = await supa.add_item_as(access, char_id, item)   # service-role write; no live session required
+	var it := item.duplicate()                             # quest defs are legacy-shaped {bonus_*}; fill the deep model
+	if str(it.get("primary_stat", "")) == "":
+		it["primary_stat"] = str(it.get("bonus_stat", ""))
+	if int(it.get("primary_amt", 0)) == 0:
+		it["primary_amt"] = int(it.get("bonus_amt", 0))
+	if int(it.get("ilvl", 0)) == 0:
+		it["ilvl"] = 1
+	if int(it.get("item_power", 0)) == 0:
+		it["item_power"] = int(it["primary_amt"]) + int(it["ilvl"])
+	var r = await supa.add_item_as(access, char_id, it)     # service-role write; no live session required
+	item = it                                              # so the recv_loot below reads the normalized dict
 	if r.get("ok") and _session.has(pid) and net != null:
 		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
 		net.recv_inventory_changed.rpc_id(pid)
@@ -1352,9 +1457,7 @@ func _admin_give_item(pid: int) -> void:
 	var rar = RARITIES[_loot_rng.next_int(RARITIES.size())]
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	var bases: Array = LOOT_SLOTS[slot]
-	var item := {"name": str(bases[_loot_rng.next_int(bases.size())]), "rarity": str(rar["name"]), "slot": slot,
-		"bonus_stat": LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())], "bonus_amt": int(rar["mult"]) * 6}
+	var item := _make_item(slot, str(rar["name"]), SHOP_ILVL)
 	var r = await supa.add_item_as(s["access"], s["char_id"], item)
 	if r.get("ok") and net != null and _session.has(pid):
 		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))

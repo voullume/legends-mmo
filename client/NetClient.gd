@@ -9,9 +9,9 @@ extends "res://client/Client.gd"
 
 const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
 const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
-const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff"}
-const RARITY_ORDER := ["common", "uncommon", "rare", "epic"]                 # low → high tier
-const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3}
+const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff", "legendary": "#ff8c1a", "mythic": "#ff4d6d"}
+const RARITY_ORDER := ["common", "uncommon", "rare", "epic", "legendary", "mythic"]   # low → high tier
+const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 5}
 const SELL_BATCH_MAX := 50                                                   # one bulk sell ≤ this (server caps too)
 const Quests := preload("res://shared/Quests.gd")
 
@@ -62,7 +62,7 @@ var _sell_confirm: Panel = null
 var _sell_items := []         # last-loaded inventory (Array[Dictionary]) — re-render toggles without re-fetch
 var _sell_selection := {}     # item_id -> true, the multi-select set in the SELL list
 var _sell_sort := "rarity"    # rarity | slot | power
-var _sell_filter_slot := ""   # "" = all slots, else weapon|armor|trinket
+var _sell_filter_slot := ""   # "" = all slots, else one of the 10 item-type slots (head…trinket)
 var _sell_loading := false    # re-entrancy guard for the SELL list load (mirrors _inv_loading)
 var _sell_pending := false    # a reload was requested while one was in flight
 var _quests := {}             # quest_id -> {progress, completed} — server-pushed, server-authoritative
@@ -160,6 +160,31 @@ func recv_chat(sender: String, text: String) -> void:
 func _esc(s: String) -> String:
 	return s.replace("[", "[lb]")
 
+# an item's stat block: primary (falling back to legacy bonus_* for pre-P2/quest items) + each affix.
+# Shared by the inventory, shop-buy and sell views so one item always reads the same everywhere.
+func _item_stats_str(it: Dictionary) -> String:
+	var psv = it.get("primary_stat")                          # coerce JSON null → "" (str(null) is "<null>")
+	var ps: String = "" if psv == null else str(psv)
+	var pa: int = int(it.get("primary_amt", 0))
+	if ps == "":
+		var bsv = it.get("bonus_stat")
+		ps = "" if bsv == null else str(bsv)
+	if pa == 0:
+		pa = int(it.get("bonus_amt", 0))
+	var parts := []
+	if ps != "" and pa != 0:
+		parts.append("[color=#9fe8a0]+%d %s[/color]" % [pa, ps])
+	var affs = it.get("affixes", [])
+	if affs is Array:
+		for a in affs:
+			if typeof(a) == TYPE_DICTIONARY:
+				parts.append("[color=#7fb0e8]+%d %s[/color]" % [int(a.get("amt", 0)), str(a.get("stat", ""))])
+	return "  ".join(parts)
+
+# compact "iLvl · power" tag for an item
+func _item_meta_str(it: Dictionary) -> String:
+	return "[color=#7f8a99]i%d · ✦%d[/color]" % [int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
+
 func _build_inventory() -> void:
 	_inv_panel = CenterContainer.new()
 	_inv_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -219,11 +244,11 @@ func _load_inventory() -> void:
 		var col: String = RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
 		var eq: bool = bool(it.get("equipped", false))
 		var mark: String = "[color=#ffd24d]★ [/color]" if eq else "[color=#5a6472]○ [/color]"
-		var bonus := ""
-		if int(it.get("bonus_amt", 0)) != 0:
-			bonus = "   [color=#9fe8a0]+%d %s[/color]" % [int(it["bonus_amt"]), str(it.get("bonus_stat", ""))]
 		var meta: String = "%s|%s" % [str(it.get("id", "")), str(it.get("slot", ""))]
-		lines.append("%s[url=%s][color=%s]%s[/color][/url]  [color=#7f93a8](%s · %s)[/color]%s" % [mark, meta, col, _esc(str(it.get("name", "?"))), str(it.get("rarity", "")), str(it.get("slot", "")), bonus])
+		var stats := _item_stats_str(it)
+		lines.append("%s[url=%s][color=%s]%s[/color][/url]  [color=#7f93a8](%s · %s)[/color]  %s%s" % [
+			mark, meta, col, _esc(str(it.get("name", "?"))), str(it.get("rarity", "")), str(it.get("slot", "")),
+			_item_meta_str(it), ("\n      " + stats if stats != "" else "")])
 	_inv_label.text = "\n".join(lines)
 
 func _on_item_clicked(meta) -> void:
@@ -695,8 +720,8 @@ func _render_shop_buy() -> void:
 	lines.append("[color=#7f93a8]Catalog — click to buy:[/color]")
 	for e in _shop_info.get("catalog", []):
 		var col: String = RARITY_COLORS.get(str(e.get("rarity", "")), "#cfd6df")
-		lines.append("[url=buy|%s|%s][color=%s]%s[/color][/url] [color=#9fe8a0]+%d %s[/color] — [color=#ffd24d]%d[/color]" % [
-			str(e["slot"]), str(e["rarity"]), col, _esc(str(e["name"])), int(e["bonus_amt"]), str(e["bonus_stat"]), int(e["price"])])
+		lines.append("[url=buy|%s|%s][color=%s]%s[/color][/url] %s — [color=#ffd24d]%d[/color]" % [
+			str(e["slot"]), str(e["rarity"]), col, _esc(str(e["name"])), _item_stats_str(e), int(e["price"])])
 	lines.append("\n[color=#7f93a8]Random roll (random item of that tier):[/color]")
 	var roll: Dictionary = _shop_info.get("roll", {})
 	for rar in ["common", "uncommon", "rare", "epic"]:
@@ -790,7 +815,7 @@ func _render_shop_sell() -> void:
 			sort_chunks.append("[url=sort|%s][color=#7f93a8]%s[/color][/url]" % [key, key.capitalize()])
 	lines.append("[color=#7f93a8]sort:[/color] " + "   ".join(sort_chunks))
 	var slot_chunks := []
-	for sl in ["", "weapon", "armor", "trinket"]:
+	for sl in ["", "head", "chest", "legs", "hands", "feet", "main_hand", "off_hand", "neck", "ring", "trinket"]:
 		var lbl2: String = "All" if sl == "" else sl.capitalize()
 		if _sell_filter_slot == sl:
 			slot_chunks.append("[color=#ffd24d]%s[/color]" % lbl2)
@@ -813,9 +838,7 @@ func _render_shop_sell() -> void:
 		var equipped: bool = bool(it.get("equipped", false))
 		var locked: bool = bool(it.get("locked", false))
 		var name_txt: String = _esc(str(it.get("name", "?")))
-		var bonus := ""
-		if int(it.get("bonus_amt", 0)) != 0:
-			bonus = " [color=#9fe8a0]+%d %s[/color]" % [int(it["bonus_amt"]), str(it.get("bonus_stat", ""))]
+		var stats := _item_stats_str(it)
 		var mark := ""
 		var name_part := ""
 		if equipped:                              # equipped → never selectable here (unequip to sell)
@@ -829,8 +852,9 @@ func _render_shop_sell() -> void:
 			mark = "[url=seltoggle|%s]%s[/url]" % [iid, glyph]
 			name_part = "[url=seltoggle|%s][color=%s]%s[/color][/url]" % [iid, col2, name_txt]
 		var lock_glyph: String = "[color=#ffb454]🔒[/color]" if locked else "[color=#5a6472]🔓[/color]"
-		lines.append("%s [url=lock|%s]%s[/url] %s [color=#7f93a8](%s)[/color]%s — [color=#ffd24d]%d[/color]" % [
-			mark, iid, lock_glyph, name_part, str(it.get("slot", "")), bonus, price])
+		lines.append("%s [url=lock|%s]%s[/url] %s [color=#7f8a99](%s · ✦%d)[/color]%s — [color=#ffd24d]%d[/color]" % [
+			mark, iid, lock_glyph, name_part, str(it.get("slot", "")), int(it.get("item_power", 0)),
+			(" " + stats if stats != "" else ""), price])
 	# footer: selected count + total → one confirm → one shop_sell_many. Only the first SELL_BATCH_MAX go in
 	# one batch, so the count + total shown reflect exactly what will be sold (no over-quoting beyond the cap).
 	var keys: Array = _sell_selection.keys()
@@ -858,7 +882,7 @@ func _sell_sort_cmp(a, b) -> bool:
 				return sa < sb
 			return int(RARITY_RANK.get(str(a.get("rarity", "")), 0)) > int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
 		"power":
-			return int(a.get("bonus_amt", 0)) > int(b.get("bonus_amt", 0))
+			return int(a.get("item_power", 0)) > int(b.get("item_power", 0))
 		_:
 			var ra := int(RARITY_RANK.get(str(a.get("rarity", "")), 0))
 			var rb := int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
@@ -1154,7 +1178,7 @@ func _physics_process(_delta: float) -> void:
 			net.send_chat.rpc_id(1, "hello from the test bot")
 		if _aw_t == 60 and not _aw_shopped and net != null and _connected:   # debug: buy from the shop once
 			_aw_shopped = true
-			net.shop_buy.rpc_id(1, "weapon", "common")
+			net.shop_buy.rpc_id(1, "main_hand", "common")
 		if _aw_t == 90 and not _aw_invited and net != null and _connected:   # debug: invite the first other player
 			for f in _state.get("fighters", []):
 				if int(f.get("team", 0)) == 0 and str(f["id"]) != _player_id:

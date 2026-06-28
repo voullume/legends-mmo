@@ -151,7 +151,7 @@ func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary
 
 # READ stays on the player's token (RLS-scoped to their own items)
 func get_inventory_as(token: String) -> Dictionary:
-	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,equipped", "", PackedStringArray(), token)
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,primary_stat,primary_amt,ilvl,affixes,item_power,equipped,locked,created_at&order=created_at.desc", "", PackedStringArray(), token)
 	if r["code"] == 200 and r["data"] is Array:
 		return {"ok": true, "items": r["data"]}
 	return {"ok": false, "items": []}
