@@ -161,6 +161,15 @@ func inv_set_equipped_as(token: String, filter: String, val: bool) -> Dictionary
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory?" + filter, JSON.stringify({"equipped": val}), PackedStringArray(), auth)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
+# server-side: set an item's persistent `locked` flag. Scoped by character_id so a client can't lock
+# items it doesn't own; return=representation confirms a row actually matched (ok only if it changed).
+func inv_set_locked_as(token: String, char_id: String, item_id: String, val: bool) -> Dictionary:
+	var auth: String = service_key if service_key != "" else token
+	var q := "?id=eq.%s&character_id=eq.%s&select=id" % [item_id, char_id]
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, JSON.stringify({"locked": val}), PackedStringArray(["Prefer: return=representation"]), auth)
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
+	return {"ok": ok, "code": r["code"]}
+
 # server-side: is this user registered in the admins table? (service-role read; clients can't see it)
 func is_admin_as(user_id: String) -> bool:
 	if service_key == "" or user_id == "":
@@ -182,6 +191,19 @@ func sell_item_as(char_id: String, item_id: String) -> Dictionary:
 	if service_key == "":
 		return {"ok": false}
 	var q := "?id=eq.%s&character_id=eq.%s&select=rarity" % [item_id, char_id]
+	var d = await _http(HTTPClient.METHOD_DELETE, "/rest/v1/inventory" + q, "", PackedStringArray(["Prefer: return=representation"]), service_key)
+	if d["code"] >= 200 and d["code"] < 300 and d["data"] is Array and (d["data"] as Array).size() > 0:
+		return {"ok": true, "rarity": str(d["data"][0].get("rarity", "common"))}
+	return {"ok": false}
+
+# server-side: like sell_item_as, but the DELETE filter also requires equipped=false AND locked=false,
+# so an equipped or locked item is NEVER removed (and yields no payout). Putting the guard IN the filter
+# keeps it atomic: the row is only deleted — and the rarity only returned — to the call that legitimately
+# removed an unequipped, unlocked item. This is the single sell path for both single + bulk selling.
+func sell_item_safe_as(char_id: String, item_id: String) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s&equipped=eq.false&locked=eq.false&select=rarity" % [item_id, char_id]
 	var d = await _http(HTTPClient.METHOD_DELETE, "/rest/v1/inventory" + q, "", PackedStringArray(["Prefer: return=representation"]), service_key)
 	if d["code"] >= 200 and d["code"] < 300 and d["data"] is Array and (d["data"] as Array).size() > 0:
 		return {"ok": true, "rarity": str(d["data"][0].get("rarity", "common"))}

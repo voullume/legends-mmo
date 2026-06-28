@@ -10,6 +10,9 @@ extends "res://client/Client.gd"
 const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
 const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
 const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff"}
+const RARITY_ORDER := ["common", "uncommon", "rare", "epic"]                 # low → high tier
+const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3}
+const SELL_BATCH_MAX := 50                                                   # one bulk sell ≤ this (server caps too)
 const Quests := preload("res://shared/Quests.gd")
 
 var net: Node = null         # RPC bridge
@@ -56,6 +59,12 @@ var _shop_hint: Label = null  # "Press B to shop" proximity prompt
 var _near_shop := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
+var _sell_items := []         # last-loaded inventory (Array[Dictionary]) — re-render toggles without re-fetch
+var _sell_selection := {}     # item_id -> true, the multi-select set in the SELL list
+var _sell_sort := "rarity"    # rarity | slot | power
+var _sell_filter_slot := ""   # "" = all slots, else weapon|armor|trinket
+var _sell_loading := false    # re-entrancy guard for the SELL list load (mirrors _inv_loading)
+var _sell_pending := false    # a reload was requested while one was in flight
 var _quests := {}             # quest_id -> {progress, completed} — server-pushed, server-authoritative
 var _quest_panel: Control = null
 var _quest_label: RichTextLabel = null
@@ -225,7 +234,7 @@ func _on_item_clicked(meta) -> void:
 func recv_inventory_changed() -> void:
 	if _inv_panel != null and _inv_panel.visible:
 		_load_inventory()
-	if _shop_panel != null and _shop_panel.visible:   # a buy/sell/roll changed our items + credits
+	if _shop_panel != null and _shop_panel.visible:   # a buy/sell/roll/lock changed our items + credits
 		_render_shop_buy()
 		_load_shop_sell()
 
@@ -669,6 +678,7 @@ func _toggle_shop() -> void:
 		return
 	_shop_panel.visible = not _shop_panel.visible
 	if _shop_panel.visible:
+		_sell_selection.clear()             # fresh selection each time the shop opens
 		_render_shop_buy()
 		_load_shop_sell()
 	else:
@@ -697,29 +707,164 @@ func _render_shop_buy() -> void:
 func _load_shop_sell() -> void:
 	if _shop_sell_lbl == null or supa == null:
 		return
+	if _sell_loading:                            # coalesce overlapping loads → always show the latest result
+		_sell_pending = true
+		return
+	_sell_loading = true
 	_shop_sell_lbl.text = "[b]SELL[/b]\n[color=#7f93a8]loading…[/color]"
 	var r = await supa.get_inventory()
+	_sell_loading = false
+	if _sell_pending:                            # a reload was requested mid-flight → run once more with fresh data
+		_sell_pending = false
+		_load_shop_sell()
+		return
 	if _shop_sell_lbl == null:
 		return
 	if not r.get("ok"):
 		_shop_sell_lbl.text = "[b]SELL[/b]\n[color=#ff8a8a]couldn't load inventory[/color]"
 		return
-	var items: Array = r.get("items", [])
+	_sell_items = r.get("items", [])
+	var present := {}                             # drop any selection whose item is gone (sold elsewhere)
+	for it in _sell_items:
+		present[str(it.get("id", ""))] = true
+	for id in _sell_selection.keys():
+		if not present.has(id):
+			_sell_selection.erase(id)
+	_render_shop_sell()
+
+# render the SELL list from the cached _sell_items + UI state (selection / sort / filter). Cheap to call
+# on every toggle — no network. Selecting is multi-select; equipped (★) and locked items are unselectable.
+func _render_shop_sell() -> void:
+	if _shop_sell_lbl == null:
+		return
 	var sell: Dictionary = _shop_info.get("sell", {})
-	_shop_sell_cache.clear()
-	var lines := ["[b]SELL[/b]   [color=#7f93a8]click to sell[/color]\n"]
+	var items: Array = _sell_items
+	_shop_sell_cache.clear()                     # price cache the confirm dialog reads back
+	for it in items:
+		var rr: String = str(it.get("rarity", "common"))
+		_shop_sell_cache[str(it.get("id", ""))] = {"name": str(it.get("name", "?")), "rarity": rr, "price": int(sell.get(rr, 0))}
+	var lines := ["[b]SELL[/b]   [color=#ffd24d]%d ◈[/color]" % _my_credits()]
 	if items.is_empty():
 		lines.append("[color=#7f93a8]nothing to sell — go earn some loot[/color]")
+		_shop_sell_lbl.text = "\n".join(lines)
+		return
+	# tally sellable (unlocked, unequipped) items per rarity, and find the highest owned tier (protected)
+	var sellable_by_rar := {}
+	var top_rank := -1
+	var top_rar := ""
 	for it in items:
-		var iid: String = str(it.get("id", ""))
 		var rar: String = str(it.get("rarity", "common"))
+		var rank: int = int(RARITY_RANK.get(rar, 0))
+		if rank > top_rank:                      # top tier counts ALL owned items, even locked/equipped
+			top_rank = rank
+			top_rar = rar
+		if bool(it.get("equipped", false)) or bool(it.get("locked", false)):
+			continue
+		if not sellable_by_rar.has(rar):
+			sellable_by_rar[rar] = []
+		(sellable_by_rar[rar] as Array).append(str(it.get("id", "")))
+	# per-rarity select-all checkboxes (top tier flagged 🛡 protected → must be opted into explicitly)
+	var rar_chunks := []
+	for rar in RARITY_ORDER:
+		if not sellable_by_rar.has(rar):
+			continue
+		var ids: Array = sellable_by_rar[rar]
+		var all_sel := true
+		for id in ids:
+			if not _sell_selection.has(id):
+				all_sel = false
+				break
+		var box: String = "✓" if all_sel else "○"
 		var col: String = RARITY_COLORS.get(rar, "#cfd6df")
-		var price: int = int(sell.get(rar, 0))
-		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
-		_shop_sell_cache[iid] = {"name": str(it.get("name", "?")), "rarity": rar, "price": price}
-		lines.append("[url=sell|%s][color=%s]%s[/color][/url]%s [color=#7f93a8](%s)[/color] — [color=#ffd24d]%d[/color]" % [
-			iid, col, _esc(str(it.get("name", "?"))), eq, str(it.get("slot", "")), price])
+		var protect: String = " [color=#ffb454]🛡[/color]" if rar == top_rar else ""
+		rar_chunks.append("[url=rar|%s][color=%s]%s %s[/color][/url]%s" % [rar, col, box, rar.capitalize(), protect])
+	if not rar_chunks.is_empty():
+		lines.append("[color=#7f93a8]select:[/color] " + "   ".join(rar_chunks))
+		lines.append("[color=#6b7886]🛡 your top tier — protected; click to opt in[/color]")
+	# sort + slot-filter header (client-side only)
+	var sort_chunks := []
+	for key in ["rarity", "slot", "power"]:
+		if _sell_sort == key:
+			sort_chunks.append("[color=#ffd24d]%s[/color]" % key.capitalize())
+		else:
+			sort_chunks.append("[url=sort|%s][color=#7f93a8]%s[/color][/url]" % [key, key.capitalize()])
+	lines.append("[color=#7f93a8]sort:[/color] " + "   ".join(sort_chunks))
+	var slot_chunks := []
+	for sl in ["", "weapon", "armor", "trinket"]:
+		var lbl2: String = "All" if sl == "" else sl.capitalize()
+		if _sell_filter_slot == sl:
+			slot_chunks.append("[color=#ffd24d]%s[/color]" % lbl2)
+		else:
+			slot_chunks.append("[url=fslot|%s][color=#7f93a8]%s[/color][/url]" % [sl, lbl2])
+	lines.append("[color=#7f93a8]slot:[/color] " + "   ".join(slot_chunks))
+	lines.append("")
+	# the item rows (filtered + sorted)
+	var view := []
+	for it in items:
+		if _sell_filter_slot != "" and str(it.get("slot", "")) != _sell_filter_slot:
+			continue
+		view.append(it)
+	view.sort_custom(_sell_sort_cmp)
+	for it in view:
+		var iid: String = str(it.get("id", ""))
+		var rar2: String = str(it.get("rarity", "common"))
+		var col2: String = RARITY_COLORS.get(rar2, "#cfd6df")
+		var price: int = int(sell.get(rar2, 0))
+		var equipped: bool = bool(it.get("equipped", false))
+		var locked: bool = bool(it.get("locked", false))
+		var name_txt: String = _esc(str(it.get("name", "?")))
+		var bonus := ""
+		if int(it.get("bonus_amt", 0)) != 0:
+			bonus = " [color=#9fe8a0]+%d %s[/color]" % [int(it["bonus_amt"]), str(it.get("bonus_stat", ""))]
+		var mark := ""
+		var name_part := ""
+		if equipped:                              # equipped → never selectable here (unequip to sell)
+			mark = "[color=#ffd24d]★[/color]"
+			name_part = "[color=%s]%s[/color] [color=#7f93a8](equipped)[/color]" % [col2, name_txt]
+		elif locked:                              # locked → protected, not selectable
+			mark = "[color=#5a6472]·[/color]"
+			name_part = "[color=%s]%s[/color]" % [col2, name_txt]
+		else:
+			var glyph: String = "[color=#9fe8a0]✓[/color]" if _sell_selection.has(iid) else "[color=#5a6472]○[/color]"
+			mark = "[url=seltoggle|%s]%s[/url]" % [iid, glyph]
+			name_part = "[url=seltoggle|%s][color=%s]%s[/color][/url]" % [iid, col2, name_txt]
+		var lock_glyph: String = "[color=#ffb454]🔒[/color]" if locked else "[color=#5a6472]🔓[/color]"
+		lines.append("%s [url=lock|%s]%s[/url] %s [color=#7f93a8](%s)[/color]%s — [color=#ffd24d]%d[/color]" % [
+			mark, iid, lock_glyph, name_part, str(it.get("slot", "")), bonus, price])
+	# footer: selected count + total → one confirm → one shop_sell_many. Only the first SELL_BATCH_MAX go in
+	# one batch, so the count + total shown reflect exactly what will be sold (no over-quoting beyond the cap).
+	var keys: Array = _sell_selection.keys()
+	var n: int = keys.size()
+	var sell_n: int = min(n, SELL_BATCH_MAX)
+	var total := 0
+	for i in sell_n:
+		var info = _shop_sell_cache.get(keys[i])
+		if info != null:
+			total += int(info["price"])
+	lines.append("")
+	if n > 0:
+		var btn: String = "Sell Selected (%d) — ◈%d" % [sell_n, total] if n <= SELL_BATCH_MAX else "Sell Selected (%d of %d) — ◈%d" % [sell_n, n, total]
+		lines.append("[url=sellsel][bgcolor=#26432a][color=#bdf5c0] %s [/color][/bgcolor][/url]    [url=selclear][color=#7f93a8]clear[/color][/url]" % btn)
+	else:
+		lines.append("[color=#7f93a8]click ○ / a rarity to select, 🔓 to lock-protect[/color]")
 	_shop_sell_lbl.text = "\n".join(lines)
+
+func _sell_sort_cmp(a, b) -> bool:
+	match _sell_sort:
+		"slot":
+			var sa := str(a.get("slot", ""))
+			var sb := str(b.get("slot", ""))
+			if sa != sb:
+				return sa < sb
+			return int(RARITY_RANK.get(str(a.get("rarity", "")), 0)) > int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
+		"power":
+			return int(a.get("bonus_amt", 0)) > int(b.get("bonus_amt", 0))
+		_:
+			var ra := int(RARITY_RANK.get(str(a.get("rarity", "")), 0))
+			var rb := int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
+			if ra != rb:
+				return ra > rb                   # highest rarity first
+			return str(a.get("name", "")) < str(b.get("name", ""))
 
 func _on_shop_meta(meta) -> void:
 	if net == null or not _connected:
@@ -732,21 +877,103 @@ func _on_shop_meta(meta) -> void:
 		"roll":
 			if p.size() >= 2:
 				net.shop_roll.rpc_id(1, p[1])
-		"sell":
+		"seltoggle":
 			if p.size() >= 2:
-				_show_sell_confirm(p[1])        # confirm before selling (avoid mis-clicks)
+				_toggle_sell_select(p[1])
+		"rar":
+			if p.size() >= 2:
+				_toggle_sell_rarity(p[1])
+		"sort":
+			if p.size() >= 2:
+				_sell_sort = p[1]
+				_render_shop_sell()
+		"fslot":
+			_sell_filter_slot = (p[1] if p.size() >= 2 else "")
+			_render_shop_sell()
+		"lock":
+			if p.size() >= 2:
+				_toggle_item_lock(p[1])
+		"sellsel":
+			_confirm_sell_selected()
+		"selclear":
+			_sell_selection.clear()
+			_render_shop_sell()
 
-func _show_sell_confirm(item_id: String) -> void:
-	var info = _shop_sell_cache.get(item_id)
-	if info == null:
+# toggle one item's membership in the sell selection (equipped/locked items can't be selected)
+func _toggle_sell_select(item_id: String) -> void:
+	for it in _sell_items:
+		if str(it.get("id", "")) == item_id:
+			if bool(it.get("equipped", false)) or bool(it.get("locked", false)):
+				return
+			break
+	if _sell_selection.has(item_id):
+		_sell_selection.erase(item_id)
+	else:
+		_sell_selection[item_id] = true
+	_render_shop_sell()
+
+# per-rarity select-all: if every sellable item of this rarity is already selected, deselect them; else
+# select them all. Locked/equipped items are excluded (the top tier is just a rarity you opt into here).
+func _toggle_sell_rarity(rarity: String) -> void:
+	var ids := []
+	for it in _sell_items:
+		if str(it.get("rarity", "")) != rarity:
+			continue
+		if bool(it.get("equipped", false)) or bool(it.get("locked", false)):
+			continue
+		ids.append(str(it.get("id", "")))
+	if ids.is_empty():
 		return
+	var all_sel := true
+	for id in ids:
+		if not _sell_selection.has(id):
+			all_sel = false
+			break
+	for id in ids:
+		if all_sel:
+			_sell_selection.erase(id)
+		else:
+			_sell_selection[id] = true
+	_render_shop_sell()
+
+# flip an item's persistent locked flag (server-side, persisted). Drop it from the selection locally;
+# the server's recv_inventory_changed push re-loads the list with the new lock state.
+func _toggle_item_lock(item_id: String) -> void:
+	if net == null or not _connected:
+		return
+	var cur := false
+	for it in _sell_items:
+		if str(it.get("id", "")) == item_id:
+			cur = bool(it.get("locked", false))
+			break
+	_sell_selection.erase(item_id)
+	net.inv_set_locked.rpc_id(1, item_id, not cur)
+
+func _confirm_sell_selected() -> void:
+	if net == null or not _connected:
+		return
+	var ids: Array = _sell_selection.keys().slice(0, SELL_BATCH_MAX)   # cap FIRST so the quoted total matches
+	if ids.is_empty():
+		return
+	var total := 0
+	for id in ids:
+		var info = _shop_sell_cache.get(id)
+		if info != null:
+			total += int(info["price"])
+	_show_sell_confirm("Sell %d item%s for ◈%d?" % [ids.size(), ("s" if ids.size() != 1 else ""), total], func() -> void:
+		if net != null and _connected:
+			net.shop_sell_many.rpc_id(1, ids)
+		_sell_selection.clear())
+
+# generic confirm modal (reused by the bulk-sell flow). on_yes runs if the player confirms.
+func _show_sell_confirm(prompt: String, on_yes: Callable) -> void:
 	_close_sell_confirm()
 	_sell_confirm = Panel.new()
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 8)
 	_sell_confirm.add_child(vb)
 	var lbl := Label.new()
-	lbl.text = "Sell %s (%s) for ◈%d?" % [str(info["name"]), str(info["rarity"]), int(info["price"])]
+	lbl.text = prompt
 	vb.add_child(lbl)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -754,8 +981,7 @@ func _show_sell_confirm(item_id: String) -> void:
 	var yes := Button.new()
 	yes.text = "Sell"
 	yes.pressed.connect(func() -> void:
-		if net != null and _connected:
-			net.shop_sell.rpc_id(1, item_id)
+		on_yes.call()
 		_close_sell_confirm())
 	row.add_child(yes)
 	var no := Button.new()

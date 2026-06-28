@@ -114,6 +114,18 @@ func shop_sell(item_id: String) -> void:
 	if server != null:
 		server.shop_sell(multiplayer.get_remote_sender_id(), item_id)
 
+# bulk sell (client → server; server re-validates ownership/location, skips equipped/locked, dedups)
+@rpc("any_peer", "call_remote", "reliable")
+func shop_sell_many(item_ids: Array) -> void:
+	if server != null:
+		server.shop_sell_many(multiplayer.get_remote_sender_id(), item_ids)
+
+# toggle an item's persistent locked (protected-from-sell) flag
+@rpc("any_peer", "call_remote", "reliable")
+func inv_set_locked(item_id: String, locked: bool) -> void:
+	if server != null:
+		server.inv_set_locked(multiplayer.get_remote_sender_id(), item_id, locked)
+
 @rpc("authority", "call_remote", "reliable")
 func recv_shop_info(info: Dictionary) -> void:
 	if client != null:

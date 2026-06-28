@@ -187,7 +187,9 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	_save_one(s, _find(s["fid"]))                # persist xp/level (+ position if alive), even on a corpse
+	if not bool(_sellmany_busy.get(pid, false)): # a bulk-sell in flight credits per-row across awaits and owns
+		_save_one(s, _find(s["fid"]))            # its OWN terminal save; saving here too would race that credit
+		                                         # PATCH (stale absolute write could clobber the payout). Skip it.
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
 	_remove_fighter(s["fid"])
 	_peers.erase(pid)
@@ -202,6 +204,10 @@ func _on_peer_disconnected(pid: int) -> void:
 	_party_invite_next.erase(pid)
 	_shop_busy.erase(pid)
 	_shop_next.erase(pid)
+	_sellmany_busy.erase(pid)
+	_sellmany_next.erase(pid)
+	_lock_busy.erase(pid)
+	_lock_next.erase(pid)
 	_quest_busy.erase(pid)
 	_quest_next.erase(pid)
 	print("[zone] peer %d left" % pid)
@@ -510,6 +516,29 @@ func _shop_lock(pid: int) -> bool:
 	_shop_next[pid] = now + 300
 	return true
 
+# selling and lock-toggling each get their OWN lock pair (not _shop_busy) — per the dupe-safety contract,
+# a bulk-sell job must not block (nor be blocked by) a single buy/roll, and each mutating RPC owns its gate.
+var _sellmany_busy := {}                          # pid -> a sell (single or bulk) is in flight
+var _sellmany_next := {}                          # pid -> earliest next sell op (ms)
+var _lock_busy := {}                              # pid -> a lock-toggle is in flight
+var _lock_next := {}                              # pid -> earliest next lock op (ms)
+
+func _sellmany_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_sellmany_busy.get(pid, false)) or now < int(_sellmany_next.get(pid, 0)):
+		return false
+	_sellmany_busy[pid] = true
+	_sellmany_next[pid] = now + 300
+	return true
+
+func _setlocked_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_lock_busy.get(pid, false)) or now < int(_lock_next.get(pid, 0)):
+		return false
+	_lock_busy[pid] = true
+	_lock_next[pid] = now + 300
+	return true
+
 func shop_buy(pid: int, slot: String, rarity: String) -> void:
 	if not _shop_lock(pid):
 		return
@@ -522,11 +551,16 @@ func shop_roll(pid: int, rarity: String) -> void:
 	await _do_shop_roll(pid, rarity)
 	_shop_busy.erase(pid)
 
+# selling runs under its own _sellmany lock (not _shop_busy). A single sell is just a 1-element bulk sell,
+# so there is ONE sell code path = one dupe surface (kept for back-compat with the old single-sell RPC).
 func shop_sell(pid: int, item_id: String) -> void:
-	if not _shop_lock(pid):
+	await shop_sell_many(pid, [item_id])
+
+func shop_sell_many(pid: int, item_ids: Array) -> void:
+	if not _sellmany_lock(pid):
 		return
-	await _do_shop_sell(pid, item_id)
-	_shop_busy.erase(pid)
+	await _do_shop_sell_many(pid, item_ids)
+	_sellmany_busy.erase(pid)
 
 func _do_shop_buy(pid: int, slot: String, rarity: String) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
@@ -557,20 +591,63 @@ func _do_shop_roll(pid: int, rarity: String) -> void:
 		"rarity": rarity, "slot": slot, "bonus_stat": LOOT_STATS[_loot_rng.next_int(LOOT_STATS.size())],
 		"bonus_amt": mult * 6}, int(ROLL_PRICE[rarity]))
 
-func _do_shop_sell(pid: int, item_id: String) -> void:
+# bulk sell: ONE locked, serialized loop of atomic per-row deletes, crediting each row the instant it's
+# removed, then ONE save + push. Dupe-safe by construction — see the per-row note below and the §2 contract.
+func _do_shop_sell_many(pid: int, item_ids: Array) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return                                                # the shop only exists in the home base
+	if typeof(item_ids) != TYPE_ARRAY or item_ids.size() > 200:
+		return                                                # bound the work — a legit client sends ≤ 50 ids
+	var s = _session[pid]
+	var seen := {}                                            # sanitize: dedup, well-formed ids, cap at 50
+	var ids := []
+	for raw in item_ids:
+		var id := str(raw)
+		if _is_uuid(id) and not seen.has(id):
+			seen[id] = true
+			ids.append(id)
+			if ids.size() >= 50:
+				break
+	if ids.is_empty():
 		return
-	if not _is_uuid(item_id):                                 # reject anything that isn't a well-formed id
+	var sold := 0
+	for id in ids:
+		# atomic delete: refuses equipped/locked IN the filter and returns the rarity ONLY to the call
+		# that actually removed the row — so a duplicate/concurrent sell of the same id can't double-pay,
+		# and an equipped or locked item is never removed (server-side enforcement, not just the client).
+		var r = await supa.sell_item_safe_as(s["char_id"], id)
+		if r.get("ok"):
+			s["credits"] = int(s["credits"]) + int(SELL_PRICE.get(str(r["rarity"]), 10))  # credit on removal
+			sold += 1
+		if not _session.has(pid):                             # peer left mid-loop: stop removing more items
+			break
+	if _session.has(pid) and sold > 0:
+		await _apply_equipment(pid)                           # re-derive (defensive: equipped is never sold)
+	# Persist if we credited anything, OR if the peer left mid-op: _on_peer_disconnected deferred its save to
+	# us (it saw _sellmany_busy), so we own persisting xp/level/credits here (single writer → no racing PATCH).
+	if sold > 0 or not _session.has(pid):
+		_save_one(s, _find(s["fid"]))
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
+# toggle an item's persistent locked flag (protects it from selling/salvage). Own lock pair; no HOME gate
+# (locking is harmless anywhere, no economy effect). Ownership is scoped by character_id in the DB call.
+func inv_set_locked(pid: int, item_id: String, val: bool) -> void:
+	if not _setlocked_lock(pid):
+		return
+	await _do_set_locked(pid, item_id, val)
+	_lock_busy.erase(pid)
+
+func _do_set_locked(pid: int, item_id: String, val: bool) -> void:
+	if not _session.has(pid) or not _is_uuid(item_id):
 		return
 	var s = _session[pid]
-	var r = await supa.sell_item_as(s["char_id"], item_id)    # service-role, scoped to this character
-	if not _session.has(pid) or not r.get("ok"):
-		return
-	s["credits"] = int(s["credits"]) + int(SELL_PRICE.get(str(r["rarity"]), 10))
-	await _apply_equipment(pid)                               # re-derive stats (the item may have been equipped)
+	var r = await supa.inv_set_locked_as(s["access"], s["char_id"], item_id, bool(val))
 	if not _session.has(pid):
 		return
-	_save_one(s, _find(s["fid"]))
+	if not r.get("ok"):                              # no owned row matched, or the write was rejected
+		print("[zone] lock write failed for %s — is SUPABASE_SERVICE_KEY set?" % s["name"])
+		return
 	if net != null:
 		net.recv_inventory_changed.rpc_id(pid)
 
