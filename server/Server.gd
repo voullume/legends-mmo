@@ -1105,6 +1105,7 @@ func _apply_equipment(pid: int) -> void:
 		return
 	var bonus := {}
 	var used := {}                                       # slot -> how many equipped items of it we've counted
+	var ip_total := 0                                    # gear score = sum of counted equipped items' item_power
 	for it in inv["items"]:
 		if not bool(it["equipped"]):
 			continue
@@ -1113,6 +1114,7 @@ func _apply_equipment(pid: int) -> void:
 		var n := int(used.get(slot, 0))
 		if n >= cap_n:                                   # defensive: ignore any extras beyond capacity
 			continue
+		ip_total += int(it.get("item_power", 0))
 		used[slot] = n + 1
 		var rcap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
 		# primary stat (fall back to the legacy bonus_* for pre-P2 / quest-reward items). Coerce JSON null
@@ -1138,6 +1140,7 @@ func _apply_equipment(pid: int) -> void:
 	for st in bonus.keys():                              # aggregate per-stat ceiling — the balance bound
 		bonus[st] = min(int(bonus[st]), EQUIP_STAT_CAP)
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
+	_session[pid]["item_power"] = ip_total               # gear score for the character sheet (P3)
 	_recompute_player_stats(_find(_session[pid]["fid"]), int(_session[pid]["level"]), bonus)
 
 # re-derive maxHP/dmgMult/crit/ms/… from base stats + equipped bonuses, preserving HP fraction
@@ -1528,6 +1531,14 @@ func _broadcast() -> void:
 		if str(s["map"]) == World.HOME:           # the shop pad + quest giver only exist in the home base
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
 			snap["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
+		# self stat block for the character sheet (P3) — only the recipient's own APPLIED (capped, post-
+		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
+		snap["self"] = {
+			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)),
+			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
+			"ms": float(f["ms"]), "cdr": float(f["cdr"]), "clutchDmg": float(f["clutchDmg"]), "clutchDR": float(f["clutchDR"]),
+			"equip_bonus": (s.get("equip_bonus", {}) as Dictionary).duplicate(),
+		}
 		net.receive_snapshot.rpc_id(pid, snap)
 	for mapname in _worlds:
 		_worlds[mapname]["events"].clear()

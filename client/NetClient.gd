@@ -13,6 +13,8 @@ const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5a
 const RARITY_ORDER := ["common", "uncommon", "rare", "epic", "legendary", "mythic"]   # low → high tier
 const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 5}
 const SELL_BATCH_MAX := 50                                                   # one bulk sell ≤ this (server caps too)
+const STAT_KEYS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]                 # 6 stats, stable display order
+const STAT_NAMES := {"PWR": "Power", "PRE": "Precision", "SPD": "Speed", "END": "Endurance", "INS": "Insight", "CLU": "Clutch"}
 const Quests := preload("res://shared/Quests.gd")
 
 var net: Node = null         # RPC bridge
@@ -46,6 +48,9 @@ var _invite_prompt: Panel = null     # an incoming invite (accept/decline)
 var _invite_from_fid := ""
 var _inv_panel: Control
 var _inv_label: RichTextLabel
+var _sheet_panel: Control                    # character sheet (K) — computed base+gear stats + item power
+var _sheet_label: RichTextLabel
+var _inv_items := []                          # last-loaded inventory cache (for hover tooltips)
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
 var _inv_loading := false     # an inventory GET is in flight
 var _inv_pending := false     # a refresh was requested while loading
@@ -88,6 +93,7 @@ func _enter_mode() -> void:
 	_player_id = ""              # set by assign_fighter()
 	_build_chat()
 	_build_inventory()
+	_build_charsheet()
 	_build_shop()
 	_build_questlog()
 	_build_qgiver_dialog()
@@ -209,9 +215,202 @@ func _build_inventory() -> void:
 	_inv_label.scroll_active = true
 	_inv_label.custom_minimum_size = Vector2(440, 380)
 	_inv_label.meta_clicked.connect(_on_item_clicked)
+	_inv_label.meta_hover_started.connect(_on_item_hover)     # comparison tooltip on hover
+	_inv_label.meta_hover_ended.connect(_on_item_unhover)
 	vb.add_child(_inv_label)
 
+# --- character sheet (K): computed base+gear attributes + applied combat finals + item power (P3) ---
+func _build_charsheet() -> void:
+	_sheet_panel = CenterContainer.new()
+	_sheet_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_sheet_panel.visible = false
+	_hud.add_child(_sheet_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(440, 0)
+	_sheet_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "Character   (K to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_sheet_label = RichTextLabel.new()
+	_sheet_label.bbcode_enabled = true
+	_sheet_label.scroll_active = true
+	_sheet_label.custom_minimum_size = Vector2(400, 380)
+	vb.add_child(_sheet_label)
+
+func _toggle_charsheet() -> void:
+	if _sheet_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_sheet_panel.visible = not _sheet_panel.visible
+	if _sheet_panel.visible:
+		if _inv_panel != null: _inv_panel.visible = false      # one full-screen modal at a time
+		if _quest_panel != null: _quest_panel.visible = false
+		_render_charsheet()
+
+# render from the server's per-player `self` block (applied, capped, post-FORMAT_MODS — never raw item amts)
+func _render_charsheet() -> void:
+	if _sheet_label == null:
+		return
+	var si: Dictionary = _state.get("self", {})
+	var pf = _find_fighter(_player_id)
+	var cls_id: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
+	if cls_id == "" or not GameData.CLASSES.has(cls_id):
+		_sheet_label.text = "[color=#7f93a8]loading…[/color]"
+		return
+	var base: Dictionary = GameData.CLASSES[cls_id]["stats"]
+	var bonus: Dictionary = si.get("equip_bonus", {})
+	var fin: Dictionary = si if not si.is_empty() else (pf if pf != null else {})
+	var lines := ["[color=#7f93a8]Level %d[/color]    [color=#ffd24d]✦ Item Power %d[/color]\n" % [int(si.get("level", 0)), int(si.get("item_power", 0))]]
+	lines.append("[b]Attributes[/b]  [color=#7f93a8](base [color=#9fe8a0]+gear[/color])[/color]")
+	for st in STAT_KEYS:
+		var b: int = int(base.get(st, 0))
+		var g: int = int(bonus.get(st, 0))
+		var gtxt: String = "  [color=#9fe8a0]+%d[/color]" % g if g > 0 else ""
+		lines.append("  [color=#8a93a0]%s[/color]  [color=#cfd6df]%d[/color]%s" % [str(STAT_NAMES.get(st, st)), b + g, gtxt])
+	lines.append("\n[b]Combat[/b]")
+	lines.append("  Max HP  [color=#cfd6df]%d[/color]" % int(fin.get("maxHP", 0)))
+	lines.append("  Damage  [color=#cfd6df]+%d%%[/color]" % int(round((float(fin.get("dmgMult", 1.0)) - 1.0) * 100.0)))
+	lines.append("  Crit  [color=#cfd6df]%d%%[/color] [color=#7f93a8]×%.2f[/color]" % [int(round(float(fin.get("crit", 0.0)) * 100.0)), float(fin.get("critMult", 1.6))])
+	lines.append("  Move Speed  [color=#cfd6df]%d[/color]" % int(round(float(fin.get("ms", 0.0)))))
+	lines.append("  Cooldown Reduction  [color=#cfd6df]%d%%[/color]" % int(round(float(fin.get("cdr", 0.0)) * 100.0)))
+	lines.append("  Clutch (low HP)  [color=#cfd6df]+%d%% dmg[/color] · [color=#cfd6df]%d%% DR[/color]" % [int(round(float(fin.get("clutchDmg", 0.0)) * 100.0)), int(round(float(fin.get("clutchDR", 0.0)) * 100.0))])
+	_sheet_label.text = "\n".join(lines)
+
+# --- comparison tooltips (P3): hover an item row → its stat block + Δ vs the equipped item you'd replace ---
+func _on_item_hover(meta) -> void:
+	var p := str(meta).split("|")
+	var key := str(p[0])
+	if key == "seltoggle" or key == "lock":                  # shop SELL rows
+		if p.size() >= 2:
+			_show_item_tooltip(_find_item(_sell_items, p[1]), _sell_items)
+		return
+	if key == "buy" and p.size() >= 3:                       # shop BUY catalog rows: buy|slot|rarity
+		_show_item_tooltip(_catalog_item(p[1], p[2]), _sell_items)
+		return
+	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll"]:
+		_tooltip.visible = false                             # non-item controls → no tooltip
+		return
+	_show_item_tooltip(_find_item(_inv_items, key), _inv_items)   # inventory rows: id|slot
+
+func _on_item_unhover(_meta) -> void:
+	_tooltip.visible = false
+
+func _find_item(items: Array, iid: String):
+	for it in items:
+		if str(it.get("id", "")) == iid:
+			return it
+	return null
+
+func _catalog_item(slot: String, rarity: String):
+	for e in _shop_info.get("catalog", []):
+		if str(e.get("slot", "")) == slot and str(e.get("rarity", "")) == rarity:
+			return e
+	return null
+
+func _show_item_tooltip(it, owned: Array) -> void:
+	if it == null or _tooltip == null:
+		if _tooltip != null: _tooltip.visible = false
+		return
+	_tt_label.text = _item_tooltip_text(it, owned)
+	_tooltip.visible = true
+	_tooltip.reset_size()
+	var mp: Vector2 = _hud.get_viewport().get_mouse_position()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	var pos := Vector2(mp.x + 16.0, mp.y + 16.0)
+	pos.x = clampf(pos.x, 8.0, max(8.0, vp.x - _tooltip.size.x - 8.0))   # keep on-screen
+	pos.y = clampf(pos.y, 8.0, max(8.0, vp.y - _tooltip.size.y - 8.0))
+	_tooltip.position = pos
+
+func _item_tooltip_text(it: Dictionary, owned: Array) -> String:
+	var rar: String = str(it.get("rarity", "common"))
+	var col: String = RARITY_COLORS.get(rar, "#cfd6df")
+	var slot: String = str(it.get("slot", ""))
+	var L := ["[color=%s][b]%s[/b][/color]" % [col, _esc(str(it.get("name", "?")))]]
+	L.append("[color=#7f8a99]%s · %s · i%d · ✦%d[/color]" % [rar, slot, int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
+	var stats := _item_stats_str(it)
+	if stats != "":
+		L.append(stats)
+	var cmp = _replace_candidate(it, owned, slot)
+	if cmp != null:
+		L.append("[color=#7f93a8]vs equipped %s:[/color]" % _esc(str(cmp.get("name", "?"))))
+		var d := _stat_delta(it, cmp)
+		if d.is_empty():
+			L.append("  [color=#7f93a8](no stat change)[/color]")
+		else:
+			for st in STAT_KEYS:                            # stable order
+				if d.has(st):
+					var v: int = int(d[st])
+					if v > 0:
+						L.append("  [color=#9fe8a0]▲ +%d %s[/color]" % [v, st])
+					else:
+						L.append("  [color=#ff8a8a]▼ %d %s[/color]" % [v, st])
+	elif _equipped_count(owned, slot) < (2 if slot == "ring" else 1):
+		L.append("[color=#9fe8a0](fills an empty %s slot)[/color]" % slot)
+	return "\n".join(L)
+
+func _item_stat_totals(it: Dictionary) -> Dictionary:        # raw per-stat from primary + affixes (legacy-safe)
+	var t := {}
+	var psv = it.get("primary_stat")
+	var ps: String = "" if psv == null else str(psv)
+	var pa: int = int(it.get("primary_amt", 0))
+	if ps == "":
+		var bsv = it.get("bonus_stat")
+		ps = "" if bsv == null else str(bsv)
+	if pa == 0:
+		pa = int(it.get("bonus_amt", 0))
+	if ps != "":
+		t[ps] = int(t.get(ps, 0)) + pa
+	var affs = it.get("affixes", [])
+	if affs is Array:
+		for a in affs:
+			if typeof(a) == TYPE_DICTIONARY:
+				var s := str(a.get("stat", ""))
+				if s != "":
+					t[s] = int(t.get(s, 0)) + int(a.get("amt", 0))
+	return t
+
+func _stat_delta(a: Dictionary, b: Dictionary) -> Dictionary:
+	var ta := _item_stat_totals(a)
+	var tb := _item_stat_totals(b)
+	var keys := {}
+	for k in ta: keys[k] = true
+	for k in tb: keys[k] = true
+	var d := {}
+	for k in keys:
+		var diff: int = int(ta.get(k, 0)) - int(tb.get(k, 0))
+		if diff != 0:
+			d[k] = diff
+	return d
+
+func _equipped_count(owned: Array, slot: String) -> int:
+	var n := 0
+	for it in owned:
+		if bool(it.get("equipped", false)) and str(it.get("slot", "")) == slot:
+			n += 1
+	return n
+
+func _replace_candidate(it: Dictionary, owned: Array, slot: String):
+	# the equipped item you'd replace in this slot: at capacity → the lowest-item_power equipped; else null
+	var cap := 2 if slot == "ring" else 1
+	var eq := []
+	for o in owned:
+		if bool(o.get("equipped", false)) and str(o.get("slot", "")) == slot and str(o.get("id", "")) != str(it.get("id", "")):
+			eq.append(o)
+	if eq.size() < cap:
+		return null
+	eq.sort_custom(func(x, y): return int(x.get("item_power", 0)) < int(y.get("item_power", 0)))
+	return eq[0]
+
 func _toggle_inventory() -> void:
+	if _tooltip != null: _tooltip.visible = false     # a hover tooltip won't get meta_hover_ended if its label hides
 	_inv_panel.visible = not _inv_panel.visible
 	if _inv_panel.visible:
 		if _quest_panel != null:                     # only one full-screen modal at a time
@@ -236,6 +435,7 @@ func _load_inventory() -> void:
 		_inv_label.text = "[color=#ff8a8a]couldn't load inventory[/color]"
 		return
 	var items: Array = r.get("items", [])
+	_inv_items = items                            # cache for hover comparison tooltips
 	if items.is_empty():
 		_inv_label.text = "[color=#7f93a8]empty — kill mobs to find loot[/color]"
 		return
@@ -690,17 +890,22 @@ func _build_shop() -> void:
 	_shop_buy_lbl.scroll_active = true
 	_shop_buy_lbl.custom_minimum_size = Vector2(330, 430)
 	_shop_buy_lbl.meta_clicked.connect(_on_shop_meta)
+	_shop_buy_lbl.meta_hover_started.connect(_on_item_hover)
+	_shop_buy_lbl.meta_hover_ended.connect(_on_item_unhover)
 	hb.add_child(_shop_buy_lbl)
 	_shop_sell_lbl = RichTextLabel.new()
 	_shop_sell_lbl.bbcode_enabled = true
 	_shop_sell_lbl.scroll_active = true
 	_shop_sell_lbl.custom_minimum_size = Vector2(330, 430)
 	_shop_sell_lbl.meta_clicked.connect(_on_shop_meta)
+	_shop_sell_lbl.meta_hover_started.connect(_on_item_hover)
+	_shop_sell_lbl.meta_hover_ended.connect(_on_item_unhover)
 	hb.add_child(_shop_sell_lbl)
 
 func _toggle_shop() -> void:
 	if _shop_panel == null:
 		return
+	if _tooltip != null: _tooltip.visible = false
 	_shop_panel.visible = not _shop_panel.visible
 	if _shop_panel.visible:
 		_sell_selection.clear()             # fresh selection each time the shop opens
@@ -1541,6 +1746,8 @@ func net_error(msg: String) -> void:
 func receive_snapshot(snap: Dictionary) -> void:
 	_state = snap
 	_party = snap.get("party", [])
+	if _sheet_panel != null and _sheet_panel.visible:    # keep the character sheet live while it's open
+		_render_charsheet()
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
@@ -1605,6 +1812,7 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_ESCAPE:
+			if _tooltip != null: _tooltip.visible = false    # clear any stuck item-hover tooltip on close
 			if _chatting:
 				_close_chat()
 				get_viewport().set_input_as_handled()
@@ -1615,6 +1823,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				return
 			elif _quest_panel != null and _quest_panel.visible:
 				_quest_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
+			elif _sheet_panel != null and _sheet_panel.visible:
+				_sheet_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
 			elif _qgiver_panel != null and _qgiver_panel.visible:
@@ -1655,6 +1867,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_J and not _chatting:
 			_toggle_questlog()
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_K and not _chatting:
+			_toggle_charsheet()
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_TAB and not _chatting:
