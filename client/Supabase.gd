@@ -151,7 +151,7 @@ func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary
 
 # READ stays on the player's token (RLS-scoped to their own items)
 func get_inventory_as(token: String) -> Dictionary:
-	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,primary_stat,primary_amt,ilvl,affixes,item_power,upgrade_level,equipped,locked,created_at&order=created_at.desc", "", PackedStringArray(), token)
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,primary_stat,primary_amt,ilvl,affixes,item_power,upgrade_level,reforge_count,equipped,locked,created_at&order=created_at.desc", "", PackedStringArray(), token)
 	if r["code"] == 200 and r["data"] is Array:
 		return {"ok": true, "items": r["data"]}
 	return {"ok": false, "items": []}
@@ -236,6 +236,17 @@ func inv_upgrade_as(char_id: String, item_id: String, old_level: int, new_level:
 		return {"ok": false}
 	var q := "?id=eq.%s&character_id=eq.%s&upgrade_level=eq.%d&select=upgrade_level" % [item_id, char_id, old_level]
 	var body := JSON.stringify({"upgrade_level": new_level, "item_power": new_ip})
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, body, PackedStringArray(["Prefer: return=representation"]), service_key)
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
+	return {"ok": ok, "code": r["code"]}
+
+# atomic reforge: reroll the affixes, gated on reforge_count=eq.<old> so a duplicate/concurrent reforge
+# can't double-apply or double-charge. affixes is a JSON array of {stat,amt}.
+func inv_reforge_as(char_id: String, item_id: String, old_count: int, new_count: int, new_affixes: Array, new_ip: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s&reforge_count=eq.%d&select=reforge_count" % [item_id, char_id, old_count]
+	var body := JSON.stringify({"affixes": new_affixes, "reforge_count": new_count, "item_power": new_ip})
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, body, PackedStringArray(["Prefer: return=representation"]), service_key)
 	var ok: bool = r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
 	return {"ok": ok, "code": r["code"]}

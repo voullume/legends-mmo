@@ -137,6 +137,11 @@ func forge_upgrade(item_id: String) -> void:
 	if server != null:
 		server.forge_upgrade(multiplayer.get_remote_sender_id(), item_id)
 
+@rpc("any_peer", "call_remote", "reliable")
+func forge_reforge(item_id: String) -> void:
+	if server != null:
+		server.forge_reforge(multiplayer.get_remote_sender_id(), item_id)
+
 @rpc("authority", "call_remote", "reliable")
 func recv_shop_info(info: Dictionary) -> void:
 	if client != null:

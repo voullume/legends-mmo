@@ -310,7 +310,7 @@ func _on_item_hover(meta) -> void:
 	if key == "buy" and p.size() >= 3:                       # shop BUY catalog rows: buy|slot|rarity
 		_show_item_tooltip(_catalog_item(p[1], p[2]), _sell_items)
 		return
-	if key == "upg" and p.size() >= 2:                       # forge upgrade rows
+	if (key == "upg" or key == "rfg") and p.size() >= 2:     # forge upgrade / reforge rows
 		_show_item_tooltip(_find_item(_forge_items, p[1]), _forge_items)
 		return
 	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll", "mode"]:
@@ -948,6 +948,12 @@ func _upgrade_credit_cost(rarity: String, lvl: int) -> int:   # MUST match Serve
 func _upgrade_scrap_cost(rarity: String, lvl: int) -> int:    # MUST match Server.gd
 	return int(RARITY_MULT.get(rarity, 1)) * (lvl + 1)
 
+func _reforge_credit_cost(rarity: String, rc: int) -> int:    # MUST match Server.gd
+	return int(RARITY_MULT.get(rarity, 1)) * 30 * (rc + 1)
+
+func _reforge_scrap_cost(rarity: String, rc: int) -> int:     # MUST match Server.gd
+	return int(RARITY_MULT.get(rarity, 1)) * 2 * (rc + 1)
+
 # --- Forge panel (F at the forge pad): spend credits + scrap to upgrade gear (P4) ---
 func _build_forge() -> void:
 	_forge_panel = CenterContainer.new()
@@ -1029,20 +1035,28 @@ func _render_forge() -> void:
 		var rar: String = str(it.get("rarity", "common"))
 		var col: String = RARITY_COLORS.get(rar, "#cfd6df")
 		var lvl: int = int(it.get("upgrade_level", 0))
+		var rc: int = int(it.get("reforge_count", 0))
 		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
 		var lvtxt: String = " [color=#c9a36a]+%d[/color]" % lvl if lvl > 0 else ""
 		var name_txt: String = _esc(str(it.get("name", "?")))
-		var head: String = "[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · ✦%d)[/color]" % [
-			col, name_txt, eq, lvtxt, str(it.get("slot", "")), int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
+		lines.append("[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · ✦%d)[/color]" % [
+			col, name_txt, eq, lvtxt, str(it.get("slot", "")), int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
+		# action line: Upgrade (raise cap) + Reforge (reroll affixes, uncommon+ only)
+		var up_btn: String
 		if lvl >= MAX_UPGRADE:
-			lines.append("%s  [color=#9fe8a0]MAX[/color]" % head)
+			up_btn = "[color=#9fe8a0]upgrade MAX[/color]"
 		else:
 			var cc: int = _upgrade_credit_cost(rar, lvl)
 			var sc: int = _upgrade_scrap_cost(rar, lvl)
-			var afford: bool = _my_credits() >= cc and _my_scrap() >= sc
-			var costcol: String = "#9fe8a0" if afford else "#ff8a8a"
-			lines.append("[url=upg|%s][bgcolor=#3a2a1a][color=#ffcf8a] Upgrade →+%d [/color][/bgcolor][/url] %s — [color=%s]◈%d + %d scrap[/color]" % [
-				iid, lvl + 1, head, costcol, cc, sc])
+			var afc: String = "#9fe8a0" if (_my_credits() >= cc and _my_scrap() >= sc) else "#ff8a8a"
+			up_btn = "[url=upg|%s][bgcolor=#3a2a1a][color=#ffcf8a] Upgrade →+%d [/color][/bgcolor][/url] [color=%s]◈%d+%dsc[/color]" % [iid, lvl + 1, afc, cc, sc]
+		var rf_btn := ""
+		if int(RARITY_RANK.get(rar, 0)) >= 1:                # uncommon+ has affixes to reroll
+			var rcc: int = _reforge_credit_cost(rar, rc)
+			var rsc: int = _reforge_scrap_cost(rar, rc)
+			var rfc: String = "#9fe8a0" if (_my_credits() >= rcc and _my_scrap() >= rsc) else "#ff8a8a"
+			rf_btn = "     [url=rfg|%s][bgcolor=#2a2640][color=#cdbcff] Reforge [/color][/bgcolor][/url] [color=%s]◈%d+%dsc[/color]" % [iid, rfc, rcc, rsc]
+		lines.append("   %s%s" % [up_btn, rf_btn])
 	_forge_label.text = "\n".join(lines)
 
 func _on_forge_meta(meta) -> void:
@@ -1051,6 +1065,8 @@ func _on_forge_meta(meta) -> void:
 	var p := str(meta).split("|")
 	if p[0] == "upg" and p.size() >= 2:
 		net.forge_upgrade.rpc_id(1, p[1])
+	elif p[0] == "rfg" and p.size() >= 2:
+		net.forge_reforge.rpc_id(1, p[1])
 
 func _render_shop_buy() -> void:
 	if _shop_buy_lbl == null:

@@ -850,6 +850,68 @@ func _do_forge_upgrade(pid: int, item_id: String) -> void:
 	if net != null and _session.has(pid):
 		net.recv_inventory_changed.rpc_id(pid)
 
+# Phase 4b reforge: reroll an item's affixes for credits + scrap (escalating by reforge_count). Shares the
+# _forge lock with upgrade (same op class → mutually exclusive per player). Same deduct-before-write /
+# refund-on-fail / atomic-gated-PATCH / disconnect-reconcile shape as forge_upgrade.
+func forge_reforge(pid: int, item_id: String) -> void:
+	if not _forge_lock(pid):
+		return
+	await _do_forge_reforge(pid, item_id)
+	_forge_busy.erase(pid)
+
+func _do_forge_reforge(pid: int, item_id: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not _is_uuid(item_id):
+		return
+	var s = _session[pid]
+	var inv = await supa.get_inventory_as(s["access"])
+	if not _session.has(pid):                                  # peer left during the read (nothing spent yet)
+		_save_one(s, _find(s["fid"]))
+		return
+	if not inv.get("ok"):
+		return
+	var item = null
+	for it in inv["items"]:
+		if str(it["id"]) == item_id:
+			item = it
+			break
+	if item == null:
+		return
+	var rarity := str(item.get("rarity", "common"))
+	if int(AFFIX_COUNT_BY_RARITY.get(rarity, 0)) <= 0:
+		return                                                # common items have no affixes → nothing to reroll
+	var rc := int(item.get("reforge_count", 0))
+	var credit_cost := _rarity_mult(rarity) * 30 * (rc + 1)
+	var scrap_cost := _rarity_mult(rarity) * 2 * (rc + 1)
+	if int(s["credits"]) < credit_cost:
+		return
+	var mr = await supa.mats_add_as(s["char_id"], -scrap_cost)   # spend scrap atomically (ok=false → insufficient)
+	if not mr.get("ok"):
+		return                                                # nothing spent → safe to bail
+	s["scrap"] = int(mr["total"])
+	s["credits"] = int(s["credits"]) - credit_cost
+	# reroll affixes, KEEPING the existing primary: roll a fresh item of the same slot/rarity/ilvl (its
+	# affixes exclude the given primary) and take just its affixes; recompute item_power from the kept primary.
+	var ilvl := int(item.get("ilvl", 1))
+	var rolled := _make_item(str(item.get("slot", "trinket")), rarity, ilvl, str(item.get("primary_stat", "")))
+	var new_affixes: Array = rolled.get("affixes", [])
+	var atot := 0
+	for a in new_affixes:
+		atot += int(a.get("amt", 0))
+	var new_ip := int(item.get("primary_amt", 0)) + atot + ilvl
+	var r = await supa.inv_reforge_as(s["char_id"], item_id, rc, rc + 1, new_affixes, new_ip)
+	if not r.get("ok"):                                        # lost the race / item gone → refund both
+		s["credits"] = int(s["credits"]) + credit_cost
+		var rb = await supa.mats_add_as(s["char_id"], scrap_cost)
+		if rb.get("ok"):
+			s["scrap"] = int(rb["total"])
+		_save_one(s, _find(s["fid"]))
+		return
+	_save_one(s, _find(s["fid"]))                             # success: persist the spend (paid even if peer left)
+	if _session.has(pid):
+		await _apply_equipment(pid)                           # equipped item → new affixes apply (still capped)
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
 # ---- intents ----
 func submit_intent(pid: int, mv: Dictionary) -> void:
 	if not _move.has(pid):
