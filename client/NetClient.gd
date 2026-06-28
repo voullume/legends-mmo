@@ -15,6 +15,10 @@ const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legenda
 const SELL_BATCH_MAX := 50                                                   # one bulk sell ≤ this (server caps too)
 const STAT_KEYS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]                 # 6 stats, stable display order
 const STAT_NAMES := {"PWR": "Power", "PRE": "Precision", "SPD": "Speed", "END": "Endurance", "INS": "Insight", "CLU": "Clutch"}
+# P7 paperdoll: the 11 equip slots [item-slot, label, copy-index] (ring appears twice — cap 2)
+const PAPERDOLL_SLOTS := [["head", "Head", 0], ["chest", "Chest", 0], ["legs", "Legs", 0], ["hands", "Hands", 0],
+	["feet", "Feet", 0], ["main_hand", "Main Hand", 0], ["off_hand", "Off Hand", 0], ["neck", "Neck", 0],
+	["ring", "Ring 1", 0], ["ring", "Ring 2", 1], ["trinket", "Trinket", 0]]
 # P4 forge — these MUST mirror the server (Server.gd RARITIES mult, SALVAGE_YIELD, upgrade cost formula, MAX_UPGRADE)
 const RARITY_MULT := {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 14, "mythic": 20}
 const SALVAGE_YIELD := {"common": 1, "uncommon": 2, "rare": 5, "epic": 12, "legendary": 30, "mythic": 75}
@@ -51,10 +55,14 @@ var _invite_popup: Panel = null      # "Invite <name>?" after clicking a player
 var _invite_prompt: Panel = null     # an incoming invite (accept/decline)
 var _invite_from_fid := ""
 var _inv_panel: Control
-var _inv_label: RichTextLabel
 var _sheet_panel: Control                    # character sheet (K) — computed base+gear stats + item power
 var _sheet_label: RichTextLabel
 var _inv_items := []                          # last-loaded inventory cache (for hover tooltips)
+var _inv_grid: GridContainer                  # P7: the item-tile grid
+var _inv_paperdoll: GridContainer             # P7: the equipped-slots paperdoll
+var _inv_status: Label                        # P7: "N items" / loading / empty
+var _inv_ctx: PopupMenu                       # P7: right-click context menu
+var _inv_ctx_item := ""                       # the item id the context menu is acting on
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
 var _inv_loading := false     # an inventory GET is in flight
 var _inv_pending := false     # a refresh was requested while loading
@@ -212,7 +220,7 @@ func _build_inventory() -> void:
 	_inv_panel.visible = false
 	_hud.add_child(_inv_panel)
 	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(480, 0)
+	pc.custom_minimum_size = Vector2(760, 0)
 	_inv_panel.add_child(pc)
 	var m := MarginContainer.new()
 	for s in ["left", "right", "top", "bottom"]:
@@ -221,18 +229,47 @@ func _build_inventory() -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 8)
 	m.add_child(vb)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
 	var t := Label.new()
 	t.text = "Inventory   (I to close)"
 	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
-	_inv_label = RichTextLabel.new()
-	_inv_label.bbcode_enabled = true
-	_inv_label.scroll_active = true
-	_inv_label.custom_minimum_size = Vector2(440, 380)
-	_inv_label.meta_clicked.connect(_on_item_clicked)
-	_inv_label.meta_hover_started.connect(_on_item_hover)     # comparison tooltip on hover
-	_inv_label.meta_hover_ended.connect(_on_item_unhover)
-	vb.add_child(_inv_label)
+	head.add_child(t)
+	_inv_status = Label.new()
+	_inv_status.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_inv_status.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	head.add_child(_inv_status)
+	vb.add_child(head)
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 16)
+	vb.add_child(body)
+	# paperdoll (equipped slots) — left
+	var pd_box := VBoxContainer.new()
+	var pd_t := Label.new()
+	pd_t.text = "Equipped"
+	pd_t.add_theme_color_override("font_color", Color(0.62, 0.7, 0.78))
+	pd_box.add_child(pd_t)
+	_inv_paperdoll = GridContainer.new()
+	_inv_paperdoll.columns = 1
+	_inv_paperdoll.add_theme_constant_override("v_separation", 4)
+	pd_box.add_child(_inv_paperdoll)
+	body.add_child(pd_box)
+	# item grid (scrollable) — right
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(456, 430)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(sc)
+	_inv_grid = GridContainer.new()
+	_inv_grid.columns = 3
+	_inv_grid.add_theme_constant_override("h_separation", 6)
+	_inv_grid.add_theme_constant_override("v_separation", 6)
+	sc.add_child(_inv_grid)
+	# right-click context menu (lock / equip)
+	_inv_ctx = PopupMenu.new()
+	_inv_ctx.id_pressed.connect(_on_inv_ctx)
+	_inv_ctx.popup_hide.connect(func() -> void:    # menu dismissed (incl. ESC/click-away) → drop the tooltip
+		if _tooltip != null: _tooltip.visible = false)
+	_hud.add_child(_inv_ctx)
 
 # --- character sheet (K): computed base+gear attributes + applied combat finals + item power (P3) ---
 func _build_charsheet() -> void:
@@ -471,43 +508,169 @@ func _toggle_inventory() -> void:
 		_load_inventory()
 
 func _load_inventory() -> void:
-	if supa == null:
+	if supa == null or _inv_grid == null:
 		return
 	if _inv_loading:                         # coalesce concurrent loads → always show the latest result
 		_inv_pending = true
 		return
 	_inv_loading = true
-	_inv_label.text = "[color=#7f93a8]loading…[/color]"
+	_inv_status.text = "loading…"
 	var r = await supa.get_inventory()
 	_inv_loading = false
 	if _inv_pending:
 		_inv_pending = false
 		_load_inventory()
 		return
+	if _inv_grid == null:                         # panel torn down mid-await
+		return
+	if _tooltip != null:                          # a hovered tile about to be freed won't fire mouse_exited
+		_tooltip.visible = false
+	for ch in _inv_grid.get_children():           # clear the old tiles either way
+		ch.queue_free()
 	if not r.get("ok"):
-		_inv_label.text = "[color=#ff8a8a]couldn't load inventory[/color]"
+		_inv_status.text = "couldn't load inventory"
+		_rebuild_paperdoll([])
 		return
 	var items: Array = r.get("items", [])
 	_inv_items = items                            # cache for hover comparison tooltips
+	_rebuild_paperdoll(items)
 	if items.is_empty():
-		_inv_label.text = "[color=#7f93a8]empty — kill mobs to find loot[/color]"
+		_inv_status.text = "empty — kill mobs to find loot"
 		return
-	var lines := ["[color=#7f93a8]%d items · click to equip / unequip[/color]\n" % items.size()]
-	for it in items:
-		var col: String = RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
-		var eq: bool = bool(it.get("equipped", false))
-		var mark: String = "[color=#ffd24d]★ [/color]" if eq else "[color=#5a6472]○ [/color]"
-		var meta: String = "%s|%s" % [str(it.get("id", "")), str(it.get("slot", ""))]
-		var stats := _item_stats_str(it)
-		lines.append("%s[url=%s][color=%s]%s[/color][/url]  [color=#7f93a8](%s · %s)[/color]  %s%s" % [
-			mark, meta, col, _esc(str(it.get("name", "?"))), str(it.get("rarity", "")), str(it.get("slot", "")),
-			_item_meta_str(it), ("\n      " + stats if stats != "" else "")])
-	_inv_label.text = "\n".join(lines)
+	_inv_status.text = "%d items · click to equip · right-click to lock" % items.size()
+	var view: Array = items.duplicate()           # equipped first, then rarity desc, then name
+	view.sort_custom(_inv_sort)
+	for it in view:
+		_inv_grid.add_child(_inv_tile(it))
 
-func _on_item_clicked(meta) -> void:
-	var parts := str(meta).split("|")
-	if parts.size() >= 2 and net != null and _connected:
-		net.equip.rpc_id(1, parts[0], parts[1])
+func _inv_sort(a, b) -> bool:
+	var ae := 1 if bool(a.get("equipped", false)) else 0
+	var be := 1 if bool(b.get("equipped", false)) else 0
+	if ae != be:
+		return ae > be
+	var ra := int(RARITY_RANK.get(str(a.get("rarity", "")), 0))
+	var rb := int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
+	if ra != rb:
+		return ra > rb
+	return str(a.get("name", "")) < str(b.get("name", ""))
+
+func _item_color(it: Dictionary) -> Color:
+	var uv = it.get("unique_id")
+	if uv != null and str(uv) != "":
+		return Color.html("#ff9d3c")                  # uniques: gold
+	return Color.html(RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df"))
+
+# one item tile: a rarity-bordered button. Left-click equips/unequips, hover shows the compare tooltip,
+# right-click opens the context menu. Full stats live in the tooltip (tiles stay compact).
+func _inv_tile(it: Dictionary) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(144, 44)
+	b.clip_text = true
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var col := _item_color(it)
+	var prefix := ""
+	if bool(it.get("equipped", false)):
+		prefix += "★ "
+	if bool(it.get("locked", false)):
+		prefix += "🔒 "
+	b.text = prefix + str(it.get("name", "?"))
+	b.add_theme_color_override("font_color", col)
+	b.add_theme_color_override("font_hover_color", col.lightened(0.2))
+	b.add_theme_color_override("font_pressed_color", col)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.12, 0.16, 0.92)
+	sb.set_border_width_all(2)
+	sb.border_color = col
+	sb.set_corner_radius_all(4)
+	sb.set_content_margin_all(7)
+	b.add_theme_stylebox_override("normal", sb)
+	var sbh: StyleBoxFlat = sb.duplicate()
+	sbh.bg_color = Color(0.17, 0.20, 0.25, 0.96)
+	b.add_theme_stylebox_override("hover", sbh)
+	b.add_theme_stylebox_override("pressed", sbh)
+	b.add_theme_stylebox_override("focus", sbh)
+	var iid := str(it.get("id", ""))
+	var slot := str(it.get("slot", ""))
+	var itc: Dictionary = it
+	b.pressed.connect(func() -> void:
+		if net != null and _connected:
+			net.equip.rpc_id(1, iid, slot))
+	b.mouse_entered.connect(func() -> void: _show_item_tooltip(itc, _inv_items))
+	b.mouse_exited.connect(func() -> void:
+		if _tooltip != null: _tooltip.visible = false)
+	b.gui_input.connect(func(ev) -> void:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_RIGHT:
+			_open_inv_ctx(itc))
+	return b
+
+# the equipped-slots column (ring appears twice — cap 2). Each filled slot unequips on click.
+func _rebuild_paperdoll(items: Array) -> void:
+	if _inv_paperdoll == null:
+		return
+	for ch in _inv_paperdoll.get_children():
+		ch.queue_free()
+	var by_slot := {}
+	for it in items:
+		if bool(it.get("equipped", false)):
+			var sl := str(it.get("slot", ""))
+			if not by_slot.has(sl):
+				by_slot[sl] = []
+			by_slot[sl].append(it)
+	for entry in PAPERDOLL_SLOTS:
+		var sl: String = entry[0]
+		var label: String = entry[1]
+		var idx: int = entry[2]
+		var eqs: Array = by_slot.get(sl, [])
+		var it = eqs[idx] if idx < eqs.size() else null
+		_inv_paperdoll.add_child(_paperdoll_slot(label, it))
+
+func _paperdoll_slot(label: String, it) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(190, 28)
+	b.clip_text = true
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	if it == null:
+		b.text = "%s:  —" % label
+		b.disabled = true
+		b.add_theme_color_override("font_disabled_color", Color(0.38, 0.43, 0.49))
+		return b
+	b.text = "%s:  %s" % [label, str(it.get("name", "?"))]
+	b.add_theme_color_override("font_color", _item_color(it))
+	var iid := str(it.get("id", ""))
+	var slot := str(it.get("slot", ""))
+	var itc: Dictionary = it
+	b.pressed.connect(func() -> void:
+		if net != null and _connected:
+			net.equip.rpc_id(1, iid, slot))         # click an equipped slot → unequip
+	b.mouse_entered.connect(func() -> void: _show_item_tooltip(itc, _inv_items))
+	b.mouse_exited.connect(func() -> void:
+		if _tooltip != null: _tooltip.visible = false)
+	return b
+
+func _open_inv_ctx(it: Dictionary) -> void:
+	if _inv_ctx == null:
+		return
+	if _tooltip != null: _tooltip.visible = false   # the popup steals focus → tile won't get mouse_exited
+	_inv_ctx_item = str(it.get("id", ""))
+	var locked := bool(it.get("locked", false))
+	_inv_ctx.set_meta("slot", str(it.get("slot", "")))
+	_inv_ctx.set_meta("locked", locked)
+	_inv_ctx.clear()
+	_inv_ctx.add_item("Unequip" if bool(it.get("equipped", false)) else "Equip", 2)
+	_inv_ctx.add_item("Unlock" if locked else "Lock", 1)
+	var mp: Vector2 = _hud.get_viewport().get_mouse_position()
+	_inv_ctx.reset_size()
+	_inv_ctx.position = Vector2i(int(mp.x), int(mp.y))
+	_inv_ctx.popup()
+
+func _on_inv_ctx(id: int) -> void:
+	if net == null or not _connected or _inv_ctx_item == "":
+		return
+	match id:
+		1:  # lock / unlock
+			net.inv_set_locked.rpc_id(1, _inv_ctx_item, not bool(_inv_ctx.get_meta("locked", false)))
+		2:  # equip / unequip
+			net.equip.rpc_id(1, _inv_ctx_item, str(_inv_ctx.get_meta("slot", "")))
 
 func recv_inventory_changed() -> void:
 	if _inv_panel != null and _inv_panel.visible:
@@ -628,6 +791,7 @@ func _build_questlog() -> void:
 func _toggle_questlog() -> void:
 	if _quest_panel == null:
 		return
+	if _tooltip != null: _tooltip.visible = false     # closing the inventory under the cursor won't fire mouse_exited
 	_quest_panel.visible = not _quest_panel.visible
 	if _quest_panel.visible:
 		if _inv_panel != null:                       # only one full-screen modal at a time
@@ -742,6 +906,7 @@ func _build_qgiver_dialog() -> void:
 func _toggle_qgiver() -> void:
 	if _qgiver_panel == null:
 		return
+	if _tooltip != null: _tooltip.visible = false     # ditto — clear any stuck inventory hover tooltip
 	_qgiver_panel.visible = not _qgiver_panel.visible
 	if _qgiver_panel.visible:
 		if _inv_panel != null:                       # only one full-screen panel at a time
