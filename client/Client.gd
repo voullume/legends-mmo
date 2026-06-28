@@ -1091,9 +1091,12 @@ func _build_hud() -> void:
 	_hud.add_child(_hotbar)
 	_tooltip = PanelContainer.new()
 	_tooltip.visible = false
+	_tooltip.z_index = 4096                       # always draw on top of panels (it's a sibling under _hud)
+	_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE   # never eat clicks meant for the UI under it
 	_tt_label = RichTextLabel.new()
 	_tt_label.bbcode_enabled = true
 	_tt_label.fit_content = true
+	_tt_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # display-only; don't block the UI beneath
 	_tt_label.custom_minimum_size = Vector2(250, 0)
 	_tooltip.add_child(_tt_label)
 	_hud.add_child(_tooltip)
