@@ -103,6 +103,11 @@ const SALVAGE_YIELD := {"common": 1, "uncommon": 2, "rare": 5, "epic": 12, "lege
 const MAX_UPGRADE := 10                       # also CHECKed in the DB (0..10)
 const UPGRADE_STEP := 2                       # each upgrade level raises an item's PER-ITEM cap by this
                                               # (bounded by ABS_CAP per item AND EQUIP_STAT_CAP in aggregate)
+const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 5}
+const SET_MIN_RANK := 3                       # only EPIC+ pieces count toward a set bonus (gates above-cap power)
+# Set bonus STACKS ABOVE EQUIP_STAT_CAP (a set can push its signature stat past 60) — but only from EPIC+
+# pieces, so the balance impact is limited to high-tier gear. Capped here; harness-tuned.
+const SET_BONUS_CAP := 15
 
 var net: Node = null
 var supa: Node = null
@@ -244,6 +249,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_salvage_next.erase(pid)
 	_forge_busy.erase(pid)
 	_forge_next.erase(pid)
+	_craft_busy.erase(pid)
+	_craft_next.erase(pid)
 	_quest_busy.erase(pid)
 	_quest_next.erase(pid)
 	print("[zone] peer %d left" % pid)
@@ -552,10 +559,17 @@ func _make_item(slot: String, rarity: String, ilvl: int, primary_stat: String = 
 		atotal += int(a["amt"])
 	var bases: Array = LOOT_SLOTS.get(slot, ["Relic"])
 	var base: String = base_name if base_name != "" else str(bases[_loot_rng.next_int(bases.size())])
+	# every item belongs to a sport set (P5). The catalog path (base_name given) must stay deterministic →
+	# derive the set from a hash; drops/rolls/craft (rng path) roll a random set.
+	var sid: String
+	if base_name != "":
+		sid = GameData.SET_IDS[abs(hash(slot + rarity)) % GameData.SET_IDS.size()]
+	else:
+		sid = GameData.SET_IDS[_loot_rng.next_int(GameData.SET_IDS.size())]
 	return {
 		"name": "%s %s" % [rarity.capitalize(), base], "rarity": rarity, "slot": slot, "ilvl": lv,
 		"primary_stat": ps, "primary_amt": pamt, "bonus_stat": ps, "bonus_amt": pamt,
-		"affixes": affixes, "item_power": pamt + atotal + lv,
+		"affixes": affixes, "item_power": pamt + atotal + lv, "set_id": sid,
 	}
 
 # the fixed shop catalog: one CLEAN (affix-free) item per slot × shop-rarity, built deterministically so
@@ -627,6 +641,16 @@ var _salvage_busy := {}                           # pid -> a salvage batch is in
 var _salvage_next := {}
 var _forge_busy := {}                             # pid -> an upgrade is in flight
 var _forge_next := {}
+var _craft_busy := {}                             # pid -> a craft is in flight (P5)
+var _craft_next := {}
+
+func _craft_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_craft_busy.get(pid, false)) or now < int(_craft_next.get(pid, 0)):
+		return false
+	_craft_busy[pid] = true
+	_craft_next[pid] = now + 300
+	return true
 
 func _salvage_lock(pid: int) -> bool:
 	var now := Time.get_ticks_msec()
@@ -910,6 +934,44 @@ func _do_forge_reforge(pid: int, item_id: String) -> void:
 	if _session.has(pid):
 		await _apply_equipment(pid)                           # equipped item → new affixes apply (still capped)
 	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
+# Phase 5 craft: spend scrap → a random item of the recipe's rarity (a scrap sink + gear faucet). Spend
+# (atomic) BEFORE the insert, refund on failure — mirrors _give_and_charge but with scrap, not credits.
+func craft(pid: int, recipe_id: String) -> void:
+	if not _craft_lock(pid):
+		return
+	await _do_craft(pid, recipe_id)
+	_craft_busy.erase(pid)
+
+func _do_craft(pid: int, recipe_id: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return                                                # crafting happens at the home forge
+	var recipe = null
+	for r in GameData.RECIPES:
+		if str(r["id"]) == recipe_id:
+			recipe = r
+			break
+	if recipe == null:
+		return
+	var s = _session[pid]
+	var cost := int(recipe["scrap"])
+	var mr = await supa.mats_add_as(s["char_id"], -cost)      # spend scrap atomically (ok=false → insufficient)
+	if not mr.get("ok"):
+		return
+	if _session.has(pid):
+		s["scrap"] = int(mr["total"])
+	var slots: Array = LOOT_SLOTS.keys()
+	var slot: String = slots[_loot_rng.next_int(slots.size())]
+	var item := _make_item(slot, str(recipe["rarity"]), int(recipe.get("ilvl", SHOP_ILVL)))
+	var ar = await supa.add_item_as(s["access"], s["char_id"], item)
+	if not ar.get("ok"):                                      # insert failed → refund the scrap
+		var rb = await supa.mats_add_as(s["char_id"], cost)
+		if rb.get("ok") and _session.has(pid):
+			s["scrap"] = int(rb["total"])
+		return
+	if net != null and _session.has(pid):
+		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
 		net.recv_inventory_changed.rpc_id(pid)
 
 # ---- intents ----
@@ -1303,6 +1365,7 @@ func _apply_equipment(pid: int) -> void:
 	var bonus := {}
 	var used := {}                                       # slot -> how many equipped items of it we've counted
 	var ip_total := 0                                    # gear score = sum of counted equipped items' item_power
+	var set_counts := {}                                 # set_id -> equipped EPIC+ piece count (for set bonuses)
 	for it in inv["items"]:
 		if not bool(it["equipped"]):
 			continue
@@ -1313,6 +1376,10 @@ func _apply_equipment(pid: int) -> void:
 			continue
 		ip_total += int(it.get("item_power", 0))
 		used[slot] = n + 1
+		if int(RARITY_RANK.get(str(it.get("rarity", "common")), 0)) >= SET_MIN_RANK:  # only EPIC+ count
+			var sid := str(it.get("set_id", ""))
+			if sid != "":
+				set_counts[sid] = int(set_counts.get(sid, 0)) + 1
 		var rcap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
 		rcap = min(rcap + int(it.get("upgrade_level", 0)) * UPGRADE_STEP, ABS_CAP)   # P4: upgrades raise this item's cap
 		# primary stat (fall back to the legacy bonus_* for pre-P2 / quest-reward items). Coerce JSON null
@@ -1335,11 +1402,32 @@ func _apply_equipment(pid: int) -> void:
 				var ast := str(a.get("stat", ""))
 				if ast != "":
 					bonus[ast] = int(bonus.get(ast, 0)) + min(int(a.get("amt", 0)), rcap)
-	for st in bonus.keys():                              # aggregate per-stat ceiling — the balance bound
+	for st in bonus.keys():                              # aggregate per-stat ceiling — the equipment balance bound
 		bonus[st] = min(int(bonus[st]), EQUIP_STAT_CAP)
+	# set bonuses (P5): stack ABOVE the EQUIP_STAT_CAP, capped by SET_BONUS_CAP, from EPIC+ pieces only.
+	var set_active := {}                                 # set_id -> {count, bonus} for the character sheet
+	for sid in set_counts:
+		var sd = GameData.SET_DEFS.get(sid, null)
+		if sd == null:
+			continue
+		var cnt := int(set_counts[sid])
+		var sb := _set_bonus(sd, cnt)
+		if sb > 0:
+			var st := str(sd["stat"])
+			bonus[st] = int(bonus.get(st, 0)) + sb
+		set_active[sid] = {"count": cnt, "bonus": sb, "stat": str(sd["stat"])}
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_session[pid]["item_power"] = ip_total               # gear score for the character sheet (P3)
+	_session[pid]["set_bonus"] = set_active              # active set bonuses for the character sheet (P5)
 	_recompute_player_stats(_find(_session[pid]["fid"]), int(_session[pid]["level"]), bonus)
+
+# the highest set threshold this piece-count reaches → its stat bonus (capped by SET_BONUS_CAP)
+func _set_bonus(sd: Dictionary, cnt: int) -> int:
+	var best := 0
+	for k in sd.get("th", {}):
+		if cnt >= int(k):
+			best = max(best, int(sd["th"][k]))
+	return min(best, SET_BONUS_CAP)
 
 # re-derive maxHP/dmgMult/crit/ms/… from base stats + equipped bonuses, preserving HP fraction
 func _recompute_player_stats(f, level: int, bonus: Dictionary) -> void:
@@ -1734,6 +1822,7 @@ func _broadcast() -> void:
 		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
 		snap["self"] = {
 			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)),
+			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
 			"ms": float(f["ms"]), "cdr": float(f["cdr"]), "clutchDmg": float(f["clutchDmg"]), "clutchDR": float(f["clutchDR"]),
 			"equip_bonus": (s.get("equip_bonus", {}) as Dictionary).duplicate(),

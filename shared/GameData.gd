@@ -172,6 +172,25 @@ const MAPS := {
 }
 const MAP_IDS := ["stadium", "rooftop", "centerfield", "sandcourt", "trenches"]
 
+# --- Item sets (P5): one set per sport. Every item rolls a set_id; the server grants a set bonus for
+# wearing N matching EPIC+ pieces (counts/thresholds + the SET_BONUS_CAP live in Server.gd). `stat` is the
+# set's signature stat; `th` maps a piece-count threshold → bonus to that stat (bonuses are <= SET_BONUS_CAP).
+const SET_DEFS := {
+	"baseball":   {"name": "Slugger",   "stat": "PWR", "th": {"2": 8, "4": 15}},
+	"football":   {"name": "Gridiron",  "stat": "END", "th": {"2": 8, "4": 15}},
+	"volleyball": {"name": "Spiker",    "stat": "PRE", "th": {"2": 8, "4": 15}},
+	"soccer":     {"name": "Striker",   "stat": "SPD", "th": {"2": 8, "4": 15}},
+}
+const SET_IDS := ["baseball", "football", "volleyball", "soccer"]
+
+# --- Crafting (P5): static recipes (no recipes table). Spend scrap → a random item of the given rarity.
+# A scrap sink + a way to target gear; the server rolls the item via _make_item and validates the cost.
+const RECIPES := [
+	{"id": "forge_unc",  "name": "Forge Uncommon Gear", "scrap": 12,  "rarity": "uncommon", "ilvl": 12},
+	{"id": "forge_rare", "name": "Forge Rare Gear",     "scrap": 40,  "rarity": "rare",     "ilvl": 18},
+	{"id": "forge_epic", "name": "Forge Epic Gear",     "scrap": 120, "rarity": "epic",     "ilvl": 26},
+]
+
 static func class_ids() -> Array:
 	return CLASSES.keys()
 

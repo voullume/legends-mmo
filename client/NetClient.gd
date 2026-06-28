@@ -297,6 +297,18 @@ func _render_charsheet() -> void:
 	lines.append("  Move Speed  [color=#cfd6df]%d[/color]" % int(round(float(fin.get("ms", 0.0)))))
 	lines.append("  Cooldown Reduction  [color=#cfd6df]%d%%[/color]" % int(round(float(fin.get("cdr", 0.0)) * 100.0)))
 	lines.append("  Clutch (low HP)  [color=#cfd6df]+%d%% dmg[/color] · [color=#cfd6df]%d%% DR[/color]" % [int(round(float(fin.get("clutchDmg", 0.0)) * 100.0)), int(round(float(fin.get("clutchDR", 0.0)) * 100.0))])
+	# active set bonuses (P5) — from equipped EPIC+ pieces, stacking above the 60 cap
+	var sets: Dictionary = si.get("set_bonus", {})
+	var active := []
+	for sid in sets:
+		var sb: Dictionary = sets[sid]
+		if int(sb.get("bonus", 0)) > 0:
+			var sdef: Dictionary = GameData.SET_DEFS.get(sid, {})
+			active.append("  [color=#cdbcff]%s[/color] (%d pc) [color=#9fe8a0]+%d %s[/color]" % [
+				str(sdef.get("name", sid)), int(sb.get("count", 0)), int(sb["bonus"]), str(sb.get("stat", ""))])
+	if not active.is_empty():
+		lines.append("\n[b]Set Bonuses[/b]  [color=#7f93a8](epic+ pieces)[/color]")
+		lines.append_array(active)
 	_sheet_label.text = "\n".join(lines)
 
 # --- comparison tooltips (P3): hover an item row → its stat block + Δ vs the equipped item you'd replace ---
@@ -313,7 +325,7 @@ func _on_item_hover(meta) -> void:
 	if (key == "upg" or key == "rfg") and p.size() >= 2:     # forge upgrade / reforge rows
 		_show_item_tooltip(_find_item(_forge_items, p[1]), _forge_items)
 		return
-	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll", "mode"]:
+	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll", "mode", "craft"]:
 		_tooltip.visible = false                             # non-item controls → no tooltip
 		return
 	_show_item_tooltip(_find_item(_inv_items, key), _inv_items)   # inventory rows: id|slot
@@ -353,6 +365,9 @@ func _item_tooltip_text(it: Dictionary, owned: Array) -> String:
 	var slot: String = str(it.get("slot", ""))
 	var L := ["[color=%s][b]%s[/b][/color]" % [col, _esc(str(it.get("name", "?")))]]
 	L.append("[color=#7f8a99]%s · %s · i%d · ✦%d[/color]" % [rar, slot, int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
+	var sid := str(it.get("set_id", ""))
+	if sid != "":
+		L.append("[color=#cdbcff]%s set[/color]" % str(GameData.SET_DEFS.get(sid, {}).get("name", sid)))
 	var stats := _item_stats_str(it)
 	if stats != "":
 		L.append(stats)
@@ -1057,13 +1072,24 @@ func _render_forge() -> void:
 			var rfc: String = "#9fe8a0" if (_my_credits() >= rcc and _my_scrap() >= rsc) else "#ff8a8a"
 			rf_btn = "     [url=rfg|%s][bgcolor=#2a2640][color=#cdbcff] Reforge [/color][/bgcolor][/url] [color=%s]◈%d+%dsc[/color]" % [iid, rfc, rcc, rsc]
 		lines.append("   %s%s" % [up_btn, rf_btn])
+	# Craft section (P5): spend scrap → a random item of the recipe's rarity
+	lines.append("\n[b]Craft[/b]  [color=#7f93a8](spend scrap for a random item)[/color]")
+	for rcp in GameData.RECIPES:
+		var sc: int = int(rcp.get("scrap", 0))
+		var rr: String = str(rcp.get("rarity", "common"))
+		var rcol: String = RARITY_COLORS.get(rr, "#cfd6df")
+		var afc: String = "#9fe8a0" if _my_scrap() >= sc else "#ff8a8a"
+		lines.append("   [url=craft|%s][bgcolor=#26323a][color=#bfe3ff] %s [/color][/bgcolor][/url] → [color=%s]%s[/color] [color=%s]%d scrap[/color]" % [
+			str(rcp.get("id", "")), _esc(str(rcp.get("name", "?"))), rcol, rr, afc, sc])
 	_forge_label.text = "\n".join(lines)
 
 func _on_forge_meta(meta) -> void:
 	if net == null or not _connected:
 		return
 	var p := str(meta).split("|")
-	if p[0] == "upg" and p.size() >= 2:
+	if p[0] == "craft" and p.size() >= 2:
+		net.craft.rpc_id(1, p[1])
+	elif p[0] == "upg" and p.size() >= 2:
 		net.forge_upgrade.rpc_id(1, p[1])
 	elif p[0] == "rfg" and p.size() >= 2:
 		net.forge_reforge.rpc_id(1, p[1])
