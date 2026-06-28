@@ -121,6 +121,12 @@ static func sim_tick(state, dt) -> void:
 
 	# fighters
 	for f in fighters:
+		# refresh the per-second proc-DPS budget for ALL fighters (incl. corpses) — a DEAD DOT source still
+		# debits this budget when its lingering DOTs tick, so it must keep resetting or those DOTs throttle to 0.
+		f["_procWin"] = float(f.get("_procWin", 1.0)) - dt
+		if f["_procWin"] <= 0.0:
+			f["_procWin"] = 1.0
+			f["_procDmg"] = 0.0
 		if not f["alive"]: continue
 		var c = GameData.CLASSES[f["classId"]]
 
@@ -145,6 +151,26 @@ static func sim_tick(state, dt) -> void:
 			f["momentumT"] -= dt
 		elif f["momentum"] > 0:
 			f["momentum"] = max(0.0, f["momentum"] - dt * 1.5)
+
+		# procs (P6): decay per-proc ICDs + the per-second proc-DPS budget window; tick DOTs on this fighter.
+		# All deterministic — DOT damage routes through deal_damage with opts.proc (no rng draw, no re-proc).
+		var pt = f.get("_procT", null)
+		if pt is Dictionary:
+			for k in pt.keys():
+				pt[k] = max(0.0, float(pt[k]) - dt)
+		var dts = f.get("dots", null)
+		if dts is Array and not dts.is_empty():
+			var keep := []
+			for d in dts:
+				var sf = _find_fighter(state, d["src"])      # DOT source (may already be dead — DOT persists)
+				if sf != null:
+					Combat.deal_damage(state, sf, f, float(d["dps"]) * dt, {"proc": true})
+				d["remaining"] = float(d["remaining"]) - dt
+				if d["remaining"] > 0.0 and f["alive"]:
+					keep.append(d)
+			f["dots"] = keep
+			if not f["alive"]:                               # a DOT just killed this fighter → skip its turn
+				continue
 		if f["shieldT"] > 0:
 			f["shieldT"] -= dt
 			if f["shieldT"] <= 0: f["shield"] = 0.0

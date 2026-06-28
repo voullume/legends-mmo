@@ -309,6 +309,20 @@ func _render_charsheet() -> void:
 	if not active.is_empty():
 		lines.append("\n[b]Set Bonuses[/b]  [color=#7f93a8](epic+ pieces)[/color]")
 		lines.append_array(active)
+	# procs from equipped uniques (P6)
+	var myprocs = si.get("procs", [])
+	if myprocs is Array and not myprocs.is_empty():
+		lines.append("\n[b]Procs[/b]  [color=#7f93a8](from uniques)[/color]")
+		for pr in myprocs:
+			var nm: String = str(GameData.PROC_CATALOG.get(str(pr.get("id", "")), {}).get("name", str(pr.get("id", ""))))
+			var trig: String = str(pr.get("trigger", "")).replace("on_", "on ")
+			var amt: float = float(pr.get("amt", 0.0))
+			var desc := ""
+			match str(pr.get("effect", "")):
+				"DOT": desc = "%d dmg/s for %.0fs" % [int(round(amt)), float(pr.get("dur", 3.0))]
+				"FLAT": desc = "+%d burst" % int(round(amt))
+				"LIFESTEAL": desc = "heal %d%% of dmg" % int(round(amt * 100.0))
+			lines.append("  [color=#ffb454]✦ %s[/color] [color=#7f93a8](%s)[/color] %s" % [nm, trig, desc])
 	_sheet_label.text = "\n".join(lines)
 
 # --- comparison tooltips (P3): hover an item row → its stat block + Δ vs the equipped item you'd replace ---
@@ -361,13 +375,19 @@ func _show_item_tooltip(it, owned: Array) -> void:
 
 func _item_tooltip_text(it: Dictionary, owned: Array) -> String:
 	var rar: String = str(it.get("rarity", "common"))
-	var col: String = RARITY_COLORS.get(rar, "#cfd6df")
+	var uidv = it.get("unique_id")
+	var uid: String = "" if uidv == null else str(uidv)
+	var col: String = "#ff9d3c" if uid != "" else RARITY_COLORS.get(rar, "#cfd6df")   # uniques: gold
 	var slot: String = str(it.get("slot", ""))
-	var L := ["[color=%s][b]%s[/b][/color]" % [col, _esc(str(it.get("name", "?")))]]
+	var L := ["[color=%s][b]%s[/b][/color]%s" % [col, _esc(str(it.get("name", "?"))), ("  [color=#ff9d3c]UNIQUE[/color]" if uid != "" else "")]]
 	L.append("[color=#7f8a99]%s · %s · i%d · ✦%d[/color]" % [rar, slot, int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
 	var sid := str(it.get("set_id", ""))
 	if sid != "":
 		L.append("[color=#cdbcff]%s set[/color]" % str(GameData.SET_DEFS.get(sid, {}).get("name", sid)))
+	var pidv = it.get("proc_id")                                    # P6: proc description
+	var pid: String = "" if pidv == null else str(pidv)
+	if pid != "":
+		L.append("[color=#ffb454]✦ %s[/color]" % _proc_desc(pid, int(it.get("proc_tier", 0))))
 	var stats := _item_stats_str(it)
 	if stats != "":
 		L.append(stats)
@@ -956,6 +976,20 @@ func _my_credits() -> int:
 
 func _my_scrap() -> int:
 	return int(_state.get("self", {}).get("scrap", 0))
+
+# human-readable description of a proc at a given tier (P6) — from GameData.PROC_CATALOG
+func _proc_desc(proc_id: String, tier: int) -> String:
+	var p: Dictionary = GameData.PROC_CATALOG.get(proc_id, {})
+	if p.is_empty():
+		return ""
+	var amt: float = GameData.proc_amt(proc_id, tier)
+	var trig: String = str(p.get("trigger", "")).replace("on_", "on ")
+	var nm: String = str(p.get("name", proc_id))
+	match str(p.get("effect", "")):
+		"DOT": return "%s (%s): %d dmg/s for %.0fs" % [nm, trig, int(round(amt)), float(p.get("dur", 3.0))]
+		"FLAT": return "%s (%s): +%d burst damage" % [nm, trig, int(round(amt))]
+		"LIFESTEAL": return "%s (%s): heal %d%% of damage dealt" % [nm, trig, int(round(amt * 100.0))]
+		_: return nm
 
 func _upgrade_credit_cost(rarity: String, lvl: int) -> int:   # MUST match Server.gd
 	return int(RARITY_MULT.get(rarity, 1)) * 25 * (lvl + 1)

@@ -186,10 +186,38 @@ const SET_IDS := ["baseball", "football", "volleyball", "soccer"]
 # --- Crafting (P5): static recipes (no recipes table). Spend scrap → a random item of the given rarity.
 # A scrap sink + a way to target gear; the server rolls the item via _make_item and validates the cost.
 const RECIPES := [
-	{"id": "forge_unc",  "name": "Forge Uncommon Gear", "scrap": 12,  "rarity": "uncommon", "ilvl": 12},
-	{"id": "forge_rare", "name": "Forge Rare Gear",     "scrap": 40,  "rarity": "rare",     "ilvl": 18},
-	{"id": "forge_epic", "name": "Forge Epic Gear",     "scrap": 120, "rarity": "epic",     "ilvl": 26},
+	{"id": "forge_unc",    "name": "Forge Uncommon Gear", "scrap": 12,  "rarity": "uncommon", "ilvl": 12},
+	{"id": "forge_rare",   "name": "Forge Rare Gear",     "scrap": 40,  "rarity": "rare",     "ilvl": 18},
+	{"id": "forge_epic",   "name": "Forge Epic Gear",     "scrap": 120, "rarity": "epic",     "ilvl": 26},
+	{"id": "forge_unique", "name": "Forge a Unique",      "scrap": 400, "rarity": "epic",     "ilvl": 30, "unique": true},
 ]
+
+# --- Uniques & procs (P6). A proc is PURE DATA (a fixed effect enum), never a script — so the sim stays
+# deterministic. Procs draw NO rng; proc/DOT damage routes through Combat.deal_damage with opts.proc=true
+# (which skips the crit rng draw + re-proccing), so a fighter WITH procs draws the same rng as one without.
+#   effect:  "DOT" (damage/sec for dur on the target) · "FLAT" (one burst of damage) · "LIFESTEAL" (heal the
+#            owner for amt × the hit's damage)
+#   trigger: "on_hit" · "on_crit" (more added later: on_kill, on_lowhp)
+#   icd:     internal cooldown (s) so a proc can't fire every hit. amt scales with proc_tier (×1 .. ×2).
+const PROC_CATALOG := {
+	"searing":  {"name": "Searing",  "effect": "DOT",       "trigger": "on_hit",  "amt": 5.0,  "dur": 3.0, "icd": 4.0},
+	"crushing": {"name": "Crushing", "effect": "FLAT",      "trigger": "on_crit", "amt": 4.0,  "icd": 1.5},
+	"vampiric": {"name": "Vampiric", "effect": "LIFESTEAL", "trigger": "on_hit",  "amt": 0.04, "icd": 1.0},
+}
+# Procs scale with the wearer's dmgMult, so big procs AMPLIFY the class-dmg gaps FORMAT_MODS balances →
+# they're deliberately SMALL (a flavor edge, not a power spike). PROC_DPS_CAP bounds damage procs/sec.
+const PROC_DPS_CAP := 18.0
+static func proc_amt(proc_id: String, tier: int) -> float:
+	return float(PROC_CATALOG.get(proc_id, {}).get("amt", 0.0)) * (1.0 + clampi(tier, 0, 5) * 0.2)
+
+# unique items: a fixed name + slot + signature proc. Stats are generated epic-tier (RARITY_CAP-bound) — the
+# identity is the PROC, not a bigger number. Dropped by bosses (rare) or crafted (forge_unique).
+const UNIQUE_DEFS := {
+	"embermaw":      {"name": "Embermaw",      "slot": "main_hand", "proc_id": "searing"},
+	"skullcleaver":  {"name": "Skullcleaver",  "slot": "main_hand", "proc_id": "crushing"},
+	"sanguine_band": {"name": "Sanguine Band", "slot": "ring",      "proc_id": "vampiric"},
+}
+const UNIQUE_IDS := ["embermaw", "skullcleaver", "sanguine_band"]
 
 static func class_ids() -> Array:
 	return CLASSES.keys()
@@ -242,4 +270,7 @@ static func create_fighter(class_id: String, team: int, slot: int, rng, team_siz
 		"hx": float(1 if team == 0 else -1), "hy": 0.0,
 		"moveMode": "approach", "flipT": 0.0,
 		"facing": (1 if team == 0 else -1),
+		# procs (P6): procs = this fighter's equipped-item effects; _procT = per-proc ICD; dots = active
+		# damage-over-time on this fighter; _procDmg/_procWin = the per-second proc-damage cap window.
+		"procs": [], "_procT": {}, "dots": [], "_procDmg": 0.0, "_procWin": 1.0,
 	}

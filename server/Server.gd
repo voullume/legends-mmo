@@ -108,6 +108,7 @@ const SET_MIN_RANK := 3                       # only EPIC+ pieces count toward a
 # Set bonus STACKS ABOVE EQUIP_STAT_CAP (a set can push its signature stat past 60) — but only from EPIC+
 # pieces, so the balance impact is limited to high-tier gear. Capped here; harness-tuned.
 const SET_BONUS_CAP := 15
+const UNIQUE_DROP_CHANCE := 0.15              # P6: fraction of BOSS drops that are a unique instead
 
 var net: Node = null
 var supa: Node = null
@@ -961,9 +962,17 @@ func _do_craft(pid: int, recipe_id: String) -> void:
 		return
 	if _session.has(pid):
 		s["scrap"] = int(mr["total"])
-	var slots: Array = LOOT_SLOTS.keys()
-	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	var item := _make_item(slot, str(recipe["rarity"]), int(recipe.get("ilvl", SHOP_ILVL)))
+	var item: Dictionary
+	if bool(recipe.get("unique", false)):                    # forge_unique → a random unique (P6)
+		item = _make_unique(GameData.UNIQUE_IDS[_loot_rng.next_int(GameData.UNIQUE_IDS.size())], int(recipe.get("ilvl", SHOP_ILVL)))
+	else:
+		var slot: String = (LOOT_SLOTS.keys())[_loot_rng.next_int(LOOT_SLOTS.size())]
+		item = _make_item(slot, str(recipe["rarity"]), int(recipe.get("ilvl", SHOP_ILVL)))
+	if item.is_empty():                                      # unknown unique def → refund + bail
+		var rfb = await supa.mats_add_as(s["char_id"], cost)
+		if rfb.get("ok") and _session.has(pid):
+			s["scrap"] = int(rfb["total"])
+		return
 	var ar = await supa.add_item_as(s["access"], s["char_id"], item)
 	if not ar.get("ok"):                                      # insert failed → refund the scrap
 		var rb = await supa.mats_add_as(s["char_id"], cost)
@@ -1232,6 +1241,10 @@ func _revive(f) -> void:
 	var sp = _spawn_pos.get(orig_id, Vector2(f["x"], f["y"]))
 	f["x"] = sp.x
 	f["y"] = sp.y
+	f["dots"] = []                                # P6: clear lingering DOTs / proc cooldowns on respawn
+	f["_procT"] = {}
+	f["_procDmg"] = 0.0
+	f["_procWin"] = 1.0
 	if f.get("dummy", false):                     # training dummy: fixed HP, no scaling
 		f["maxHP"] = DUMMY_HP
 		f["hp"] = DUMMY_HP
@@ -1239,6 +1252,7 @@ func _revive(f) -> void:
 		var s = _session_by_fid(orig_id)
 		if s != null:
 			_recompute_player_stats(f, int(s["level"]), s.get("equip_bonus", {}))
+			f["procs"] = s.get("procs", [])       # P6: re-apply equipped procs (the fresh copy wiped them)
 	elif f["team"] == 1:                          # re-apply mob level/tier scaling
 		_scale_mob(f)
 
@@ -1284,7 +1298,23 @@ func _roll_loot(mob) -> Dictionary:
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
 	var tbonus := 12 if tier == "boss" else (5 if tier == "elite" else 0)   # drop ilvl = mob level + tier
-	return _make_item(slot, str(rar["name"]), clampi(lvl + tbonus, 1, 80))
+	var ilvl := clampi(lvl + tbonus, 1, 80)
+	if tier == "boss" and _loot_rng.next() < UNIQUE_DROP_CHANCE:             # bosses rarely drop a UNIQUE instead
+		return _make_unique(GameData.UNIQUE_IDS[_loot_rng.next_int(GameData.UNIQUE_IDS.size())], ilvl)
+	return _make_item(slot, str(rar["name"]), ilvl)
+
+# build a unique: epic-tier stats (RARITY_CAP-bound — identity is the PROC, not bigger numbers) stamped with
+# the unique's fixed name + signature proc + a small proc_tier roll. Dropped by bosses or crafted.
+func _make_unique(unique_id: String, ilvl: int) -> Dictionary:
+	var ud = GameData.UNIQUE_DEFS.get(unique_id, null)
+	if ud == null:
+		return {}
+	var item := _make_item(str(ud["slot"]), "epic", ilvl)
+	item["name"] = str(ud["name"])
+	item["unique_id"] = unique_id
+	item["proc_id"] = str(ud["proc_id"])
+	item["proc_tier"] = _loot_rng.next_int(3)                                # 0..2
+	return item
 
 func _roll_rarity(tier: String) -> Dictionary:
 	var total := 0.0
@@ -1366,6 +1396,7 @@ func _apply_equipment(pid: int) -> void:
 	var used := {}                                       # slot -> how many equipped items of it we've counted
 	var ip_total := 0                                    # gear score = sum of counted equipped items' item_power
 	var set_counts := {}                                 # set_id -> equipped EPIC+ piece count (for set bonuses)
+	var procs := []                                      # P6: this fighter's active procs (from equipped uniques)
 	for it in inv["items"]:
 		if not bool(it["equipped"]):
 			continue
@@ -1376,6 +1407,21 @@ func _apply_equipment(pid: int) -> void:
 			continue
 		ip_total += int(it.get("item_power", 0))
 		used[slot] = n + 1
+		var procidv = it.get("proc_id")                  # P6: an equipped unique contributes its signature proc
+		var procid: String = "" if procidv == null else str(procidv)
+		if procid != "" and GameData.PROC_CATALOG.has(procid):
+			var pdef = GameData.PROC_CATALOG[procid]
+			var pamt2: float = GameData.proc_amt(procid, int(it.get("proc_tier", 0)))
+			var dup := false                             # dedup by proc id (two copies of one unique don't stack
+			for ep in procs:                             # the effect — esp. zero-icd lifesteal); keep the higher tier
+				if str(ep["id"]) == procid:
+					dup = true
+					if pamt2 > float(ep["amt"]):
+						ep["amt"] = pamt2
+					break
+			if not dup:
+				procs.append({"id": procid, "effect": str(pdef["effect"]), "trigger": str(pdef["trigger"]),
+					"amt": pamt2, "icd": float(pdef.get("icd", 0.0)), "dur": float(pdef.get("dur", 3.0))})
 		if int(RARITY_RANK.get(str(it.get("rarity", "common")), 0)) >= SET_MIN_RANK:  # only EPIC+ count
 			var sid := str(it.get("set_id", ""))
 			if sid != "":
@@ -1419,7 +1465,11 @@ func _apply_equipment(pid: int) -> void:
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_session[pid]["item_power"] = ip_total               # gear score for the character sheet (P3)
 	_session[pid]["set_bonus"] = set_active              # active set bonuses for the character sheet (P5)
-	_recompute_player_stats(_find(_session[pid]["fid"]), int(_session[pid]["level"]), bonus)
+	_session[pid]["procs"] = procs                       # P6: active procs, cached for re-apply on respawn
+	var pf2 = _find(_session[pid]["fid"])
+	if pf2 != null:
+		pf2["procs"] = procs                             # the fighter reads this in Combat._resolve_procs
+	_recompute_player_stats(pf2, int(_session[pid]["level"]), bonus)
 
 # the highest set threshold this piece-count reaches → its stat bonus (capped by SET_BONUS_CAP)
 func _set_bonus(sd: Dictionary, cnt: int) -> int:
@@ -1823,6 +1873,7 @@ func _broadcast() -> void:
 		snap["self"] = {
 			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)),
 			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
+			"procs": (s.get("procs", []) as Array).duplicate(),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
 			"ms": float(f["ms"]), "cdr": float(f["cdr"]), "clutchDmg": float(f["clutchDmg"]), "clutchDR": float(f["clutchDR"]),
 			"equip_bonus": (s.get("equip_bonus", {}) as Dictionary).duplicate(),

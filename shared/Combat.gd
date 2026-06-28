@@ -83,8 +83,8 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 			if p != null and (p["id"] == src["id"] or is_ally(state, p, src)):   # own/ally zone boosts the shot
 				dmg *= GameData.CLASSES[p["classId"]]["zoneSelfBoost"] if p["id"] == src["id"] else GameData.CLASSES[p["classId"]]["zoneAllyBoost"]
 				break
-	# 7. hat trick (Striker)
-	if sc.has("hatTrickEvery"):
+	# 7. hat trick (Striker) — NOT for proc/DOT damage (it would advance the chain + refresh hatChainT remotely)
+	if sc.has("hatTrickEvery") and not opts.get("proc", false):
 		if src["hatTarget"] == tgt["id"]:
 			src["hatCount"] += 1
 		else:
@@ -95,13 +95,16 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 			dmg *= sc["hatTrickBonus"]
 		if tgt["hp"] / tgt["maxHP"] < sc["lowHPThresh"] and opts.get("key", "") == "clinical":
 			dmg *= sc["lowHPDmg"]
-	# 8. set buff (next damage ability, non-basic)
-	if src["buffs"]["nextdmg"] > 0 and not opts.get("basic", false):
+	# 8. set buff (next damage ability, non-basic) — a proc/DOT tick must not CONSUME the buff
+	if src["buffs"]["nextdmg"] > 0 and not opts.get("basic", false) and not opts.get("proc", false):
 		dmg *= src["buffs"]["nextdmg"]
 		src["buffs"]["nextdmg"] = 0.0
-	# 9. crit
+	# 9. crit — proc/DOT damage (opts.proc) skips the roll so PROCS DRAW NO rng (the sim stays byte-identical
+	# whether or not a fighter has procs — determinism preserved).
 	var crit_ch: float = src["crit"] + (src["buffs"]["crit"] if src["buffs"]["critT"] > 0 else 0.0)
-	var is_crit: bool = state["rng"].next() < crit_ch
+	var is_crit: bool = false
+	if not opts.get("proc", false):
+		is_crit = state["rng"].next() < crit_ch
 	if is_crit:
 		dmg *= src["critMult"]
 	# 10. shield crusher (Batter, vs shielded/DR targets)
@@ -110,8 +113,9 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 
 	# ---- mitigation ----
 	var tc: Dictionary = GameData.CLASSES[tgt["classId"]]
-	# 11. reflect stance (Goalkeeper)
-	if tgt["buffs"]["reflect"] > 0:
+	# 11. reflect stance (Goalkeeper) — proc/DOT damage is NOT reflected: reflecting it would draw a crit rng
+	# (breaking the procs-draw-no-rng rule), bounce 1.6× UNCAPPED past PROC_DPS_CAP, and re-resolve procs.
+	if tgt["buffs"]["reflect"] > 0 and not opts.get("proc", false):
 		tgt["buffs"]["reflect"] = 0.0
 		tgt["mitigated"] += dmg
 		var back: float = dmg * tc["reflectMult"]
@@ -132,6 +136,11 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		dmg -= absorbed
 		mitigated += absorbed
 	dmg = max(0.0, dmg)
+	# proc/DOT damage is bounded per source per second (PROC_DPS_CAP) so procs can't break class balance
+	if opts.get("proc", false):
+		var pbudget: float = GameData.PROC_DPS_CAP - float(src.get("_procDmg", 0.0))
+		dmg = clampf(dmg, 0.0, max(0.0, pbudget))
+		src["_procDmg"] = float(src.get("_procDmg", 0.0)) + dmg
 	# 14. apply
 	tgt["hp"] -= dmg
 	tgt["noDmgT"] = 0.0
@@ -153,7 +162,45 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		src["kills"] += 1
 		state["events"].append({"type": "kill", "killer": src["id"], "victim": tgt["id"], "t": state["t"]})
 		# (on-kill ability effects — golden goal stealth, thunderspike reset — added with abilities phase)
+	# procs (P6): a REAL hit (not proc-sourced) resolves the source's equipped procs — deterministically.
+	if not opts.get("proc", false):
+		_resolve_procs(state, src, tgt, is_crit, not tgt["alive"], dmg)
 	return dmg
+
+# resolve the source's equipped procs after a hit. Pure-data effects (DOT/FLAT/LIFESTEAL) with per-proc
+# internal cooldowns; draws NO rng. Damage procs route back through deal_damage (opts.proc=true) so they
+# inherit dmgMult × FORMAT_MODS and the per-source PROC_DPS_CAP, and never recursively re-proc.
+static func _resolve_procs(state: Dictionary, src: Dictionary, tgt: Dictionary, is_crit: bool, killed: bool, dmg: float) -> void:
+	var procs = src.get("procs", [])
+	if not (procs is Array) or procs.is_empty():
+		return
+	var pt: Dictionary = src.get("_procT", {})
+	for p in procs:
+		var fire := false
+		match str(p.get("trigger", "on_hit")):
+			"on_hit": fire = true
+			"on_crit": fire = is_crit
+			"on_kill": fire = killed
+			"on_lowhp": fire = src["hp"] / src["maxHP"] < 0.35
+		if not fire:
+			continue
+		var pid := str(p.get("id", ""))
+		var icd := float(p.get("icd", 0.0))
+		if icd > 0.0:
+			if float(pt.get(pid, 0.0)) > 0.0:
+				continue                                  # still on internal cooldown
+			pt[pid] = icd
+		match str(p.get("effect", "")):
+			"DOT":
+				if tgt.has("dots"):
+					tgt["dots"].append({"src": src["id"], "dps": float(p.get("amt", 0.0)), "remaining": float(p.get("dur", 3.0)), "proc": pid})
+			"FLAT":
+				deal_damage(state, src, tgt, float(p.get("amt", 0.0)), {"proc": true})
+			"LIFESTEAL":
+				var heal: float = dmg * float(p.get("amt", 0.0))
+				src["hp"] = min(src["maxHP"], src["hp"] + heal)
+				src["healing"] += heal
+	src["_procT"] = pt
 
 static func apply_heal(state: Dictionary, src: Dictionary, tgt: Dictionary, amt: float) -> void:
 	if not tgt["alive"]:
