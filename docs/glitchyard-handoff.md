@@ -27,10 +27,11 @@ rectangles.
 3. The combat engine **already has** most primitives the roster needs; a handful must be built. We sequence
    so each phase ships something playable and passes the balance harness.
 
-**Three decisions to confirm with the user (see §9):** (a) one big walkable Glitchyard world with internal
-gates **vs** 5 chained sub-worlds with auto-portals; (b) whether the Glitchyard **replaces** the current
-`combat`/`frontier`/`depths` chain or is added alongside; (c) the missing **Tackle Bag Brute** model
-(see §2.1) — it's the only roster model not in `~/Downloads`.
+**Decisions — all RESOLVED 2026-06-28 (see §9):** (a) **5 separated sub-worlds** `glitchyard_1..5` chained by
+portals (MapleStory / Monster Hunter zoned-maps style — lighter on GFX/assets, max engine reuse); (b) the
+Glitchyard **replaces** the current `combat`/`frontier`/`depths` chain as the new starter; (c) **Tackle Bag
+Brute** model now present (`~/Downloads/TBB.glb`). Also: `*2` GLBs = alternate mob skins; **Boss2 = a secret
+boss, deferred**; the reward loop (tokens/set) is **last + skippable**.
 
 ---
 
@@ -120,9 +121,14 @@ gates **vs** 5 chained sub-worlds with auto-portals; (b) whether the Glitchyard 
 | Blocking Sled Juggernaut | `Jugg.glb` (63) | elite, object |
 | Drill Sergeant Dummy | `DS.glb` (36), `DSstill.glb` (29) | `DSstill` likely a cleaner static pose |
 | Overclocked Ball Machine | `OBM.glb` (67) | elite, object |
-| Head Coach Prototype (boss) | `Boss1.glb` (48), `Boss2.glb` (40) | pick the better silhouette |
-| **Tackle Bag Brute** | **MISSING** | ⚠️ no GLB found — blocker for this one mob (§9) |
+| Head Coach Prototype (boss) | `Boss1.glb` (48) | **Boss1 = zone boss** (build now) |
+| Tackle Bag Brute | `TBB.glb` | uploaded 2026-06-28; object/charger |
+| (secret boss — DEFER) | `Boss2.glb` (40) | future hidden boss; keep asset, don't wire in v1 |
 | (bonus) Shop NPC | `ShopGirl.glb` (45) | not a mob; could re-skin the home shop pad |
+
+**Variants:** `Dummy2`/`ShootingDummy2`/elite `*2` = alternate **cosmetic skins** of the same mob type
+(pick randomly per spawn for MapleStory-style variety; same stats/abilities). `DSstill` = still-pose Drill
+Sergeant variant.
 
 ### 2.2 Optimization (do FIRST, mandatory)
 These are raw Meshy exports (28–67 MB) vs ~6–10 MB for the shipped characters. Per `CLAUDE.md`/`HANDOFF.md`:
@@ -278,11 +284,13 @@ solo (the GDD's scaling table).
 
 ## 6. Zone layout — building the 5 subzones
 
-**Recommended for v1: one new `glitchyard` world** (large bounds) **with internal soft-region camps + cover**,
-*plus* the new **clear-to-open gate** primitive only if we want hard staging — otherwise stage spatially
-(camps gated by distance, like the current frontier→depths). This gives a contiguous walk (matches the GDD's
-"drag the player deeper" feel) and reuses one Sim state. **Alternative:** 5 chained sub-worlds
-(`glitchyard_1..5`) — maximal reuse (per-zone bounds/music/leash) but teleport-y. *Decision in §9.*
+**LOCKED: 5 separated sub-worlds** `glitchyard_1` (Rookie Intake) → `glitchyard_2` (Agility Grid) →
+`glitchyard_3` (Impact Lanes) → `glitchyard_4` (Target Court & Shed) → `glitchyard_5` (Command Tower + boss),
+chained by portals — MapleStory / Monster Hunter zoned-maps style. They **replace** `combat`/`frontier`/
+`depths` in `World.gd` (`MAPS`/`PORTALS`/`MOBS`); keep `home` (hub, with the Glitchyard entry portal) +
+`arena`. Each is its own Sim state with its own bounds/music/leash/camps — max reuse, light asset load (only
+the props for the current subzone are in memory). Clear-to-open **gates are optional polish** (P5): v1 can
+stage spatially (next portal placed past the subzone's tough camp, like frontier→depths today).
 
 **To make maps "less basic" (the core ask), wire the dormant systems:**
 - **Obstacles/cover:** add `"obstacles":[{x,y,r},...]` to the world's `MAPS` entry; set
@@ -339,16 +347,22 @@ review (Workflow) → commit; deploy (server redeploy for `shared/` changes + cl
 - Migrations: none required for mobs/zones (no new persistent player state) unless we add quest progress /
   practice-token currency (the GDD's reward loop — separate, optional).
 
-## 9. Open decisions / blockers for the user
-1. **Tackle Bag Brute model** — missing from `~/Downloads`. Make it in Meshy (same static-object path), or
-   temporarily reuse a dummy/sled, or drop it from v1? (It's the Zone-3 charge-lesson enemy.)
-2. **Zone topology** — one contiguous `glitchyard` world with soft regions (recommended) vs 5 chained
-   sub-worlds with auto-portals? Affects whether we build the clear-to-open gate now.
-3. **Does the Glitchyard replace** the current `combat`/`frontier`/`depths` PvE chain, or sit alongside as a
-   new starter area? (Recommend: replace `combat` as the new starter, keep frontier/depths for later.)
-4. **Reward loop scope** — implement the GDD's Practice Tokens currency + Rookie Camp gear set + vendor now,
-   or defer (the item system already covers gear; this is additive)?
-5. **Boss model variant** (`Boss1` vs `Boss2`) and dummy/shooting variants — pick, or I choose by silhouette.
+## 9. Decisions — RESOLVED (2026-06-28)
+1. **Tackle Bag Brute** — model now uploaded as **`~/Downloads/TBB.glb`**. Full 8-mob roster present.
+2. **Zone topology — SEPARATED sub-worlds** (5 chained `glitchyard_1..5` worlds with portals between them),
+   to keep GFX/asset load light. Think **MapleStory / Monster Hunter**: discrete zoned maps that lead into
+   each other via portals, NOT open world. Reuses the existing per-world Sim/bounds/leash/music/persistence.
+3. **The Glitchyard IS the new starting zone**, building on the existing zone structure but adding mob + map
+   depth → it **replaces** the current `combat`/`frontier`/`depths` chain (those become the 5 Glitchyard
+   subzones). Keep `home` (hub) + `arena` (PvP).
+4. **Reward loop (Practice Tokens + Rookie Camp set + vendor) = LAST and SKIPPABLE** — only after everything
+   else is settled; cut if needed (the item system already covers gear).
+5. **Model variants:** the `*2` GLBs (`Dummy2`, `ShootingDummy2`, and elite alts) are **alternate visual
+   skins** of the same mob type (spawn-time variety, MapleStory-recolor style — purely cosmetic, pick
+   randomly per spawn or per camp). `DSstill` = a still-pose Drill Sergeant variant. **`Boss1` = the Head
+   Coach Prototype** (the zone boss we build now). **`Boss2` = a SECRET boss — DEFER**: discoverable later by
+   completing/collecting everything in the zone → a secret map → eventually leads to Boss2 when that content
+   is developed. Keep the asset; don't wire it in v1.
 
 ---
 
