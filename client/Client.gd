@@ -1093,6 +1093,13 @@ func _build_hud() -> void:
 	_tooltip.visible = false
 	_tooltip.z_index = 4096                       # always draw on top of panels (it's a sibling under _hud)
 	_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE   # never eat clicks meant for the UI under it
+	var ttsb := StyleBoxFlat.new()                # near-opaque dark bg so item details read clearly over the scene
+	ttsb.bg_color = Color(0.05, 0.06, 0.09, 0.98)
+	ttsb.set_border_width_all(1)
+	ttsb.border_color = Color(0.38, 0.43, 0.52, 0.95)
+	ttsb.set_corner_radius_all(4)
+	ttsb.set_content_margin_all(9)
+	_tooltip.add_theme_stylebox_override("panel", ttsb)
 	_tt_label = RichTextLabel.new()
 	_tt_label.bbcode_enabled = true
 	_tt_label.fit_content = true
