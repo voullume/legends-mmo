@@ -67,8 +67,13 @@ var _chat_grace := 0          # frames after closing chat where input stays supp
 var _inv_loading := false     # an inventory GET is in flight
 var _inv_pending := false     # a refresh was requested while loading
 var _shop_panel: Control = null
-var _shop_buy_lbl: RichTextLabel = null
-var _shop_sell_lbl: RichTextLabel = null
+var _shop_buy_status: Label = null            # BUY header + credit balance
+var _shop_buy_grid: GridContainer = null      # BUY catalog tiles
+var _shop_roll_row: HBoxContainer = null      # random-roll buttons
+var _shop_sell_status: Label = null           # SELL/SALVAGE header + balance
+var _shop_sell_controls: VBoxContainer = null # mode / select-all / sort / filter rows
+var _shop_sell_grid: GridContainer = null     # SELL item tiles
+var _shop_sell_footer: HBoxContainer = null   # Sell-selected + clear
 var _shop_info := {}          # catalog + roll/sell prices (from recv_shop_info)
 var _shop_root: Node3D = null # the 3D shop pad visual
 var _shop_sig := ""
@@ -79,7 +84,9 @@ var _forge_sig := ""
 var _forge_hint: Label = null
 var _near_forge := false
 var _forge_panel: Control
-var _forge_label: RichTextLabel
+var _forge_status: Label = null               # scrap + credits + hint
+var _forge_grid: GridContainer = null         # upgrade/reforge item tiles
+var _forge_craft_grid: GridContainer = null   # craft recipe tiles
 var _sell_salvage := false    # sell panel mode: false = sell for credits, true = salvage for scrap
 var _forge_items := []        # last-loaded inventory cache for the forge panel
 var _forge_loading := false   # re-entrancy guard for the forge load (mirrors _inv_loading)
@@ -362,40 +369,6 @@ func _render_charsheet() -> void:
 			lines.append("  [color=#ffb454]✦ %s[/color] [color=#7f93a8](%s)[/color] %s" % [nm, trig, desc])
 	_sheet_label.text = "\n".join(lines)
 
-# --- comparison tooltips (P3): hover an item row → its stat block + Δ vs the equipped item you'd replace ---
-func _on_item_hover(meta) -> void:
-	var p := str(meta).split("|")
-	var key := str(p[0])
-	if key == "seltoggle" or key == "lock":                  # shop SELL rows
-		if p.size() >= 2:
-			_show_item_tooltip(_find_item(_sell_items, p[1]), _sell_items)
-		return
-	if key == "buy" and p.size() >= 3:                       # shop BUY catalog rows: buy|slot|rarity
-		_show_item_tooltip(_catalog_item(p[1], p[2]), _sell_items)
-		return
-	if (key == "upg" or key == "rfg") and p.size() >= 2:     # forge upgrade / reforge rows
-		_show_item_tooltip(_find_item(_forge_items, p[1]), _forge_items)
-		return
-	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll", "mode", "craft"]:
-		_tooltip.visible = false                             # non-item controls → no tooltip
-		return
-	_show_item_tooltip(_find_item(_inv_items, key), _inv_items)   # inventory rows: id|slot
-
-func _on_item_unhover(_meta) -> void:
-	_tooltip.visible = false
-
-func _find_item(items: Array, iid: String):
-	for it in items:
-		if str(it.get("id", "")) == iid:
-			return it
-	return null
-
-func _catalog_item(slot: String, rarity: String):
-	for e in _shop_info.get("catalog", []):
-		if str(e.get("slot", "")) == slot and str(e.get("rarity", "")) == rarity:
-			return e
-	return null
-
 func _show_item_tooltip(it, owned: Array) -> void:
 	if it == null or _tooltip == null:
 		if _tooltip != null: _tooltip.visible = false
@@ -559,6 +532,101 @@ func _item_color(it: Dictionary) -> Color:
 	if uv != null and str(uv) != "":
 		return Color.html("#ff9d3c")                  # uniques: gold
 	return Color.html(RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df"))
+
+func _item_color_hex(it: Dictionary) -> String:    # the same color as a "#rrggbb" string for bbcode
+	var uv = it.get("unique_id")
+	if uv != null and str(uv) != "":
+		return "#ff9d3c"
+	return RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
+
+# a plain message shown in place of tiles (empty list / hint)
+func _hint_tile(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	return l
+
+# rarity-bordered tile background (shared by the shop + forge grids)
+func _rarity_box(border: Color, hover: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.17, 0.20, 0.25, 0.96) if hover else Color(0.10, 0.12, 0.16, 0.92)
+	sb.set_border_width_all(2)
+	sb.border_color = border
+	sb.set_corner_radius_all(4)
+	sb.set_content_margin_all(7)
+	return sb
+
+# a reusable grid tile: rarity-bordered panel + a bbcode header (full info), optional action row (real
+# Buttons), hover→compare tooltip, and optional left/right-click callbacks on the panel body itself.
+func _grid_tile(border: Color, header_bb: String, tip_item, owned: Array, extra: Control = null, on_left = null, on_right = null) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.custom_minimum_size = Vector2(224, 0)
+	var sb := _rarity_box(border, false)
+	var sbh := _rarity_box(border, true)
+	p.add_theme_stylebox_override("panel", sb)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 4)
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE     # clicks fall through to the panel (action Buttons still capture)
+	p.add_child(vb)
+	var rtl := RichTextLabel.new()
+	rtl.bbcode_enabled = true
+	rtl.fit_content = true
+	rtl.scroll_active = false
+	rtl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rtl.custom_minimum_size = Vector2(208, 0)
+	rtl.text = header_bb
+	vb.add_child(rtl)
+	if extra != null:
+		vb.add_child(extra)
+	p.mouse_entered.connect(func() -> void:
+		p.add_theme_stylebox_override("panel", sbh)
+		if tip_item != null: _show_item_tooltip(tip_item, owned))
+	p.mouse_exited.connect(func() -> void:
+		p.add_theme_stylebox_override("panel", sb)
+		if _tooltip != null: _tooltip.visible = false)
+	if on_left is Callable or on_right is Callable:
+		var press := {"pos": Vector2.ZERO, "btn": 0}   # fire on release WITHOUT drag → a scroll-drag can't buy
+		p.gui_input.connect(func(ev) -> void:
+			if ev is InputEventMouseButton:
+				if ev.pressed:
+					press["pos"] = ev.position
+					press["btn"] = ev.button_index
+				elif ev.button_index == press["btn"] and ev.position.distance_to(press["pos"]) < 6.0:
+					if ev.button_index == MOUSE_BUTTON_LEFT and on_left is Callable and (on_left as Callable).is_valid():
+						(on_left as Callable).call()
+					elif ev.button_index == MOUSE_BUTTON_RIGHT and on_right is Callable and (on_right as Callable).is_valid():
+						(on_right as Callable).call())
+	return p
+
+# a small action Button for tiles (Forge upgrade/reforge/craft, etc.) — colored, optionally disabled
+func _tile_btn(label: String, fg: Color, enabled: bool, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = label
+	b.disabled = not enabled
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_hover_color", fg.lightened(0.2))
+	if enabled and on_press.is_valid():
+		b.pressed.connect(on_press)
+	return b
+
+# a small toggle/control button (shop sell: mode / sort / filter / per-rarity) — caller picks the color
+func _ctrl_btn(label: String, fg: Color, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = label
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_hover_color", fg.lightened(0.2))
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	return b
+
+func _ctrl_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	return l
 
 # one item tile: a rarity-bordered button. Left-click equips/unequips, hover shows the compare tooltip,
 # right-click opens the context menu. Full stats live in the tooltip (tiles stay compact).
@@ -1089,7 +1157,7 @@ func _build_shop() -> void:
 	_shop_panel.visible = false
 	_hud.add_child(_shop_panel)
 	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(680, 0)
+	pc.custom_minimum_size = Vector2(1010, 0)
 	_shop_panel.add_child(pc)
 	var m := MarginContainer.new()
 	for s in ["left", "right", "top", "bottom"]:
@@ -1103,24 +1171,54 @@ func _build_shop() -> void:
 	t.add_theme_font_size_override("font_size", 22)
 	vb.add_child(t)
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 16)
+	hb.add_theme_constant_override("separation", 20)
 	vb.add_child(hb)
-	_shop_buy_lbl = RichTextLabel.new()
-	_shop_buy_lbl.bbcode_enabled = true
-	_shop_buy_lbl.scroll_active = true
-	_shop_buy_lbl.custom_minimum_size = Vector2(330, 430)
-	_shop_buy_lbl.meta_clicked.connect(_on_shop_meta)
-	_shop_buy_lbl.meta_hover_started.connect(_on_item_hover)
-	_shop_buy_lbl.meta_hover_ended.connect(_on_item_unhover)
-	hb.add_child(_shop_buy_lbl)
-	_shop_sell_lbl = RichTextLabel.new()
-	_shop_sell_lbl.bbcode_enabled = true
-	_shop_sell_lbl.scroll_active = true
-	_shop_sell_lbl.custom_minimum_size = Vector2(330, 430)
-	_shop_sell_lbl.meta_clicked.connect(_on_shop_meta)
-	_shop_sell_lbl.meta_hover_started.connect(_on_item_hover)
-	_shop_sell_lbl.meta_hover_ended.connect(_on_item_unhover)
-	hb.add_child(_shop_sell_lbl)
+	# --- BUY column: catalog grid + random-roll buttons ---
+	var buycol := VBoxContainer.new()
+	buycol.add_theme_constant_override("separation", 6)
+	hb.add_child(buycol)
+	_shop_buy_status = Label.new()
+	_shop_buy_status.text = "BUY"
+	_shop_buy_status.add_theme_font_size_override("font_size", 16)
+	buycol.add_child(_shop_buy_status)
+	var buysc := ScrollContainer.new()
+	buysc.custom_minimum_size = Vector2(474, 384)
+	buysc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	buycol.add_child(buysc)
+	_shop_buy_grid = GridContainer.new()
+	_shop_buy_grid.columns = 2
+	_shop_buy_grid.add_theme_constant_override("h_separation", 6)
+	_shop_buy_grid.add_theme_constant_override("v_separation", 6)
+	buysc.add_child(_shop_buy_grid)
+	var rolllbl := Label.new()
+	rolllbl.text = "Random roll (random item of that tier):"
+	rolllbl.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	buycol.add_child(rolllbl)
+	_shop_roll_row = HBoxContainer.new()
+	_shop_roll_row.add_theme_constant_override("separation", 6)
+	buycol.add_child(_shop_roll_row)
+	# --- SELL column: status + control rows + item grid + footer ---
+	var sellcol := VBoxContainer.new()
+	sellcol.add_theme_constant_override("separation", 6)
+	hb.add_child(sellcol)
+	_shop_sell_status = Label.new()
+	_shop_sell_status.add_theme_font_size_override("font_size", 16)
+	sellcol.add_child(_shop_sell_status)
+	_shop_sell_controls = VBoxContainer.new()
+	_shop_sell_controls.add_theme_constant_override("separation", 3)
+	sellcol.add_child(_shop_sell_controls)
+	var sellsc := ScrollContainer.new()
+	sellsc.custom_minimum_size = Vector2(474, 300)
+	sellsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sellcol.add_child(sellsc)
+	_shop_sell_grid = GridContainer.new()
+	_shop_sell_grid.columns = 2
+	_shop_sell_grid.add_theme_constant_override("h_separation", 6)
+	_shop_sell_grid.add_theme_constant_override("v_separation", 6)
+	sellsc.add_child(_shop_sell_grid)
+	_shop_sell_footer = HBoxContainer.new()
+	_shop_sell_footer.add_theme_constant_override("separation", 10)
+	sellcol.add_child(_shop_sell_footer)
 
 func _toggle_shop() -> void:
 	if _shop_panel == null:
@@ -1175,7 +1273,7 @@ func _build_forge() -> void:
 	_forge_panel.visible = false
 	_hud.add_child(_forge_panel)
 	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(560, 0)
+	pc.custom_minimum_size = Vector2(680, 0)
 	_forge_panel.add_child(pc)
 	var m := MarginContainer.new()
 	for s in ["left", "right", "top", "bottom"]:
@@ -1188,14 +1286,28 @@ func _build_forge() -> void:
 	t.text = "Forge   (F to close)"
 	t.add_theme_font_size_override("font_size", 22)
 	vb.add_child(t)
-	_forge_label = RichTextLabel.new()
-	_forge_label.bbcode_enabled = true
-	_forge_label.scroll_active = true
-	_forge_label.custom_minimum_size = Vector2(520, 420)
-	_forge_label.meta_clicked.connect(_on_forge_meta)
-	_forge_label.meta_hover_started.connect(_on_item_hover)
-	_forge_label.meta_hover_ended.connect(_on_item_unhover)
-	vb.add_child(_forge_label)
+	_forge_status = Label.new()
+	_forge_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_forge_status.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	vb.add_child(_forge_status)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(636, 360)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	_forge_grid = GridContainer.new()
+	_forge_grid.columns = 2
+	_forge_grid.add_theme_constant_override("h_separation", 6)
+	_forge_grid.add_theme_constant_override("v_separation", 6)
+	sc.add_child(_forge_grid)
+	var ct := Label.new()
+	ct.text = "Craft   (spend scrap for a random item)"
+	ct.add_theme_color_override("font_color", Color(0.62, 0.7, 0.78))
+	vb.add_child(ct)
+	_forge_craft_grid = GridContainer.new()
+	_forge_craft_grid.columns = 2
+	_forge_craft_grid.add_theme_constant_override("h_separation", 6)
+	_forge_craft_grid.add_theme_constant_override("v_separation", 6)
+	vb.add_child(_forge_craft_grid)
 
 func _toggle_forge() -> void:
 	if _forge_panel == null:
@@ -1209,32 +1321,34 @@ func _toggle_forge() -> void:
 		_load_forge()
 
 func _load_forge() -> void:
-	if _forge_label == null or supa == null:
+	if _forge_grid == null or supa == null:
 		return
 	if _forge_loading:                           # coalesce overlapping loads → the latest result wins
 		_forge_pending = true
 		return
 	_forge_loading = true
-	_forge_label.text = "[color=#7f93a8]loading…[/color]"
+	_forge_status.text = "loading…"
 	var r = await supa.get_inventory()
 	_forge_loading = false
 	if _forge_pending:
 		_forge_pending = false
 		_load_forge()
 		return
-	if _forge_label == null:
+	if _forge_grid == null:
 		return
 	if not r.get("ok"):
-		_forge_label.text = "[color=#ff8a8a]couldn't load inventory[/color]"
+		_forge_status.text = "couldn't load inventory"
 		return
 	_forge_items = r.get("items", [])
 	_render_forge()
 
 func _render_forge() -> void:
-	if _forge_label == null:
+	if _forge_grid == null:
 		return
-	var lines := ["[color=#c9a36a]%d scrap[/color]    [color=#ffd24d]◈ %d[/color]" % [_my_scrap(), _my_credits()]]
-	lines.append("[color=#7f93a8]Upgrade raises an item's stat cap (toward the 60/stat ceiling) + its Item Power.[/color]\n")
+	if _tooltip != null: _tooltip.visible = false
+	for ch in _forge_grid.get_children(): ch.queue_free()
+	for ch in _forge_craft_grid.get_children(): ch.queue_free()
+	_forge_status.text = "%d scrap   ◈ %d        Upgrade raises an item's stat cap (toward the 60/stat ceiling) + its Item Power." % [_my_scrap(), _my_credits()]
 	var view := _forge_items.duplicate()                       # equipped first, then by item power
 	view.sort_custom(func(a, b):
 		var ae := 1 if bool(a.get("equipped", false)) else 0
@@ -1243,90 +1357,108 @@ func _render_forge() -> void:
 			return ae > be
 		return int(a.get("item_power", 0)) > int(b.get("item_power", 0)))
 	if view.is_empty():
-		lines.append("[color=#7f93a8]no gear to upgrade — find or buy some[/color]")
+		_forge_grid.add_child(_hint_tile("no gear to upgrade — find or buy some"))
 	for it in view:
 		var iid: String = str(it.get("id", ""))
 		var rar: String = str(it.get("rarity", "common"))
-		var col: String = RARITY_COLORS.get(rar, "#cfd6df")
 		var lvl: int = int(it.get("upgrade_level", 0))
 		var rc: int = int(it.get("reforge_count", 0))
 		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
 		var lvtxt: String = " [color=#c9a36a]+%d[/color]" % lvl if lvl > 0 else ""
-		var name_txt: String = _esc(str(it.get("name", "?")))
-		lines.append("[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · ✦%d)[/color]" % [
-			col, name_txt, eq, lvtxt, str(it.get("slot", "")), int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
-		# action line: Upgrade (raise cap) + Reforge (reroll affixes, uncommon+ only)
-		var up_btn: String
+		# cost line (kept verbatim from the old text UI: Upgrade →+N cost, Reforge cost)
+		var costline := ""
+		var can_up := false
 		if lvl >= MAX_UPGRADE:
-			up_btn = "[color=#9fe8a0]upgrade MAX[/color]"
+			costline = "[color=#9fe8a0]Upgrade: MAX[/color]"
 		else:
 			var cc: int = _upgrade_credit_cost(rar, lvl)
-			var sc: int = _upgrade_scrap_cost(rar, lvl)
-			var afc: String = "#9fe8a0" if (_my_credits() >= cc and _my_scrap() >= sc) else "#ff8a8a"
-			up_btn = "[url=upg|%s][bgcolor=#3a2a1a][color=#ffcf8a] Upgrade →+%d [/color][/bgcolor][/url] [color=%s]◈%d+%dsc[/color]" % [iid, lvl + 1, afc, cc, sc]
-		var rf_btn := ""
-		if int(RARITY_RANK.get(rar, 0)) >= 1:                # uncommon+ has affixes to reroll
+			var ucost: int = _upgrade_scrap_cost(rar, lvl)
+			can_up = _my_credits() >= cc and _my_scrap() >= ucost
+			costline = "[color=%s]Upgrade →+%d: ◈%d +%dsc[/color]" % ["#9fe8a0" if can_up else "#ff8a8a", lvl + 1, cc, ucost]
+		var has_rf := int(RARITY_RANK.get(rar, 0)) >= 1          # uncommon+ has affixes to reroll
+		var can_rf := false
+		if has_rf:
 			var rcc: int = _reforge_credit_cost(rar, rc)
 			var rsc: int = _reforge_scrap_cost(rar, rc)
-			var rfc: String = "#9fe8a0" if (_my_credits() >= rcc and _my_scrap() >= rsc) else "#ff8a8a"
-			rf_btn = "     [url=rfg|%s][bgcolor=#2a2640][color=#cdbcff] Reforge [/color][/bgcolor][/url] [color=%s]◈%d+%dsc[/color]" % [iid, rfc, rcc, rsc]
-		lines.append("   %s%s" % [up_btn, rf_btn])
-	# Craft section (P5): spend scrap → a random item of the recipe's rarity
-	lines.append("\n[b]Craft[/b]  [color=#7f93a8](spend scrap for a random item)[/color]")
+			can_rf = _my_credits() >= rcc and _my_scrap() >= rsc
+			costline += "    [color=%s]Reforge: ◈%d +%dsc[/color]" % ["#cdbcff" if can_rf else "#ff8a8a", rcc, rsc]
+		var header := "[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · ✦%d)[/color]\n%s" % [
+			_item_color_hex(it), _esc(str(it.get("name", "?"))), eq, lvtxt,
+			str(it.get("slot", "")), int(it.get("ilvl", 1)), int(it.get("item_power", 0)), costline]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		row.add_child(_tile_btn("Upgrade", Color.html("#ffcf8a"), lvl < MAX_UPGRADE and can_up, func() -> void:
+			if net != null and _connected: net.forge_upgrade.rpc_id(1, iid)))
+		if has_rf:
+			row.add_child(_tile_btn("Reforge", Color.html("#cdbcff"), can_rf, func() -> void:
+				if net != null and _connected: net.forge_reforge.rpc_id(1, iid)))
+		_forge_grid.add_child(_grid_tile(_item_color(it), header, it, _forge_items, row))
+	# Craft recipes (P5): spend scrap → a random item of the recipe's rarity
 	for rcp in GameData.RECIPES:
-		var sc: int = int(rcp.get("scrap", 0))
+		var scr: int = int(rcp.get("scrap", 0))
 		var rr: String = str(rcp.get("rarity", "common"))
-		var rcol: String = RARITY_COLORS.get(rr, "#cfd6df")
-		var afc: String = "#9fe8a0" if _my_scrap() >= sc else "#ff8a8a"
-		lines.append("   [url=craft|%s][bgcolor=#26323a][color=#bfe3ff] %s [/color][/bgcolor][/url] → [color=%s]%s[/color] [color=%s]%d scrap[/color]" % [
-			str(rcp.get("id", "")), _esc(str(rcp.get("name", "?"))), rcol, rr, afc, sc])
-	_forge_label.text = "\n".join(lines)
-
-func _on_forge_meta(meta) -> void:
-	if net == null or not _connected:
-		return
-	var p := str(meta).split("|")
-	if p[0] == "craft" and p.size() >= 2:
-		net.craft.rpc_id(1, p[1])
-	elif p[0] == "upg" and p.size() >= 2:
-		net.forge_upgrade.rpc_id(1, p[1])
-	elif p[0] == "rfg" and p.size() >= 2:
-		net.forge_reforge.rpc_id(1, p[1])
+		var rcol: Color = Color.html(RARITY_COLORS.get(rr, "#cfd6df"))
+		var unique := bool(rcp.get("unique", false))
+		var afford := _my_scrap() >= scr
+		var rid := str(rcp.get("id", ""))
+		var head := "[color=#bfe3ff]%s[/color]\n→ [color=%s]%s[/color]  [color=%s]%d scrap[/color]" % [
+			_esc(str(rcp.get("name", "?"))), RARITY_COLORS.get(rr, "#cfd6df"), ("unique" if unique else rr),
+			"#9fe8a0" if afford else "#ff8a8a", scr]
+		var crow := HBoxContainer.new()
+		crow.add_child(_tile_btn("Craft", Color.html("#bfe3ff"), afford, func() -> void:
+			if net != null and _connected: net.craft.rpc_id(1, rid)))
+		_forge_craft_grid.add_child(_grid_tile(rcol, head, null, [], crow))
 
 func _render_shop_buy() -> void:
-	if _shop_buy_lbl == null:
+	if _shop_buy_grid == null:
 		return
-	var lines := ["[b]BUY[/b]   [color=#ffd24d]%d credits[/color]\n" % _my_credits()]
-	lines.append("[color=#7f93a8]Catalog — click to buy:[/color]")
-	for e in _shop_info.get("catalog", []):
-		var col: String = RARITY_COLORS.get(str(e.get("rarity", "")), "#cfd6df")
-		lines.append("[url=buy|%s|%s][color=%s]%s[/color][/url] %s — [color=#ffd24d]%d[/color]" % [
-			str(e["slot"]), str(e["rarity"]), col, _esc(str(e["name"])), _item_stats_str(e), int(e["price"])])
-	lines.append("\n[color=#7f93a8]Random roll (random item of that tier):[/color]")
+	if _tooltip != null: _tooltip.visible = false
+	if _shop_buy_status != null:
+		_shop_buy_status.text = "BUY    ◈ %d" % _my_credits()
+	for ch in _shop_buy_grid.get_children(): ch.queue_free()
+	for ch in _shop_roll_row.get_children(): ch.queue_free()
+	var cat: Array = _shop_info.get("catalog", [])
+	if cat.is_empty():
+		_shop_buy_grid.add_child(_hint_tile("catalog unavailable"))
+	for e in cat:
+		var rr: String = str(e.get("rarity", ""))
+		var slot: String = str(e.get("slot", ""))
+		var price: int = int(e.get("price", 0))
+		var pcol: String = "#ffd24d" if _my_credits() >= price else "#ff8a8a"
+		var stats := _item_stats_str(e)
+		var header := "[color=%s]%s[/color] [color=#7f8a99](%s · %s)[/color]\n%s%s[color=%s]◈ %d[/color]" % [
+			RARITY_COLORS.get(rr, "#cfd6df"), _esc(str(e.get("name", ""))), rr, slot,
+			stats, ("   " if stats != "" else ""), pcol, price]
+		_shop_buy_grid.add_child(_grid_tile(Color.html(RARITY_COLORS.get(rr, "#cfd6df")), header, e, _sell_items, null,
+			func() -> void:
+				if net != null and _connected: net.shop_buy.rpc_id(1, slot, rr)))
 	var roll: Dictionary = _shop_info.get("roll", {})
 	for rar in ["common", "uncommon", "rare", "epic"]:
 		if roll.has(rar):
-			lines.append("[url=roll|%s][color=%s]Roll %s[/color][/url] — [color=#ffd24d]%d[/color]" % [rar, RARITY_COLORS.get(rar, "#cfd6df"), rar.capitalize(), int(roll[rar])])
-	_shop_buy_lbl.text = "\n".join(lines)
+			var rprice: int = int(roll[rar])
+			_shop_roll_row.add_child(_tile_btn("Roll %s  ◈%d" % [rar.capitalize(), rprice],
+				Color.html(RARITY_COLORS.get(rar, "#cfd6df")), _my_credits() >= rprice,
+				func() -> void:
+					if net != null and _connected: net.shop_roll.rpc_id(1, rar)))
 
 func _load_shop_sell() -> void:
-	if _shop_sell_lbl == null or supa == null:
+	if _shop_sell_grid == null or supa == null:
 		return
 	if _sell_loading:                            # coalesce overlapping loads → always show the latest result
 		_sell_pending = true
 		return
 	_sell_loading = true
-	_shop_sell_lbl.text = "[b]SELL[/b]\n[color=#7f93a8]loading…[/color]"
+	_shop_sell_status.text = "SELL — loading…"
 	var r = await supa.get_inventory()
 	_sell_loading = false
 	if _sell_pending:                            # a reload was requested mid-flight → run once more with fresh data
 		_sell_pending = false
 		_load_shop_sell()
 		return
-	if _shop_sell_lbl == null:
+	if _shop_sell_grid == null:
 		return
 	if not r.get("ok"):
-		_shop_sell_lbl.text = "[b]SELL[/b]\n[color=#ff8a8a]couldn't load inventory[/color]"
+		_shop_sell_status.text = "SELL — couldn't load inventory"
 		return
 	_sell_items = r.get("items", [])
 	var present := {}                             # drop any selection whose item is gone (sold elsewhere)
@@ -1336,35 +1468,48 @@ func _load_shop_sell() -> void:
 		if not present.has(id):
 			_sell_selection.erase(id)
 	_render_shop_sell()
+	if _shop_panel != null and _shop_panel.visible:
+		_render_shop_buy()                       # refresh BUY hover-compare Δ with the freshly-loaded inventory
 
 # render the SELL list from the cached _sell_items + UI state (selection / sort / filter). Cheap to call
 # on every toggle — no network. Selecting is multi-select; equipped (★) and locked items are unselectable.
 func _render_shop_sell() -> void:
-	if _shop_sell_lbl == null:
+	if _shop_sell_grid == null:
 		return
+	if _tooltip != null: _tooltip.visible = false
 	var sell: Dictionary = _shop_info.get("sell", {})
 	var items: Array = _sell_items
 	_shop_sell_cache.clear()                     # value cache the confirm dialog reads back (credits + scrap)
 	for it in items:
-		var rr: String = str(it.get("rarity", "common"))
-		_shop_sell_cache[str(it.get("id", ""))] = {"name": str(it.get("name", "?")), "rarity": rr, "price": int(sell.get(rr, 0)), "scrap": int(SALVAGE_YIELD.get(rr, 1))}
-	var modeline: String = "[color=#7f93a8]mode:[/color]  %s   %s" % [
-		("[color=#bdf5c0]● Sell ◈[/color]" if not _sell_salvage else "[url=mode][color=#7f93a8]○ Sell ◈[/color][/url]"),
-		("[color=#c9a36a]● Salvage[/color]" if _sell_salvage else "[url=mode][color=#7f93a8]○ Salvage[/color][/url]")]
-	var bal: String = ("[color=#c9a36a]%d scrap[/color]" % _my_scrap()) if _sell_salvage else ("[color=#ffd24d]%d ◈[/color]" % _my_credits())
-	var lines := ["[b]%s[/b]   %s" % ["SALVAGE" if _sell_salvage else "SELL", bal], modeline]
+		var rr0: String = str(it.get("rarity", "common"))
+		_shop_sell_cache[str(it.get("id", ""))] = {"name": str(it.get("name", "?")), "rarity": rr0, "price": int(sell.get(rr0, 0)), "scrap": int(SALVAGE_YIELD.get(rr0, 1))}
+	_shop_sell_status.text = "%s   %s" % ["SALVAGE" if _sell_salvage else "SELL", ("%d scrap" % _my_scrap()) if _sell_salvage else ("◈ %d" % _my_credits())]
+	for ch in _shop_sell_controls.get_children(): ch.queue_free()
+	for ch in _shop_sell_grid.get_children(): ch.queue_free()
+	for ch in _shop_sell_footer.get_children(): ch.queue_free()
+	var dim := Color(0.5, 0.58, 0.66)
+	# mode row: Sell (◈ credits) ↔ Salvage (scrap)
+	var moderow := HBoxContainer.new()
+	moderow.add_theme_constant_override("separation", 8)
+	moderow.add_child(_ctrl_label("mode:"))
+	moderow.add_child(_ctrl_btn(("● Sell ◈" if not _sell_salvage else "○ Sell ◈"), (Color.html("#bdf5c0") if not _sell_salvage else dim), func() -> void:
+		_sell_salvage = false
+		_render_shop_sell()))
+	moderow.add_child(_ctrl_btn(("● Salvage" if _sell_salvage else "○ Salvage"), (Color.html("#c9a36a") if _sell_salvage else dim), func() -> void:
+		_sell_salvage = true
+		_render_shop_sell()))
+	_shop_sell_controls.add_child(moderow)
 	if items.is_empty():
-		lines.append("[color=#7f93a8]nothing here — go earn some loot[/color]")
-		_shop_sell_lbl.text = "\n".join(lines)
+		_shop_sell_grid.add_child(_hint_tile("nothing here — go earn some loot"))
 		return
-	# tally sellable (unlocked, unequipped) items per rarity, and find the highest owned tier (protected)
+	# tally sellable (unlocked, unequipped) per rarity + find the protected top tier (counts ALL owned)
 	var sellable_by_rar := {}
 	var top_rank := -1
 	var top_rar := ""
 	for it in items:
 		var rar: String = str(it.get("rarity", "common"))
 		var rank: int = int(RARITY_RANK.get(rar, 0))
-		if rank > top_rank:                      # top tier counts ALL owned items, even locked/equipped
+		if rank > top_rank:
 			top_rank = rank
 			top_rar = rar
 		if bool(it.get("equipped", false)) or bool(it.get("locked", false)):
@@ -1372,8 +1517,9 @@ func _render_shop_sell() -> void:
 		if not sellable_by_rar.has(rar):
 			sellable_by_rar[rar] = []
 		(sellable_by_rar[rar] as Array).append(str(it.get("id", "")))
-	# per-rarity select-all checkboxes (top tier flagged 🛡 protected → must be opted into explicitly)
-	var rar_chunks := []
+	# per-rarity select-all (top tier flagged 🛡 protected → opt in explicitly)
+	var selrow := HFlowContainer.new()
+	selrow.add_child(_ctrl_label("select:"))
 	for rar in RARITY_ORDER:
 		if not sellable_by_rar.has(rar):
 			continue
@@ -1383,31 +1529,34 @@ func _render_shop_sell() -> void:
 			if not _sell_selection.has(id):
 				all_sel = false
 				break
-		var box: String = "✓" if all_sel else "○"
-		var col: String = RARITY_COLORS.get(rar, "#cfd6df")
-		var protect: String = " [color=#ffb454]🛡[/color]" if rar == top_rar else ""
-		rar_chunks.append("[url=rar|%s][color=%s]%s %s[/color][/url]%s" % [rar, col, box, rar.capitalize(), protect])
-	if not rar_chunks.is_empty():
-		lines.append("[color=#7f93a8]select:[/color] " + "   ".join(rar_chunks))
-		lines.append("[color=#6b7886]🛡 your top tier — protected; click to opt in[/color]")
-	# sort + slot-filter header (client-side only)
-	var sort_chunks := []
+		var rar_l: String = rar
+		var prot: String = " 🛡" if rar == top_rar else ""
+		selrow.add_child(_ctrl_btn("%s %s%s" % [("✓" if all_sel else "○"), rar.capitalize(), prot], Color.html(RARITY_COLORS.get(rar, "#cfd6df")), func() -> void:
+			_toggle_sell_rarity(rar_l)))
+	_shop_sell_controls.add_child(selrow)
+	if top_rar != "":
+		_shop_sell_controls.add_child(_ctrl_label("🛡 your top tier — protected; click to opt in"))
+	# sort row (client-side)
+	var sortrow := HBoxContainer.new()
+	sortrow.add_theme_constant_override("separation", 8)
+	sortrow.add_child(_ctrl_label("sort:"))
 	for key in ["rarity", "slot", "power"]:
-		if _sell_sort == key:
-			sort_chunks.append("[color=#ffd24d]%s[/color]" % key.capitalize())
-		else:
-			sort_chunks.append("[url=sort|%s][color=#7f93a8]%s[/color][/url]" % [key, key.capitalize()])
-	lines.append("[color=#7f93a8]sort:[/color] " + "   ".join(sort_chunks))
-	var slot_chunks := []
+		var k_l: String = key
+		sortrow.add_child(_ctrl_btn(key.capitalize(), (Color.html("#ffd24d") if _sell_sort == key else dim), func() -> void:
+			_sell_sort = k_l
+			_render_shop_sell()))
+	_shop_sell_controls.add_child(sortrow)
+	# slot-filter row (client-side)
+	var slotrow := HFlowContainer.new()
+	slotrow.add_child(_ctrl_label("slot:"))
 	for sl in ["", "head", "chest", "legs", "hands", "feet", "main_hand", "off_hand", "neck", "ring", "trinket"]:
+		var sl_l: String = sl
 		var lbl2: String = "All" if sl == "" else sl.capitalize()
-		if _sell_filter_slot == sl:
-			slot_chunks.append("[color=#ffd24d]%s[/color]" % lbl2)
-		else:
-			slot_chunks.append("[url=fslot|%s][color=#7f93a8]%s[/color][/url]" % [sl, lbl2])
-	lines.append("[color=#7f93a8]slot:[/color] " + "   ".join(slot_chunks))
-	lines.append("")
-	# the item rows (filtered + sorted)
+		slotrow.add_child(_ctrl_btn(lbl2, (Color.html("#ffd24d") if _sell_filter_slot == sl else dim), func() -> void:
+			_sell_filter_slot = sl_l
+			_render_shop_sell()))
+	_shop_sell_controls.add_child(slotrow)
+	# item tiles (filtered + sorted). Left-click selects (no-op if equipped/locked), right-click toggles lock.
 	var view := []
 	for it in items:
 		if _sell_filter_slot != "" and str(it.get("slot", "")) != _sell_filter_slot:
@@ -1417,32 +1566,30 @@ func _render_shop_sell() -> void:
 	for it in view:
 		var iid: String = str(it.get("id", ""))
 		var rar2: String = str(it.get("rarity", "common"))
-		var col2: String = RARITY_COLORS.get(rar2, "#cfd6df")
-		var price: int = int(sell.get(rar2, 0))
 		var equipped: bool = bool(it.get("equipped", false))
 		var locked: bool = bool(it.get("locked", false))
-		var name_txt: String = _esc(str(it.get("name", "?")))
-		var stats := _item_stats_str(it)
-		var mark := ""
-		var name_part := ""
-		if equipped:                              # equipped → never selectable here (unequip to sell)
-			mark = "[color=#ffd24d]★[/color]"
-			name_part = "[color=%s]%s[/color] [color=#7f93a8](equipped)[/color]" % [col2, name_txt]
-		elif locked:                              # locked → protected, not selectable
-			mark = "[color=#5a6472]·[/color]"
-			name_part = "[color=%s]%s[/color]" % [col2, name_txt]
-		else:
-			var glyph: String = "[color=#9fe8a0]✓[/color]" if _sell_selection.has(iid) else "[color=#5a6472]○[/color]"
-			mark = "[url=seltoggle|%s]%s[/url]" % [iid, glyph]
-			name_part = "[url=seltoggle|%s][color=%s]%s[/color][/url]" % [iid, col2, name_txt]
-		var lock_glyph: String = "[color=#ffb454]🔒[/color]" if locked else "[color=#5a6472]🔓[/color]"
+		var selected: bool = _sell_selection.has(iid)
+		var price: int = int(sell.get(rar2, 0))
 		var val: int = int(SALVAGE_YIELD.get(rar2, 1)) if _sell_salvage else price
-		var valtxt: String = "[color=#c9a36a]%d scrap[/color]" % val if _sell_salvage else "[color=#ffd24d]%d[/color]" % val
-		lines.append("%s [url=lock|%s]%s[/url] %s [color=#7f8a99](%s · ✦%d)[/color]%s — %s" % [
-			mark, iid, lock_glyph, name_part, str(it.get("slot", "")), int(it.get("item_power", 0)),
-			(" " + stats if stats != "" else ""), valtxt])
-	# footer: selected count + total → one confirm → one shop_sell_many. Only the first SELL_BATCH_MAX go in
-	# one batch, so the count + total shown reflect exactly what will be sold (no over-quoting beyond the cap).
+		var valtxt: String = ("[color=#c9a36a]%d scrap[/color]" % val) if _sell_salvage else ("[color=#ffd24d]◈%d[/color]" % val)
+		var marks: String = ""
+		if equipped: marks += "[color=#ffd24d]★[/color] "
+		marks += ("[color=#ffb454]🔒[/color] " if locked else "[color=#5a6472]🔓[/color] ")   # lock state, always shown
+		if selected: marks += "[color=#9fe8a0]✓[/color] "
+		var status: String = ""
+		if equipped: status = " [color=#7f93a8](equipped)[/color]"
+		elif locked: status = " [color=#7f93a8](locked · right-click to unlock)[/color]"
+		var stats := _item_stats_str(it)
+		var header := "%s[color=%s]%s[/color]%s\n[color=#7f8a99](%s · ✦%d)[/color]%s — %s" % [
+			marks, _item_color_hex(it), _esc(str(it.get("name", "?"))), status,
+			str(it.get("slot", "")), int(it.get("item_power", 0)), ("  " + stats if stats != "" else ""), valtxt]
+		var border: Color = Color.html("#9fe8a0") if selected else _item_color(it)
+		var iid_l: String = iid
+		_shop_sell_grid.add_child(_grid_tile(border, header, it, _sell_items, null,
+			func() -> void: _toggle_sell_select(iid_l),
+			func() -> void: _toggle_item_lock(iid_l)))
+	# footer: selected count + total → confirm → shop_sell_many / salvage_many (first SELL_BATCH_MAX only, so
+	# the quoted count + total match exactly what will be sold).
 	var keys: Array = _sell_selection.keys()
 	var n: int = keys.size()
 	var sell_n: int = min(n, SELL_BATCH_MAX)
@@ -1451,17 +1598,17 @@ func _render_shop_sell() -> void:
 		var info = _shop_sell_cache.get(keys[i])
 		if info != null:
 			total += int(info["scrap"] if _sell_salvage else info["price"])
-	lines.append("")
 	if n > 0:
 		var verb: String = "Salvage" if _sell_salvage else "Sell"
 		var unit: String = ("%d scrap" % total) if _sell_salvage else ("◈%d" % total)
-		var btn: String = "%s Selected (%d) — %s" % [verb, sell_n, unit] if n <= SELL_BATCH_MAX else "%s Selected (%d of %d) — %s" % [verb, sell_n, n, unit]
-		var bg: String = "#3a2a1a" if _sell_salvage else "#26432a"
-		var fg: String = "#ffcf8a" if _sell_salvage else "#bdf5c0"
-		lines.append("[url=sellsel][bgcolor=%s][color=%s] %s [/color][/bgcolor][/url]    [url=selclear][color=#7f93a8]clear[/color][/url]" % [bg, fg, btn])
+		var btxt: String = ("%s Selected (%d) — %s" % [verb, sell_n, unit]) if n <= SELL_BATCH_MAX else ("%s Selected (%d of %d) — %s" % [verb, sell_n, n, unit])
+		_shop_sell_footer.add_child(_ctrl_btn(btxt, (Color.html("#ffcf8a") if _sell_salvage else Color.html("#bdf5c0")), func() -> void:
+			_confirm_sell_selected()))
+		_shop_sell_footer.add_child(_ctrl_btn("clear", dim, func() -> void:
+			_sell_selection.clear()
+			_render_shop_sell()))
 	else:
-		lines.append("[color=#7f93a8]click ○ / a rarity to select, 🔓 to lock-protect[/color]")
-	_shop_sell_lbl.text = "\n".join(lines)
+		_shop_sell_footer.add_child(_ctrl_label("click an item to select · right-click to lock-protect · pick a rarity to select all"))
 
 func _sell_sort_cmp(a, b) -> bool:
 	match _sell_sort:
@@ -1479,42 +1626,6 @@ func _sell_sort_cmp(a, b) -> bool:
 			if ra != rb:
 				return ra > rb                   # highest rarity first
 			return str(a.get("name", "")) < str(b.get("name", ""))
-
-func _on_shop_meta(meta) -> void:
-	if net == null or not _connected:
-		return
-	var p := str(meta).split("|")
-	match p[0]:
-		"buy":
-			if p.size() >= 3:
-				net.shop_buy.rpc_id(1, p[1], p[2])
-		"roll":
-			if p.size() >= 2:
-				net.shop_roll.rpc_id(1, p[1])
-		"seltoggle":
-			if p.size() >= 2:
-				_toggle_sell_select(p[1])
-		"rar":
-			if p.size() >= 2:
-				_toggle_sell_rarity(p[1])
-		"sort":
-			if p.size() >= 2:
-				_sell_sort = p[1]
-				_render_shop_sell()
-		"fslot":
-			_sell_filter_slot = (p[1] if p.size() >= 2 else "")
-			_render_shop_sell()
-		"mode":
-			_sell_salvage = not _sell_salvage        # toggle Sell ◈ ↔ Salvage scrap (keeps the selection)
-			_render_shop_sell()
-		"lock":
-			if p.size() >= 2:
-				_toggle_item_lock(p[1])
-		"sellsel":
-			_confirm_sell_selected()
-		"selclear":
-			_sell_selection.clear()
-			_render_shop_sell()
 
 # toggle one item's membership in the sell selection (equipped/locked items can't be selected)
 func _toggle_sell_select(item_id: String) -> void:
