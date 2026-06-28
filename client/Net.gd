@@ -126,6 +126,17 @@ func inv_set_locked(item_id: String, locked: bool) -> void:
 	if server != null:
 		server.inv_set_locked(multiplayer.get_remote_sender_id(), item_id, locked)
 
+# Phase 4: bulk salvage gear → scrap; upgrade one item a level (server re-validates location/cost/ownership)
+@rpc("any_peer", "call_remote", "reliable")
+func salvage_many(item_ids: Array) -> void:
+	if server != null:
+		server.salvage_many(multiplayer.get_remote_sender_id(), item_ids)
+
+@rpc("any_peer", "call_remote", "reliable")
+func forge_upgrade(item_id: String) -> void:
+	if server != null:
+		server.forge_upgrade(multiplayer.get_remote_sender_id(), item_id)
+
 @rpc("authority", "call_remote", "reliable")
 func recv_shop_info(info: Dictionary) -> void:
 	if client != null:

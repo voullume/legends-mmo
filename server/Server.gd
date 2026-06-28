@@ -98,6 +98,11 @@ const ABS_CAP := 100
 # stat so full gear stays balance-neutral (harness: +60/stat → spread 13 ≤ the no-gear baseline). Every
 # power source (primary, affixes, and later upgrades/gems/sets) funnels through this aggregate ceiling.
 const EQUIP_STAT_CAP := 60
+# --- Phase 4 progression sinks (single generic material "scrap") ---
+const SALVAGE_YIELD := {"common": 1, "uncommon": 2, "rare": 5, "epic": 12, "legendary": 30, "mythic": 75}
+const MAX_UPGRADE := 10                       # also CHECKed in the DB (0..10)
+const UPGRADE_STEP := 2                       # each upgrade level raises an item's PER-ITEM cap by this
+                                              # (bounded by ABS_CAP per item AND EQUIP_STAT_CAP in aggregate)
 
 var net: Node = null
 var supa: Node = null
@@ -213,9 +218,10 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	if not bool(_sellmany_busy.get(pid, false)): # a bulk-sell in flight credits per-row across awaits and owns
-		_save_one(s, _find(s["fid"]))            # its OWN terminal save; saving here too would race that credit
-		                                         # PATCH (stale absolute write could clobber the payout). Skip it.
+	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)):
+		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade credits across awaits and owns
+		                                         # its OWN terminal save; saving here too would race that credit
+		                                         # write (a stale absolute write could clobber it). Skip it.
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
 	_remove_fighter(s["fid"])
 	_peers.erase(pid)
@@ -234,6 +240,10 @@ func _on_peer_disconnected(pid: int) -> void:
 	_sellmany_next.erase(pid)
 	_lock_busy.erase(pid)
 	_lock_next.erase(pid)
+	_salvage_busy.erase(pid)
+	_salvage_next.erase(pid)
+	_forge_busy.erase(pid)
+	_forge_next.erase(pid)
 	_quest_busy.erase(pid)
 	_quest_next.erase(pid)
 	print("[zone] peer %d left" % pid)
@@ -258,13 +268,16 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
 		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": int(ch.get("credits", 0)),
-		"quests": {}}
+		"scrap": 0, "quests": {}}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
 	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE})
+	var mr = await supa.get_mats_as(access)           # load the player's salvage materials into the session
+	if _session.has(pid):
+		_session[pid]["scrap"] = int(mr.get("scrap", 0))
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	await _load_quests(pid)                           # load + push the player's quest progress
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
@@ -609,6 +622,34 @@ func _setlocked_lock(pid: int) -> bool:
 	_lock_next[pid] = now + 300
 	return true
 
+# Phase 4 sinks each own their gate too (salvage = bulk gear→scrap; forge = single upgrade).
+var _salvage_busy := {}                           # pid -> a salvage batch is in flight
+var _salvage_next := {}
+var _forge_busy := {}                             # pid -> an upgrade is in flight
+var _forge_next := {}
+
+func _salvage_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_salvage_busy.get(pid, false)) or now < int(_salvage_next.get(pid, 0)):
+		return false
+	_salvage_busy[pid] = true
+	_salvage_next[pid] = now + 300
+	return true
+
+func _forge_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_forge_busy.get(pid, false)) or now < int(_forge_next.get(pid, 0)):
+		return false
+	_forge_busy[pid] = true
+	_forge_next[pid] = now + 300
+	return true
+
+func _rarity_mult(rarity: String) -> int:
+	for r in RARITIES:
+		if r["name"] == rarity:
+			return int(r["mult"])
+	return 1
+
 func shop_buy(pid: int, slot: String, rarity: String) -> void:
 	if not _shop_lock(pid):
 		return
@@ -713,6 +754,100 @@ func _do_set_locked(pid: int, item_id: String, val: bool) -> void:
 		print("[zone] lock write failed for %s — is SUPABASE_SERVICE_KEY set?" % s["name"])
 		return
 	if net != null:
+		net.recv_inventory_changed.rpc_id(pid)
+
+# Phase 4 salvage: the bulk-sell worker, but pays SCRAP not credits. ONE locked, serialized loop of atomic
+# per-row deletes (equipped/locked excluded by sell_item_safe_as), then ONE atomic mats_add. Dupe-safe.
+func salvage_many(pid: int, item_ids: Array) -> void:
+	if not _salvage_lock(pid):
+		return
+	await _do_salvage_many(pid, item_ids)
+	_salvage_busy.erase(pid)
+
+func _do_salvage_many(pid: int, item_ids: Array) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return                                                # the forge lives in the home base
+	if typeof(item_ids) != TYPE_ARRAY or item_ids.size() > 200:
+		return
+	var s = _session[pid]
+	var seen := {}
+	var ids := []
+	for raw in item_ids:
+		var id := str(raw)
+		if _is_uuid(id) and not seen.has(id):
+			seen[id] = true
+			ids.append(id)
+			if ids.size() >= 50:
+				break
+	if ids.is_empty():
+		return
+	for id in ids:
+		var r = await supa.sell_item_safe_as(s["char_id"], id)   # same atomic delete → no double-yield
+		if r.get("ok"):
+			# credit THIS item's scrap immediately (atomic), so a transient credit failure can lose at most
+			# ONE item's yield — never the whole batch — and it lands in the DB even if the peer has left.
+			var mr = await supa.mats_add_as(s["char_id"], int(SALVAGE_YIELD.get(str(r["rarity"]), 1)))
+			if mr.get("ok") and _session.has(pid):
+				s["scrap"] = int(mr["total"])
+		if not _session.has(pid):                             # peer left mid-loop: stop removing more items
+			break
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
+# Phase 4 upgrade: +1 upgrade level on an item (raises its per-item cap; aggregate still bounded by
+# EQUIP_STAT_CAP). Cost = credits + scrap, escalating by level × rarity. Deduct-before-write, refund on
+# failure; atomic PATCH gated on the old upgrade_level so a duplicate/concurrent call can't double-apply.
+func forge_upgrade(pid: int, item_id: String) -> void:
+	if not _forge_lock(pid):
+		return
+	await _do_forge_upgrade(pid, item_id)
+	_forge_busy.erase(pid)
+
+func _do_forge_upgrade(pid: int, item_id: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not _is_uuid(item_id):
+		return
+	var s = _session[pid]
+	var inv = await supa.get_inventory_as(s["access"])
+	if not _session.has(pid):                                # peer left during the read (nothing spent yet);
+		_save_one(s, _find(s["fid"]))                        # the disconnect handler deferred its save to us
+		return
+	if not inv.get("ok"):
+		return
+	var item = null
+	for it in inv["items"]:
+		if str(it["id"]) == item_id:
+			item = it
+			break
+	if item == null:
+		return
+	var rarity := str(item.get("rarity", "common"))
+	var lvl := int(item.get("upgrade_level", 0))
+	if lvl >= MAX_UPGRADE:
+		return
+	var credit_cost := _rarity_mult(rarity) * 25 * (lvl + 1)
+	var scrap_cost := _rarity_mult(rarity) * (lvl + 1)
+	if int(s["credits"]) < credit_cost:
+		return
+	var mr = await supa.mats_add_as(s["char_id"], -scrap_cost)   # spend scrap atomically (ok=false → insufficient)
+	if not mr.get("ok"):
+		return                                                  # nothing was spent → safe to bail
+	# Do NOT bail here if the peer left: scrap is already committed to the DB, so we must run the
+	# upgrade-or-refund flow below (it uses the captured char_id + session dict, not a live connection).
+	s["scrap"] = int(mr["total"])
+	s["credits"] = int(s["credits"]) - credit_cost              # deduct credits before the write
+	var new_ip := int(item.get("item_power", 0)) + UPGRADE_STEP
+	var r = await supa.inv_upgrade_as(s["char_id"], item_id, lvl, lvl + 1, new_ip)
+	if not r.get("ok"):                                         # write lost the race / item gone → refund both
+		s["credits"] = int(s["credits"]) + credit_cost
+		var rb = await supa.mats_add_as(s["char_id"], scrap_cost)
+		if rb.get("ok"):
+			s["scrap"] = int(rb["total"])
+		_save_one(s, _find(s["fid"]))                          # persist the refund (even if the peer left)
+		return
+	_save_one(s, _find(s["fid"]))                              # success: persist the spend (paid even if peer left)
+	if _session.has(pid):
+		await _apply_equipment(pid)                            # the item may be equipped → raised cap applies
+	if net != null and _session.has(pid):
 		net.recv_inventory_changed.rpc_id(pid)
 
 # ---- intents ----
@@ -1117,6 +1252,7 @@ func _apply_equipment(pid: int) -> void:
 		ip_total += int(it.get("item_power", 0))
 		used[slot] = n + 1
 		var rcap := int(RARITY_CAP.get(str(it.get("rarity", "common")), 4))
+		rcap = min(rcap + int(it.get("upgrade_level", 0)) * UPGRADE_STEP, ABS_CAP)   # P4: upgrades raise this item's cap
 		# primary stat (fall back to the legacy bonus_* for pre-P2 / quest-reward items). Coerce JSON null
 		# to "" — a nullable column comes back as null, and str(null) is "<null>", which would defeat the fallback.
 		var psv = it.get("primary_stat")
@@ -1528,13 +1664,14 @@ func _broadcast() -> void:
 			continue
 		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
 		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
-		if str(s["map"]) == World.HOME:           # the shop pad + quest giver only exist in the home base
+		if str(s["map"]) == World.HOME:           # the shop / forge pads + quest giver only exist in the home base
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
+			snap["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}
 			snap["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
 		# self stat block for the character sheet (P3) — only the recipient's own APPLIED (capped, post-
 		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
 		snap["self"] = {
-			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)),
+			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
 			"ms": float(f["ms"]), "cdr": float(f["cdr"]), "clutchDmg": float(f["clutchDmg"]), "clutchDR": float(f["clutchDR"]),
 			"equip_bonus": (s.get("equip_bonus", {}) as Dictionary).duplicate(),

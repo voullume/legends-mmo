@@ -36,6 +36,8 @@ const DUMMY_CLASS := "linebacker"            # a tanky punching bag
 const PORTAL_RADIUS := 42.0                  # stepping this close to a pad teleports you
 const SHOP_POS := Vector2(700, 150)          # the shop pad (home base only) — stand near it to open the shop
 const SHOP_RADIUS := 80.0
+const FORGE_POS := Vector2(480, 150)         # the forge pad (home base only) — upgrade/salvage gear here
+const FORGE_RADIUS := 80.0
 const QUESTGIVER_POS := Vector2(250, 150)    # the quest giver (home base only) — stand near it to accept/turn in quests
 const QUESTGIVER_RADIUS := 80.0
 

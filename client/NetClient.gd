@@ -15,6 +15,10 @@ const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legenda
 const SELL_BATCH_MAX := 50                                                   # one bulk sell ≤ this (server caps too)
 const STAT_KEYS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]                 # 6 stats, stable display order
 const STAT_NAMES := {"PWR": "Power", "PRE": "Precision", "SPD": "Speed", "END": "Endurance", "INS": "Insight", "CLU": "Clutch"}
+# P4 forge — these MUST mirror the server (Server.gd RARITIES mult, SALVAGE_YIELD, upgrade cost formula, MAX_UPGRADE)
+const RARITY_MULT := {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 14, "mythic": 20}
+const SALVAGE_YIELD := {"common": 1, "uncommon": 2, "rare": 5, "epic": 12, "legendary": 30, "mythic": 75}
+const MAX_UPGRADE := 10
 const Quests := preload("res://shared/Quests.gd")
 
 var net: Node = null         # RPC bridge
@@ -62,6 +66,16 @@ var _shop_root: Node3D = null # the 3D shop pad visual
 var _shop_sig := ""
 var _shop_hint: Label = null  # "Press B to shop" proximity prompt
 var _near_shop := false
+var _forge_root: Node3D = null   # the 3D forge pad visual (P4)
+var _forge_sig := ""
+var _forge_hint: Label = null
+var _near_forge := false
+var _forge_panel: Control
+var _forge_label: RichTextLabel
+var _sell_salvage := false    # sell panel mode: false = sell for credits, true = salvage for scrap
+var _forge_items := []        # last-loaded inventory cache for the forge panel
+var _forge_loading := false   # re-entrancy guard for the forge load (mirrors _inv_loading)
+var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
 var _sell_items := []         # last-loaded inventory (Array[Dictionary]) — re-render toggles without re-fetch
@@ -94,6 +108,7 @@ func _enter_mode() -> void:
 	_build_chat()
 	_build_inventory()
 	_build_charsheet()
+	_build_forge()
 	_build_shop()
 	_build_questlog()
 	_build_qgiver_dialog()
@@ -295,7 +310,10 @@ func _on_item_hover(meta) -> void:
 	if key == "buy" and p.size() >= 3:                       # shop BUY catalog rows: buy|slot|rarity
 		_show_item_tooltip(_catalog_item(p[1], p[2]), _sell_items)
 		return
-	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll"]:
+	if key == "upg" and p.size() >= 2:                       # forge upgrade rows
+		_show_item_tooltip(_find_item(_forge_items, p[1]), _forge_items)
+		return
+	if key in ["rar", "sort", "fslot", "sellsel", "selclear", "roll", "mode"]:
 		_tooltip.visible = false                             # non-item controls → no tooltip
 		return
 	_show_item_tooltip(_find_item(_inv_items, key), _inv_items)   # inventory rows: id|slot
@@ -462,6 +480,8 @@ func recv_inventory_changed() -> void:
 	if _shop_panel != null and _shop_panel.visible:   # a buy/sell/roll/lock changed our items + credits
 		_render_shop_buy()
 		_load_shop_sell()
+	if _forge_panel != null and _forge_panel.visible: # an upgrade/salvage changed items, level, scrap
+		_load_forge()
 
 # ---- quests (server-authoritative; the log + tracker render from server-pushed state) ----
 # server pushes the full quest state once on join (recv_quest_state) and an update per change.
@@ -909,6 +929,7 @@ func _toggle_shop() -> void:
 	_shop_panel.visible = not _shop_panel.visible
 	if _shop_panel.visible:
 		_sell_selection.clear()             # fresh selection each time the shop opens
+		_sell_salvage = false               # default to Sell mode on open
 		_render_shop_buy()
 		_load_shop_sell()
 	else:
@@ -917,6 +938,119 @@ func _toggle_shop() -> void:
 func _my_credits() -> int:
 	var pf = _find_fighter(_player_id)
 	return int(pf.get("credits", 0)) if pf != null else 0
+
+func _my_scrap() -> int:
+	return int(_state.get("self", {}).get("scrap", 0))
+
+func _upgrade_credit_cost(rarity: String, lvl: int) -> int:   # MUST match Server.gd
+	return int(RARITY_MULT.get(rarity, 1)) * 25 * (lvl + 1)
+
+func _upgrade_scrap_cost(rarity: String, lvl: int) -> int:    # MUST match Server.gd
+	return int(RARITY_MULT.get(rarity, 1)) * (lvl + 1)
+
+# --- Forge panel (F at the forge pad): spend credits + scrap to upgrade gear (P4) ---
+func _build_forge() -> void:
+	_forge_panel = CenterContainer.new()
+	_forge_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_forge_panel.visible = false
+	_hud.add_child(_forge_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(560, 0)
+	_forge_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "Forge   (F to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_forge_label = RichTextLabel.new()
+	_forge_label.bbcode_enabled = true
+	_forge_label.scroll_active = true
+	_forge_label.custom_minimum_size = Vector2(520, 420)
+	_forge_label.meta_clicked.connect(_on_forge_meta)
+	_forge_label.meta_hover_started.connect(_on_item_hover)
+	_forge_label.meta_hover_ended.connect(_on_item_unhover)
+	vb.add_child(_forge_label)
+
+func _toggle_forge() -> void:
+	if _forge_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_forge_panel.visible = not _forge_panel.visible
+	if _forge_panel.visible:
+		if _inv_panel != null: _inv_panel.visible = false      # one full-screen modal at a time
+		if _sheet_panel != null: _sheet_panel.visible = false
+		if _quest_panel != null: _quest_panel.visible = false
+		_load_forge()
+
+func _load_forge() -> void:
+	if _forge_label == null or supa == null:
+		return
+	if _forge_loading:                           # coalesce overlapping loads → the latest result wins
+		_forge_pending = true
+		return
+	_forge_loading = true
+	_forge_label.text = "[color=#7f93a8]loading…[/color]"
+	var r = await supa.get_inventory()
+	_forge_loading = false
+	if _forge_pending:
+		_forge_pending = false
+		_load_forge()
+		return
+	if _forge_label == null:
+		return
+	if not r.get("ok"):
+		_forge_label.text = "[color=#ff8a8a]couldn't load inventory[/color]"
+		return
+	_forge_items = r.get("items", [])
+	_render_forge()
+
+func _render_forge() -> void:
+	if _forge_label == null:
+		return
+	var lines := ["[color=#c9a36a]%d scrap[/color]    [color=#ffd24d]◈ %d[/color]" % [_my_scrap(), _my_credits()]]
+	lines.append("[color=#7f93a8]Upgrade raises an item's stat cap (toward the 60/stat ceiling) + its Item Power.[/color]\n")
+	var view := _forge_items.duplicate()                       # equipped first, then by item power
+	view.sort_custom(func(a, b):
+		var ae := 1 if bool(a.get("equipped", false)) else 0
+		var be := 1 if bool(b.get("equipped", false)) else 0
+		if ae != be:
+			return ae > be
+		return int(a.get("item_power", 0)) > int(b.get("item_power", 0)))
+	if view.is_empty():
+		lines.append("[color=#7f93a8]no gear to upgrade — find or buy some[/color]")
+	for it in view:
+		var iid: String = str(it.get("id", ""))
+		var rar: String = str(it.get("rarity", "common"))
+		var col: String = RARITY_COLORS.get(rar, "#cfd6df")
+		var lvl: int = int(it.get("upgrade_level", 0))
+		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
+		var lvtxt: String = " [color=#c9a36a]+%d[/color]" % lvl if lvl > 0 else ""
+		var name_txt: String = _esc(str(it.get("name", "?")))
+		var head: String = "[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · ✦%d)[/color]" % [
+			col, name_txt, eq, lvtxt, str(it.get("slot", "")), int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
+		if lvl >= MAX_UPGRADE:
+			lines.append("%s  [color=#9fe8a0]MAX[/color]" % head)
+		else:
+			var cc: int = _upgrade_credit_cost(rar, lvl)
+			var sc: int = _upgrade_scrap_cost(rar, lvl)
+			var afford: bool = _my_credits() >= cc and _my_scrap() >= sc
+			var costcol: String = "#9fe8a0" if afford else "#ff8a8a"
+			lines.append("[url=upg|%s][bgcolor=#3a2a1a][color=#ffcf8a] Upgrade →+%d [/color][/bgcolor][/url] %s — [color=%s]◈%d + %d scrap[/color]" % [
+				iid, lvl + 1, head, costcol, cc, sc])
+	_forge_label.text = "\n".join(lines)
+
+func _on_forge_meta(meta) -> void:
+	if net == null or not _connected:
+		return
+	var p := str(meta).split("|")
+	if p[0] == "upg" and p.size() >= 2:
+		net.forge_upgrade.rpc_id(1, p[1])
 
 func _render_shop_buy() -> void:
 	if _shop_buy_lbl == null:
@@ -969,13 +1103,17 @@ func _render_shop_sell() -> void:
 		return
 	var sell: Dictionary = _shop_info.get("sell", {})
 	var items: Array = _sell_items
-	_shop_sell_cache.clear()                     # price cache the confirm dialog reads back
+	_shop_sell_cache.clear()                     # value cache the confirm dialog reads back (credits + scrap)
 	for it in items:
 		var rr: String = str(it.get("rarity", "common"))
-		_shop_sell_cache[str(it.get("id", ""))] = {"name": str(it.get("name", "?")), "rarity": rr, "price": int(sell.get(rr, 0))}
-	var lines := ["[b]SELL[/b]   [color=#ffd24d]%d ◈[/color]" % _my_credits()]
+		_shop_sell_cache[str(it.get("id", ""))] = {"name": str(it.get("name", "?")), "rarity": rr, "price": int(sell.get(rr, 0)), "scrap": int(SALVAGE_YIELD.get(rr, 1))}
+	var modeline: String = "[color=#7f93a8]mode:[/color]  %s   %s" % [
+		("[color=#bdf5c0]● Sell ◈[/color]" if not _sell_salvage else "[url=mode][color=#7f93a8]○ Sell ◈[/color][/url]"),
+		("[color=#c9a36a]● Salvage[/color]" if _sell_salvage else "[url=mode][color=#7f93a8]○ Salvage[/color][/url]")]
+	var bal: String = ("[color=#c9a36a]%d scrap[/color]" % _my_scrap()) if _sell_salvage else ("[color=#ffd24d]%d ◈[/color]" % _my_credits())
+	var lines := ["[b]%s[/b]   %s" % ["SALVAGE" if _sell_salvage else "SELL", bal], modeline]
 	if items.is_empty():
-		lines.append("[color=#7f93a8]nothing to sell — go earn some loot[/color]")
+		lines.append("[color=#7f93a8]nothing here — go earn some loot[/color]")
 		_shop_sell_lbl.text = "\n".join(lines)
 		return
 	# tally sellable (unlocked, unequipped) items per rarity, and find the highest owned tier (protected)
@@ -1057,9 +1195,11 @@ func _render_shop_sell() -> void:
 			mark = "[url=seltoggle|%s]%s[/url]" % [iid, glyph]
 			name_part = "[url=seltoggle|%s][color=%s]%s[/color][/url]" % [iid, col2, name_txt]
 		var lock_glyph: String = "[color=#ffb454]🔒[/color]" if locked else "[color=#5a6472]🔓[/color]"
-		lines.append("%s [url=lock|%s]%s[/url] %s [color=#7f8a99](%s · ✦%d)[/color]%s — [color=#ffd24d]%d[/color]" % [
+		var val: int = int(SALVAGE_YIELD.get(rar2, 1)) if _sell_salvage else price
+		var valtxt: String = "[color=#c9a36a]%d scrap[/color]" % val if _sell_salvage else "[color=#ffd24d]%d[/color]" % val
+		lines.append("%s [url=lock|%s]%s[/url] %s [color=#7f8a99](%s · ✦%d)[/color]%s — %s" % [
 			mark, iid, lock_glyph, name_part, str(it.get("slot", "")), int(it.get("item_power", 0)),
-			(" " + stats if stats != "" else ""), price])
+			(" " + stats if stats != "" else ""), valtxt])
 	# footer: selected count + total → one confirm → one shop_sell_many. Only the first SELL_BATCH_MAX go in
 	# one batch, so the count + total shown reflect exactly what will be sold (no over-quoting beyond the cap).
 	var keys: Array = _sell_selection.keys()
@@ -1069,11 +1209,15 @@ func _render_shop_sell() -> void:
 	for i in sell_n:
 		var info = _shop_sell_cache.get(keys[i])
 		if info != null:
-			total += int(info["price"])
+			total += int(info["scrap"] if _sell_salvage else info["price"])
 	lines.append("")
 	if n > 0:
-		var btn: String = "Sell Selected (%d) — ◈%d" % [sell_n, total] if n <= SELL_BATCH_MAX else "Sell Selected (%d of %d) — ◈%d" % [sell_n, n, total]
-		lines.append("[url=sellsel][bgcolor=#26432a][color=#bdf5c0] %s [/color][/bgcolor][/url]    [url=selclear][color=#7f93a8]clear[/color][/url]" % btn)
+		var verb: String = "Salvage" if _sell_salvage else "Sell"
+		var unit: String = ("%d scrap" % total) if _sell_salvage else ("◈%d" % total)
+		var btn: String = "%s Selected (%d) — %s" % [verb, sell_n, unit] if n <= SELL_BATCH_MAX else "%s Selected (%d of %d) — %s" % [verb, sell_n, n, unit]
+		var bg: String = "#3a2a1a" if _sell_salvage else "#26432a"
+		var fg: String = "#ffcf8a" if _sell_salvage else "#bdf5c0"
+		lines.append("[url=sellsel][bgcolor=%s][color=%s] %s [/color][/bgcolor][/url]    [url=selclear][color=#7f93a8]clear[/color][/url]" % [bg, fg, btn])
 	else:
 		lines.append("[color=#7f93a8]click ○ / a rarity to select, 🔓 to lock-protect[/color]")
 	_shop_sell_lbl.text = "\n".join(lines)
@@ -1118,6 +1262,9 @@ func _on_shop_meta(meta) -> void:
 				_render_shop_sell()
 		"fslot":
 			_sell_filter_slot = (p[1] if p.size() >= 2 else "")
+			_render_shop_sell()
+		"mode":
+			_sell_salvage = not _sell_salvage        # toggle Sell ◈ ↔ Salvage scrap (keeps the selection)
 			_render_shop_sell()
 		"lock":
 			if p.size() >= 2:
@@ -1188,11 +1335,18 @@ func _confirm_sell_selected() -> void:
 	for id in ids:
 		var info = _shop_sell_cache.get(id)
 		if info != null:
-			total += int(info["price"])
-	_show_sell_confirm("Sell %d item%s for ◈%d?" % [ids.size(), ("s" if ids.size() != 1 else ""), total], func() -> void:
-		if net != null and _connected:
-			net.shop_sell_many.rpc_id(1, ids)
-		_sell_selection.clear())
+			total += int(info["scrap"] if _sell_salvage else info["price"])
+	var plural: String = "s" if ids.size() != 1 else ""
+	if _sell_salvage:
+		_show_sell_confirm("Salvage %d item%s for %d scrap?" % [ids.size(), plural, total], func() -> void:
+			if net != null and _connected:
+				net.salvage_many.rpc_id(1, ids)
+			_sell_selection.clear())
+	else:
+		_show_sell_confirm("Sell %d item%s for ◈%d?" % [ids.size(), plural, total], func() -> void:
+			if net != null and _connected:
+				net.shop_sell_many.rpc_id(1, ids)
+			_sell_selection.clear())
 
 # generic confirm modal (reused by the bulk-sell flow). on_yes runs if the player confirms.
 func _show_sell_confirm(prompt: String, on_yes: Callable) -> void:
@@ -1208,7 +1362,7 @@ func _show_sell_confirm(prompt: String, on_yes: Callable) -> void:
 	row.add_theme_constant_override("separation", 10)
 	vb.add_child(row)
 	var yes := Button.new()
-	yes.text = "Sell"
+	yes.text = "Confirm"
 	yes.pressed.connect(func() -> void:
 		on_yes.call()
 		_close_sell_confirm())
@@ -1295,6 +1449,74 @@ func _update_shop_proximity() -> void:
 	if not _near_shop and _shop_panel != null and _shop_panel.visible:
 		_shop_panel.visible = false                  # walked away → close the shop
 		_close_sell_confirm()
+
+# the forge pad in the home base + the "press F" proximity prompt (mirrors the shop pad)
+func _render_forge_pad() -> void:
+	var forge = _state.get("forge")
+	var sig := JSON.stringify(forge)
+	if sig == _forge_sig:
+		return
+	_forge_sig = sig
+	if _forge_root != null:
+		_forge_root.queue_free()
+		_forge_root = null
+	if forge == null or _world_root == null:
+		return
+	_forge_root = Node3D.new()
+	_world_root.add_child(_forge_root)
+	var pos := Vector3((float(forge["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(forge["y"]) - _ah() / 2.0) * SCALE)
+	var pillar := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = World.FORGE_RADIUS * SCALE * 0.5
+	cyl.bottom_radius = World.FORGE_RADIUS * SCALE * 0.6
+	cyl.height = 2.6
+	pillar.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.45, 0.2, 0.34)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.4, 0.15)
+	mat.emission_energy_multiplier = 1.6
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	pillar.material_override = mat
+	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
+	_forge_root.add_child(pillar)
+	var lbl := Label3D.new()
+	lbl.text = "🔨 Forge"
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0016
+	lbl.font_size = 52
+	lbl.outline_size = 16
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	lbl.modulate = Color(1.0, 0.6, 0.4)
+	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
+	_forge_root.add_child(lbl)
+
+func _update_forge_proximity() -> void:
+	if _forge_hint == null:
+		_forge_hint = Label.new()
+		_forge_hint.add_theme_font_size_override("font_size", 18)
+		_forge_hint.modulate = Color(1.0, 0.6, 0.4)
+		_forge_hint.visible = false
+		_hud.add_child(_forge_hint)
+	var forge = _state.get("forge")
+	var pf = _find_fighter(_player_id)
+	_near_forge = false
+	if forge != null and pf != null:
+		var d := Vector2(float(pf["x"]) - float(forge["x"]), float(pf["y"]) - float(forge["y"])).length()
+		_near_forge = d <= World.FORGE_RADIUS
+	if _near_forge and (_forge_panel == null or not _forge_panel.visible):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_forge_hint.text = "Press [F] to forge"
+		_forge_hint.position = Vector2(vp.x / 2.0 - 70.0, vp.y - 180.0)
+		_forge_hint.visible = true
+	else:
+		_forge_hint.visible = false
+	if not _near_forge and _forge_panel != null and _forge_panel.visible:
+		_forge_panel.visible = false                 # walked away → close the forge
 
 # ---- admin tool (only the admin account ever receives recv_admin) ----
 func recv_admin(on: bool) -> void:
@@ -1722,6 +1944,8 @@ func _process(delta: float) -> void:
 	_update_party()
 	_render_shop_pad()
 	_update_shop_proximity()
+	_render_forge_pad()
+	_update_forge_proximity()
 	_render_questgiver_pad()
 	_update_questgiver_proximity()
 
@@ -1846,6 +2070,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_close_sell_confirm()
 				get_viewport().set_input_as_handled()
 				return
+			elif _forge_panel != null and _forge_panel.visible:
+				_forge_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _invite_prompt != null or _invite_popup != null:
 				_close_invite_prompt()
 				if _invite_popup != null:
@@ -1886,6 +2114,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_B and not _chatting and (_near_shop or (_shop_panel != null and _shop_panel.visible)):
 			_toggle_shop()                  # open/close the shop while on the home pad
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_F and not _chatting and (_near_forge or (_forge_panel != null and _forge_panel.visible)):
+			_toggle_forge()                 # open/close the forge while on the home pad
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_E and not _chatting and (_near_qgiver or (_qgiver_panel != null and _qgiver_panel.visible)):
@@ -1934,8 +2166,8 @@ func _update_hud() -> void:
 	var xpn := int(pf.get("xpNext", 100))
 	var zone := _zone_name(str(_state.get("map", "")))
 	var zone_chip := ("[color=#ff6b6b][b]⚔ %s · PvP[/b][/color]" % zone) if bool(_state.get("pvp", false)) else ("[color=#8ad6ff]◗ %s[/color]" % zone)
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]J[/b] journal · [b]O[/b] options[/color]" % [
-		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), zone_chip]
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#c9a36a]%d scrap[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]K[/b] sheet · [b]J[/b] journal · [b]F[/b] forge · [b]O[/b] options[/color]" % [
+		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), _my_scrap(), zone_chip]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
 

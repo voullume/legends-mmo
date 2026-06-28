@@ -151,7 +151,7 @@ func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary
 
 # READ stays on the player's token (RLS-scoped to their own items)
 func get_inventory_as(token: String) -> Dictionary:
-	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,primary_stat,primary_amt,ilvl,affixes,item_power,equipped,locked,created_at&order=created_at.desc", "", PackedStringArray(), token)
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id,slot,rarity,bonus_stat,bonus_amt,primary_stat,primary_amt,ilvl,affixes,item_power,upgrade_level,equipped,locked,created_at&order=created_at.desc", "", PackedStringArray(), token)
 	if r["code"] == 200 and r["data"] is Array:
 		return {"ok": true, "items": r["data"]}
 	return {"ok": false, "items": []}
@@ -208,6 +208,37 @@ func sell_item_safe_as(char_id: String, item_id: String) -> Dictionary:
 	if d["code"] >= 200 and d["code"] < 300 and d["data"] is Array and (d["data"] as Array).size() > 0:
 		return {"ok": true, "rarity": str(d["data"][0].get("rarity", "common"))}
 	return {"ok": false}
+
+# --- materials (Phase 4): server-only writes via the atomic mats_add rpc; clients READ own via RLS ---
+# atomically add (delta>0) or spend (delta<0) scrap. ok=false when a spend would underflow (insufficient).
+func mats_add_as(char_id: String, delta: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false, "total": 0}
+	var body := JSON.stringify({"p_char": char_id, "p_scrap": delta})
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/mats_add", body, PackedStringArray(), service_key)
+	var val = r["data"]
+	if val is Array and (val as Array).size() > 0:        # tolerate scalar-as-row shapes
+		val = val[0]
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and val != null
+	return {"ok": ok, "total": int(val) if ok else 0, "code": r["code"]}
+
+# READ on the player's token (RLS-scoped). No row yet → scrap 0.
+func get_mats_as(token: String) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/materials?select=scrap&limit=1", "", PackedStringArray(), token)
+	if r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0:
+		return {"ok": true, "scrap": int(r["data"][0].get("scrap", 0))}
+	return {"ok": r["code"] == 200, "scrap": 0}
+
+# atomic item upgrade: PATCH gated on upgrade_level=eq.<old> so only the call that saw the old level wins
+# (closes the read-modify-write race). Sets the new level + recomputed item_power.
+func inv_upgrade_as(char_id: String, item_id: String, old_level: int, new_level: int, new_ip: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s&upgrade_level=eq.%d&select=upgrade_level" % [item_id, char_id, old_level]
+	var body := JSON.stringify({"upgrade_level": new_level, "item_power": new_ip})
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, body, PackedStringArray(["Prefer: return=representation"]), service_key)
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
+	return {"ok": ok, "code": r["code"]}
 
 # --- quests (server-authoritative progress; clients READ their own rows, server WRITES) ---
 # READ on the player's token (RLS-scoped to their own character's quest rows)
