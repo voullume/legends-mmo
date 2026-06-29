@@ -7,28 +7,38 @@ extends RefCounted
 ## drives open-PvP: Combat.is_hostile/is_ally make all players mutually hostile (free-for-all) there.
 
 const HOME := "home"
-const COMBAT := "combat"
-const FRONTIER := "frontier"               # higher-tier PvE zone (lvl 4-7 + a boss), gated behind Combat
-const DEPTHS := "depths"                    # endgame PvE zone (lvl 8-12 + a boss), gated behind the Frontier
+# The Glitchyard: five chained training-camp subzones (MapleStory-style zoned maps) with a difficulty
+# gradient 1→5. They REPLACE the old combat/frontier/depths zones; home + arena are unchanged. Each is a
+# separate sim, linked back↔forward by portal pads. The boss arena (head_coach) hangs off GY5 in Phase 4.
+const GY1 := "glitchyard_1"                 # Rookie Intake  — lvl 1-2 minions (cones + foam dummies)
+const GY2 := "glitchyard_2"                 # Agility Grid   — lvl 2-3 + the tackle_brute elite
+const GY3 := "glitchyard_3"                 # Impact Lanes   — lvl 4-5 + the Sled Juggernaut elite
+const GY4 := "glitchyard_4"                 # Target Court   — lvl 5-6 + the Ball Machine turret elite
+const GY5 := "glitchyard_5"                 # Command Tower  — lvl 7-8 + the Drill Sergeant summoner elite
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
 const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
-const COMBAT_SPAWN := Vector2(200, 540)      # the home portal drops you here (west, clear of the camps)
-const FRONTIER_SPAWN := Vector2(220, 620)    # the Combat→Frontier portal drops you here (west)
-const DEPTHS_SPAWN := Vector2(220, 650)      # the Frontier→Depths portal drops you here (west)
+const GY1_SPAWN := Vector2(200, 425)         # the Home→Glitchyard portal drops you here (west, clear of camps)
+const GY2_SPAWN := Vector2(200, 450)
+const GY3_SPAWN := Vector2(220, 490)
+const GY4_SPAWN := Vector2(220, 520)
+const GY5_SPAWN := Vector2(220, 550)
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
 # (0 = always); aggro = whether mobs chase players here; pvp = players are mutually hostile here
-# (true for the Arena — free-for-all); spawn = login/arrival point.
+# (true for the Arena — free-for-all); spawn = login/arrival point. The Glitchyard zones grow in size
+# along the gradient so later zones have more room for their tougher, cover-heavy fights.
 const MAPS := {
-	HOME:     {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12,  "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": HOME_SPAWN},
-	COMBAT:   {"type": "combat", "w": 1920, "h": 1080, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": COMBAT_SPAWN},
-	FRONTIER: {"type": "combat", "w": 2200, "h": 1240, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": FRONTIER_SPAWN},
-	DEPTHS:   {"type": "combat", "w": 2400, "h": 1300, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": DEPTHS_SPAWN},
-	ARENA:    {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
+	HOME:  {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12,  "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": HOME_SPAWN},
+	GY1:   {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY1_SPAWN},
+	GY2:   {"type": "combat", "w": 1650, "h": 900,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY2_SPAWN},
+	GY3:   {"type": "combat", "w": 1800, "h": 980,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY3_SPAWN},
+	GY4:   {"type": "combat", "w": 1900, "h": 1040, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY4_SPAWN},
+	GY5:   {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY5_SPAWN},
+	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 }
 
 const DUMMY_POS := Vector2(660, 300)         # the training dummy (home only)
@@ -42,27 +52,39 @@ const QUESTGIVER_POS := Vector2(250, 150)    # the quest giver (home base only) 
 const QUESTGIVER_RADIUS := 80.0
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
-# Zone graph:  Home ↔ Combat,  Home ↔ Arena,  Combat ↔ Frontier  (Frontier sits past the Combat camps).
+# Zone graph:  Home ↔ Arena,  Home → Glitchyard 1 ↔ 2 ↔ 3 ↔ 4 ↔ 5  (a linear chain; you arrive west, the
+# forward pad sits far east past the camps). Back-portal drop points (tx,ty) land you in the PREVIOUS zone
+# clear of its forward pad (> PORTAL_RADIUS) so you don't instantly bounce back.
 const PORTALS := {
 	HOME: [
-		{"x": 300.0,  "y": 300.0, "to": COMBAT,   "tx": 200.0,  "ty": 540.0, "label": "▶ Combat Zone"},
-		{"x": 660.0,  "y": 460.0, "to": ARENA,    "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
+		{"x": 300.0,  "y": 300.0, "to": GY1,   "tx": 200.0,  "ty": 425.0, "label": "▶ Glitchyard"},
+		{"x": 660.0,  "y": 460.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
 	],
-	COMBAT: [
-		{"x": 200.0,  "y": 760.0,  "to": HOME,     "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
-		{"x": 1850.0, "y": 540.0,  "to": FRONTIER, "tx": 220.0,  "ty": 620.0, "label": "▶ Frontier"},
+	GY1: [
+		{"x": 120.0,  "y": 425.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
+		{"x": 1420.0, "y": 425.0,  "to": GY2,  "tx": 200.0,  "ty": 450.0, "label": "▶ Agility Grid"},
 	],
-	FRONTIER: [
-		# arrive SE in Combat — clear of the lvl-3 elite camp at (1700,540) so you aren't instantly aggroed on return
-		{"x": 120.0,  "y": 620.0,  "to": COMBAT,   "tx": 1850.0, "ty": 900.0, "label": "▶ Combat Zone"},
-		# the Depths pad sits past the Frontier boss (far SE) — gated behind clearing the Frontier
-		{"x": 2120.0, "y": 980.0,  "to": DEPTHS,   "tx": 220.0,  "ty": 650.0, "label": "▶ The Depths"},
+	GY2: [
+		{"x": 120.0,  "y": 450.0,  "to": GY1,  "tx": 1280.0, "ty": 425.0, "label": "◀ Rookie Intake"},
+		{"x": 1560.0, "y": 450.0,  "to": GY3,  "tx": 220.0,  "ty": 490.0, "label": "▶ Impact Lanes"},
 	],
-	DEPTHS: [
-		{"x": 120.0,  "y": 650.0,  "to": FRONTIER, "tx": 1900.0, "ty": 1000.0, "label": "▶ Frontier"},
+	GY3: [
+		# back-drop sits in GY2's mid lane, WEST of the brute elite (>AGGRO_RANGE 320) so back-tracking
+		# doesn't dump you onto a scaled elite (TP grace blocks re-port, not aggro).
+		{"x": 120.0,  "y": 490.0,  "to": GY2,  "tx": 900.0,  "ty": 450.0, "label": "◀ Agility Grid"},
+		{"x": 1700.0, "y": 490.0,  "to": GY4,  "tx": 220.0,  "ty": 520.0, "label": "▶ Target Court"},
+	],
+	GY4: [
+		{"x": 120.0,  "y": 520.0,  "to": GY3,  "tx": 1080.0, "ty": 490.0, "label": "◀ Impact Lanes"},
+		{"x": 1800.0, "y": 520.0,  "to": GY5,  "tx": 220.0,  "ty": 550.0, "label": "▶ Command Tower"},
+	],
+	GY5: [
+		# the forward pad (→ the head_coach boss arena) lands in Phase 4; for now GY5 is the chain's end.
+		# GY4 has TWO elites (mid sled @980,700 + east ball @1580) — drop WEST of both, in the entry lane.
+		{"x": 120.0,  "y": 550.0,  "to": GY4,  "tx": 600.0,  "ty": 520.0, "label": "◀ Target Court"},
 	],
 	ARENA: [
-		{"x": 110.0,  "y": 400.0,  "to": HOME,     "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
+		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
 	],
 }
 
@@ -70,35 +92,43 @@ const PORTALS := {
 # difficulty gradient from the arrival side). Tougher zones lean on higher `level` + tier (minion/elite/
 # boss) — _scale_mob handles the scaling, no new stat blocks. The Arena has none (it is a PvP space).
 const MOBS := {
-	# Glitchyard Phase 1: the Combat camp is re-skinned to the new sports-equipment mobs to prove the
-	# mob-framework pipeline end-to-end (the full 5-subzone glitchyard_1..5 rebuild is Phase 3). The *2
-	# GLBs (foam/shooting) are alternate cosmetic skins picked per-spawn client-side. tackle_brute fills
-	# the elite slot for now (no dedicated elites until Phase 2's summon/hazard work).
-	COMBAT: [
-		{"class": "cone_swarmer",   "level": 1, "tier": "minion", "x": 600.0,  "y": 300.0},
-		{"class": "cone_swarmer",   "level": 1, "tier": "minion", "x": 600.0,  "y": 780.0},
-		{"class": "foam_dummy",     "level": 2, "tier": "minion", "x": 1150.0, "y": 300.0},
-		{"class": "shooting_dummy", "level": 2, "tier": "minion", "x": 1150.0, "y": 780.0},
-		{"class": "tackle_brute",   "level": 3, "tier": "elite",  "x": 1700.0, "y": 540.0},
+	# The Glitchyard roster (sports-training equipment) spread across the five subzones with a level
+	# gradient. Camps are > AGGRO_RANGE apart so engaging one doesn't pull the next, with the elite
+	# anchoring each zone's far (east) end by its forward portal. _scale_mob handles per-level/tier scaling
+	# — no new stat blocks. (The retired combat/frontier/depths player-class filler mobs are gone.)
+	GY1: [  # Rookie Intake — pure minions, the on-ramp
+		{"class": "cone_swarmer", "level": 1, "tier": "minion", "x": 500.0,  "y": 280.0},
+		{"class": "cone_swarmer", "level": 1, "tier": "minion", "x": 500.0,  "y": 570.0},
+		{"class": "foam_dummy",   "level": 2, "tier": "minion", "x": 950.0,  "y": 280.0},
+		{"class": "foam_dummy",   "level": 2, "tier": "minion", "x": 950.0,  "y": 570.0},
 	],
-	# Glitchyard Phase 2: Frontier re-skinned to the new mobs + the 3 elites (summon + hazard zones live).
-	# The Drill Sergeant (deepest) summons cone adds + drops a Conditioning Drill hazard; Sled Juggernaut
-	# pushes/slams; Ball Machine is a stationary turret. (The head_coach boss replaces the endpoint in P4.)
-	FRONTIER: [
-		{"class": "foam_dummy",      "level": 4, "tier": "minion", "x": 520.0,  "y": 420.0},
-		{"class": "cone_swarmer",    "level": 4, "tier": "minion", "x": 520.0,  "y": 860.0},
-		{"class": "shooting_dummy",  "level": 5, "tier": "minion", "x": 1080.0, "y": 420.0},
-		{"class": "sled_juggernaut", "level": 5, "tier": "elite",  "x": 1080.0, "y": 860.0},
-		{"class": "ball_machine",    "level": 6, "tier": "elite",  "x": 1600.0, "y": 640.0},
-		{"class": "drill_sergeant",  "level": 7, "tier": "elite",  "x": 2000.0, "y": 640.0},
+	GY2: [  # Agility Grid — first elite (the tackle_brute)
+		{"class": "cone_swarmer",   "level": 2, "tier": "minion", "x": 520.0,  "y": 300.0},
+		{"class": "foam_dummy",     "level": 2, "tier": "minion", "x": 520.0,  "y": 600.0},
+		{"class": "shooting_dummy", "level": 3, "tier": "minion", "x": 950.0,  "y": 300.0},
+		{"class": "foam_dummy",     "level": 3, "tier": "minion", "x": 950.0,  "y": 600.0},
+		{"class": "tackle_brute",   "level": 3, "tier": "elite",  "x": 1340.0, "y": 450.0},
 	],
-	DEPTHS: [
-		{"class": "quarterback", "level": 8,  "tier": "minion", "x": 560.0,  "y": 430.0},
-		{"class": "spiker",      "level": 8,  "tier": "minion", "x": 560.0,  "y": 870.0},
-		{"class": "pitcher",     "level": 9,  "tier": "minion", "x": 1100.0, "y": 430.0},
-		{"class": "striker",     "level": 9,  "tier": "minion", "x": 1100.0, "y": 870.0},
-		{"class": "goalkeeper",  "level": 10, "tier": "elite",  "x": 1650.0, "y": 650.0},
-		{"class": "linebacker",  "level": 12, "tier": "boss",   "x": 2150.0, "y": 650.0},
+	GY3: [  # Impact Lanes — the Sled Juggernaut (push/slam)
+		{"class": "foam_dummy",      "level": 4, "tier": "minion", "x": 520.0,  "y": 320.0},
+		{"class": "cone_swarmer",    "level": 4, "tier": "minion", "x": 520.0,  "y": 660.0},
+		{"class": "shooting_dummy",  "level": 5, "tier": "minion", "x": 980.0,  "y": 320.0},
+		{"class": "foam_dummy",      "level": 5, "tier": "minion", "x": 980.0,  "y": 660.0},
+		{"class": "sled_juggernaut", "level": 5, "tier": "elite",  "x": 1500.0, "y": 490.0},
+	],
+	GY4: [  # Target Court — the Ball Machine turret (+ a second sled)
+		{"class": "shooting_dummy",  "level": 5, "tier": "minion", "x": 520.0,  "y": 340.0},
+		{"class": "foam_dummy",      "level": 5, "tier": "minion", "x": 520.0,  "y": 700.0},
+		{"class": "shooting_dummy",  "level": 6, "tier": "minion", "x": 980.0,  "y": 340.0},
+		{"class": "sled_juggernaut", "level": 6, "tier": "elite",  "x": 980.0,  "y": 700.0},
+		{"class": "ball_machine",    "level": 6, "tier": "elite",  "x": 1580.0, "y": 520.0},
+	],
+	GY5: [  # Command Tower — the Drill Sergeant summoner anchors the chain's end (boss = Phase 4)
+		{"class": "cone_swarmer",    "level": 7, "tier": "minion", "x": 500.0,  "y": 360.0},
+		{"class": "cone_swarmer",    "level": 7, "tier": "minion", "x": 500.0,  "y": 740.0},
+		{"class": "shooting_dummy",  "level": 7, "tier": "minion", "x": 1000.0, "y": 360.0},
+		{"class": "ball_machine",    "level": 7, "tier": "elite",  "x": 1000.0, "y": 740.0},
+		{"class": "drill_sergeant",  "level": 8, "tier": "elite",  "x": 1620.0, "y": 550.0},
 	],
 }
 
@@ -147,21 +177,32 @@ static func obstacle_circles(map: String) -> Array:
 	return circles_from(OBSTACLES.get(map, []))
 
 const OBSTACLES := {
-	# Panels run perpendicular to the player's approach (yaw≈PI/2 = a N–S wall blocking the eastward push),
-	# split into lanes so the camps stay reachable. Bags are square pillars (len = footprint, single circle).
-	COMBAT: [
-		{"x": 900.0,  "y": 300.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 900.0,  "y": 780.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
-		{"x": 1150.0, "y": 540.0, "prop": "bag", "len": 36.0, "yaw": 0.0},     # heavy-bag pillar among the mid camps
-		{"x": 1425.0, "y": 420.0, "prop": "rack", "len": 130.0, "yaw": 1.5708}, {"x": 1425.0, "y": 660.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
-		{"x": 1700.0, "y": 330.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1700.0, "y": 750.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # bag pillars flanking the elite
-		{"x": 380.0,  "y": 540.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+	# Panels run perpendicular to the player's eastward approach (yaw≈PI/2 = a N–S wall), split into lanes
+	# so the camps stay reachable; bags (square pillars, single circle) flank each zone's elite. Cover grows
+	# heavier along the gradient. Coords are in each zone's own space (see MAPS w/h).
+	GY1: [  # light cover for the on-ramp
+		{"x": 730.0,  "y": 280.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 730.0,  "y": 570.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+		{"x": 1180.0, "y": 425.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
-	FRONTIER: [
-		{"x": 800.0,  "y": 420.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 800.0,  "y": 860.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
-		{"x": 1340.0, "y": 520.0, "prop": "rack", "len": 140.0, "yaw": 1.5708}, {"x": 1340.0, "y": 760.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
-		{"x": 1600.0, "y": 400.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1600.0, "y": 880.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # bag pillars flanking the ball machine
-		{"x": 1820.0, "y": 640.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
-		{"x": 360.0,  "y": 640.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+	GY2: [
+		{"x": 700.0,  "y": 300.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 700.0,  "y": 600.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+		{"x": 1130.0, "y": 450.0, "prop": "rack", "len": 120.0, "yaw": 1.5708},
+		{"x": 1340.0, "y": 300.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1340.0, "y": 600.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the brute
+	],
+	GY3: [
+		{"x": 720.0,  "y": 320.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 720.0,  "y": 660.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1240.0, "y": 490.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
+		{"x": 1500.0, "y": 330.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1500.0, "y": 650.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the sled
+	],
+	GY4: [
+		{"x": 720.0,  "y": 340.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 720.0,  "y": 700.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1280.0, "y": 520.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 1580.0, "y": 360.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1580.0, "y": 680.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the ball machine
+	],
+	GY5: [
+		{"x": 760.0,  "y": 360.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 760.0,  "y": 740.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1320.0, "y": 550.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 1620.0, "y": 380.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1620.0, "y": 720.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the drill (cover vs its hazard + adds)
 	],
 }
 
@@ -172,21 +213,25 @@ static func obstacles_for(map: String) -> Array:
 # cones ("cone") that give each zone its training-camp identity. Read CLIENT-side from the current map (the
 # client preloads World.gd) and drawn by Client._render_decals — NOT sent over the wire.
 const DECALS := {
-	COMBAT: [
-		{"kind": "ring", "x": 960.0,  "y": 540.0, "r": 150.0},
-		{"kind": "ring", "x": 600.0,  "y": 540.0, "r": 95.0},  {"kind": "ring", "x": 1150.0, "y": 540.0, "r": 95.0},
-		{"kind": "ring", "x": 1700.0, "y": 540.0, "r": 120.0},
-		{"kind": "cone", "x": 760.0,  "y": 420.0}, {"kind": "cone", "x": 760.0,  "y": 660.0},
-		{"kind": "cone", "x": 1300.0, "y": 410.0}, {"kind": "cone", "x": 1300.0, "y": 670.0},
-		{"kind": "cone", "x": 1560.0, "y": 540.0}, {"kind": "cone", "x": 420.0,  "y": 540.0},
+	GY1: [
+		{"kind": "ring", "x": 750.0, "y": 425.0, "r": 140.0}, {"kind": "ring", "x": 1180.0, "y": 425.0, "r": 90.0},
+		{"kind": "cone", "x": 540.0, "y": 280.0}, {"kind": "cone", "x": 540.0, "y": 570.0}, {"kind": "cone", "x": 1180.0, "y": 425.0},
 	],
-	FRONTIER: [
-		{"kind": "ring", "x": 1100.0, "y": 640.0, "r": 150.0},
-		{"kind": "ring", "x": 520.0,  "y": 640.0, "r": 95.0},  {"kind": "ring", "x": 1080.0, "y": 640.0, "r": 95.0},
-		{"kind": "ring", "x": 1600.0, "y": 640.0, "r": 110.0}, {"kind": "ring", "x": 2000.0, "y": 640.0, "r": 110.0},
-		{"kind": "cone", "x": 720.0,  "y": 520.0}, {"kind": "cone", "x": 720.0,  "y": 760.0},
-		{"kind": "cone", "x": 1300.0, "y": 520.0}, {"kind": "cone", "x": 1300.0, "y": 760.0},
-		{"kind": "cone", "x": 1830.0, "y": 540.0}, {"kind": "cone", "x": 1830.0, "y": 740.0},
+	GY2: [
+		{"kind": "ring", "x": 825.0, "y": 450.0, "r": 150.0}, {"kind": "ring", "x": 1340.0, "y": 450.0, "r": 105.0},
+		{"kind": "cone", "x": 700.0, "y": 300.0}, {"kind": "cone", "x": 700.0, "y": 600.0}, {"kind": "cone", "x": 1130.0, "y": 450.0},
+	],
+	GY3: [
+		{"kind": "ring", "x": 900.0, "y": 490.0, "r": 150.0}, {"kind": "ring", "x": 1500.0, "y": 490.0, "r": 110.0},
+		{"kind": "cone", "x": 720.0, "y": 320.0}, {"kind": "cone", "x": 720.0, "y": 660.0}, {"kind": "cone", "x": 1240.0, "y": 490.0},
+	],
+	GY4: [
+		{"kind": "ring", "x": 950.0, "y": 520.0, "r": 150.0}, {"kind": "ring", "x": 1580.0, "y": 520.0, "r": 110.0},
+		{"kind": "cone", "x": 720.0, "y": 340.0}, {"kind": "cone", "x": 720.0, "y": 700.0}, {"kind": "cone", "x": 1280.0, "y": 520.0},
+	],
+	GY5: [
+		{"kind": "ring", "x": 1000.0, "y": 550.0, "r": 150.0}, {"kind": "ring", "x": 1620.0, "y": 550.0, "r": 120.0},
+		{"kind": "cone", "x": 760.0, "y": 360.0}, {"kind": "cone", "x": 760.0, "y": 740.0}, {"kind": "cone", "x": 1320.0, "y": 550.0},
 	],
 }
 

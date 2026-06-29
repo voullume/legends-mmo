@@ -1887,8 +1887,9 @@ func _build_admin_panel() -> void:
 		["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}],
 		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
 		["God Mode", "god", {}], ["Heal", "heal", {}],
-		["→ Home", "goto", {"map": "home"}], ["→ Combat", "goto", {"map": "combat"}],
-		["→ Frontier", "goto", {"map": "frontier"}], ["→ Depths", "goto", {"map": "depths"}], ["→ Arena", "goto", {"map": "arena"}],
+		["→ Home", "goto", {"map": "home"}], ["→ Arena", "goto", {"map": "arena"}],
+		["→ GY1", "goto", {"map": "glitchyard_1"}], ["→ GY2", "goto", {"map": "glitchyard_2"}], ["→ GY3", "goto", {"map": "glitchyard_3"}],
+		["→ GY4", "goto", {"map": "glitchyard_4"}], ["→ GY5", "goto", {"map": "glitchyard_5"}],
 		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}],
 	]
 	for c in cmds:
@@ -2526,8 +2527,10 @@ func _update_hud() -> void:
 func _zone_name(map: String) -> String:
 	match map:
 		"home": return "Home Base"
-		"combat": return "Combat Zone"
-		"frontier": return "Frontier"
-		"depths": return "The Depths"
+		"glitchyard_1": return "Glitchyard · Rookie Intake"
+		"glitchyard_2": return "Glitchyard · Agility Grid"
+		"glitchyard_3": return "Glitchyard · Impact Lanes"
+		"glitchyard_4": return "Glitchyard · Target Court"
+		"glitchyard_5": return "Glitchyard · Command Tower"
 		"arena": return "Arena"
 		_: return map.capitalize() if map != "" else "—"

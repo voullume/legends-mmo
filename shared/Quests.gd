@@ -13,73 +13,74 @@ extends RefCounted
 ##   rewards        — {xp, credits, item?}. item is a full inventory row {name,rarity,slot,
 ##                    bonus_stat,bonus_amt} (the equipped bonus is still RARITY_CAP-capped on equip).
 
+# The Glitchyard chain — one or two quests per subzone (glitchyard_1..5), climbing the level gradient.
 const QUESTS := {
-	"combat_intro": {
+	"gy1_intro": {
 		"name": "Boot Camp",
-		"desc": "Cut your teeth in the Combat Zone — take down 5 mobs.",
+		"desc": "Report to Rookie Intake (Glitchyard 1) and take down 5 of the training mobs.",
 		"min_level": 1, "prereq": "",
-		"objective": {"type": "kill", "match": {"map": "combat"}, "count": 5},
+		"objective": {"type": "kill", "match": {"map": "glitchyard_1"}, "count": 5},
 		"rewards": {"xp": 120, "credits": 60},
 	},
-	"combat_elite": {
+	"gy2_push": {
+		"name": "Hit the Grid",
+		"desc": "Push into the Agility Grid (Glitchyard 2) and clear 6 of its denizens.",
+		"min_level": 2, "prereq": "gy1_intro",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_2"}, "count": 6},
+		"rewards": {"xp": 220, "credits": 120},
+	},
+	"gy2_brute": {
 		"name": "Camp Breaker",
-		"desc": "The Combat Zone's elite holds the east camp. Put it down twice.",
-		"min_level": 2, "prereq": "combat_intro",
-		"objective": {"type": "kill", "match": {"map": "combat", "tier": "elite"}, "count": 2},
-		"rewards": {"xp": 220, "credits": 120,
+		"desc": "The Agility Grid's Tackle Brute holds the east end. Put it down.",
+		"min_level": 3, "prereq": "gy2_push",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_2", "tier": "elite"}, "count": 1},
+		"rewards": {"xp": 320, "credits": 160,
 			"item": {"name": "Veteran's Medal", "rarity": "rare", "slot": "trinket", "bonus_stat": "END", "bonus_amt": 12}},
 	},
-	"frontier_access": {
-		"name": "Into the Frontier",
-		"desc": "Push past the Combat camps into the Frontier and clear 6 of its denizens.",
-		"min_level": 3, "prereq": "combat_elite",
-		"objective": {"type": "kill", "match": {"map": "frontier"}, "count": 6},
-		"rewards": {"xp": 420, "credits": 180},
+	"gy3_clear": {
+		"name": "Impact Lanes",
+		"desc": "Brave the Impact Lanes (Glitchyard 3) and clear 6 of its denizens.",
+		"min_level": 3, "prereq": "gy2_brute",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_3"}, "count": 6},
+		"rewards": {"xp": 460, "credits": 200},
 	},
-	"frontier_elites": {
-		"name": "Thinning the Herd",
-		"desc": "Frontier elites are no joke. Bring down 2 of them.",
-		"min_level": 4, "prereq": "frontier_access",
-		"objective": {"type": "kill", "match": {"map": "frontier", "tier": "elite"}, "count": 2},
-		"rewards": {"xp": 520, "credits": 240,
-			"item": {"name": "Frontier Sigil", "rarity": "epic", "slot": "trinket", "bonus_stat": "INS", "bonus_amt": 16}},
+	"gy3_sled": {
+		"name": "Breaking the Sled",
+		"desc": "Bring down the Sled Juggernaut that rules the Impact Lanes.",
+		"min_level": 5, "prereq": "gy3_clear",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_3", "tier": "elite"}, "count": 1},
+		"rewards": {"xp": 600, "credits": 280,
+			"item": {"name": "Impact Sigil", "rarity": "epic", "slot": "trinket", "bonus_stat": "INS", "bonus_amt": 16}},
 	},
-	"frontier_boss": {
-		"name": "The Keeper Falls",
-		"desc": "Slay the Frontier boss — the Keeper — and claim its prize.",
-		"min_level": 5, "prereq": "frontier_access",
-		"objective": {"type": "kill", "match": {"map": "frontier", "tier": "boss"}, "count": 1},
-		"rewards": {"xp": 700, "credits": 350,
-			"item": {"name": "Keeper's Gauntlets", "rarity": "epic", "slot": "main_hand", "bonus_stat": "PWR", "bonus_amt": 20}},
+	"gy4_clear": {
+		"name": "Target Court",
+		"desc": "Cross into the Target Court (Glitchyard 4) and clear 6 of its denizens.",
+		"min_level": 5, "prereq": "gy3_sled",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_4"}, "count": 6},
+		"rewards": {"xp": 760, "credits": 360,
+			"item": {"name": "Command Charm", "rarity": "epic", "slot": "trinket", "bonus_stat": "CLU", "bonus_amt": 24}},
 	},
-	"depths_access": {
-		"name": "Descent into the Depths",
-		"desc": "Beyond the Frontier lies the Depths. Brave it and put down 6 of its denizens.",
-		"min_level": 8, "prereq": "frontier_boss",
-		"objective": {"type": "kill", "match": {"map": "depths"}, "count": 6},
-		"rewards": {"xp": 900, "credits": 400},
+	"gy4_elites": {
+		"name": "Counterfire",
+		"desc": "The Target Court's elites — the Sled and the Ball Machine — guard the lanes. Bring down 2.",
+		"min_level": 6, "prereq": "gy4_clear",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_4", "tier": "elite"}, "count": 2},
+		"rewards": {"xp": 980, "credits": 460,
+			"item": {"name": "Gunner's Gauntlets", "rarity": "epic", "slot": "main_hand", "bonus_stat": "PWR", "bonus_amt": 20}},
 	},
-	"depths_elites": {
-		"name": "Deep Cull",
-		"desc": "The Depths' elites guard its heart. Bring down 2 of them.",
-		"min_level": 9, "prereq": "depths_access",
-		"objective": {"type": "kill", "match": {"map": "depths", "tier": "elite"}, "count": 2},
-		"rewards": {"xp": 1100, "credits": 500,
-			"item": {"name": "Abyssal Charm", "rarity": "epic", "slot": "trinket", "bonus_stat": "CLU", "bonus_amt": 24}},
-	},
-	"depths_lord": {
-		"name": "The Deep Warden",
-		"desc": "Slay the Warden that rules the Depths — the toughest foe yet.",
-		"min_level": 10, "prereq": "depths_access",
-		"objective": {"type": "kill", "match": {"map": "depths", "tier": "boss"}, "count": 1},
-		"rewards": {"xp": 1500, "credits": 700,
-			"item": {"name": "Warden's Bulwark", "rarity": "epic", "slot": "chest", "bonus_stat": "END", "bonus_amt": 28}},
+	"gy5_command": {
+		"name": "Command Tower",
+		"desc": "Storm the Command Tower (Glitchyard 5) and put down 2 of its elites — the Ball Machine and the Drill Sergeant.",
+		"min_level": 6, "prereq": "gy4_elites",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_5", "tier": "elite"}, "count": 2},
+		"rewards": {"xp": 1400, "credits": 660,
+			"item": {"name": "Drillmaster's Bulwark", "rarity": "epic", "slot": "chest", "bonus_stat": "END", "bonus_amt": 28}},
 	},
 }
 
 # stable display/iteration order (also the chain order)
-const ORDER := ["combat_intro", "combat_elite", "frontier_access", "frontier_elites", "frontier_boss",
-	"depths_access", "depths_elites", "depths_lord"]
+const ORDER := ["gy1_intro", "gy2_push", "gy2_brute", "gy3_clear", "gy3_sled",
+	"gy4_clear", "gy4_elites", "gy5_command"]
 
 static func order() -> Array:
 	return ORDER

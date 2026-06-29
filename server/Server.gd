@@ -1,10 +1,9 @@
 extends Node
 ## SHARED ZONE SERVER (Phase 4 + 5). Persistent, server-authoritative overworld for several accounts.
 ## Several worlds run side by side (see shared/World.gd — one independent sim each):
-##   home     — a safe base: roam freely + a passive training dummy that instantly respawns.
-##   combat   — aggressive mobs (lvl 1-3), XP, and loot.
-##   frontier — a higher-tier PvE zone (lvl 4-7 + a boss), reached through the Combat camps.
-##   arena    — a dedicated PvP space (PvE-safe for now; open-PvP lands in a later phase).
+##   home          — a safe base: roam freely + a passive training dummy that instantly respawns.
+##   glitchyard_1-5 — the chained Glitchyard training-camp zones (lvl 1→8 gradient, XP + loot + elites).
+##   arena         — a dedicated open-PvP space (free-for-all).
 ## Portal pads teleport between worlds; each world carries its own arena bounds. Players only
 ## see/affect entities in their own world.
 ##
