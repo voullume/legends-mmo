@@ -126,6 +126,54 @@ const CLASSES := {
 			{"key": "penaltysave", "name": "Penalty Save", "type": "barrier", "ult": true, "cd": 30, "dur": 3.0, "dr": 0.70, "blastDmg": 320, "blastRadius": 130},
 		],
 	},
+	# ── Glitchyard mobs (NON-PLAYABLE) ──────────────────────────────────────────────────────────────
+	# Flagged mob:true so they're kept out of client PLAYABLE + the AI-duel balance harness's player loop
+	# (they ride the same generic AI brain a reskinned class does). Render fields the client reads off its
+	# preloaded def: `model` = models/meshy/mobs/<id>.glb basename; `skins` = alt cosmetic GLBs picked
+	# per-spawn; `anim` = procedural-animator profile; `h` = rendered world-height (units). Phase 1 kits
+	# reuse ONLY existing ability types (melee/dashAttack/meleeAoe/selfbuff/projectile) → no new sim rng.
+	# A non-melee basic MUST carry `range` (AI.desired_range reads it); a `reflect` buff needs `reflectMult`.
+	"cone_swarmer": {
+		"name": "Cone Swarmer", "sport": "", "mob": true, "model": "cone", "anim": "cone", "h": 1.5,
+		"lane": 0, "color": "#FF7A1A",
+		"stats": {"PWR": 34, "PRE": 30, "SPD": 70, "END": 26, "INS": 20, "CLU": 15},
+		"abilities": [
+			{"key": "tripjab", "name": "Trip Jab", "type": "melee", "basic": true, "dmg": 30, "cd": 1.1, "range": 52},
+			{"key": "tripdash", "name": "Trip Dash", "type": "dashAttack", "dmg": 34, "cd": 5.5, "dist": 150, "slow": {"amt": 0.20, "dur": 1.0}},
+		],
+	},
+	"foam_dummy": {
+		"name": "Foam Rookie Dummy", "sport": "", "mob": true, "model": "foam_dummy",
+		"skins": ["foam_dummy", "foam_dummy2"], "anim": "dummy", "h": 1.7,
+		"lane": 0, "color": "#E8D44D",
+		"stats": {"PWR": 42, "PRE": 28, "SPD": 30, "END": 44, "INS": 20, "CLU": 18},
+		"abilities": [
+			{"key": "badform", "name": "Bad Form Swing", "type": "melee", "basic": true, "dmg": 40, "cd": 1.35, "range": 60, "cast": 0.35},
+			{"key": "shove", "name": "Practice Shove", "type": "melee", "dmg": 30, "cd": 6.0, "range": 62, "cast": 0.3, "knockback": 55},
+		],
+	},
+	"tackle_brute": {
+		"name": "Tackle Bag Brute", "sport": "", "mob": true, "model": "tackle_brute", "anim": "brute", "h": 2.3,
+		"lane": 0, "color": "#C0492E",
+		"stats": {"PWR": 56, "PRE": 24, "SPD": 26, "END": 70, "INS": 22, "CLU": 20},
+		"abilities": [
+			{"key": "bagbash", "name": "Bag Bash", "type": "melee", "basic": true, "dmg": 46, "cd": 1.5, "range": 64},
+			{"key": "impactcharge", "name": "Impact Charge", "type": "dashAttack", "dmg": 64, "cd": 7.5, "dist": 175, "cast": 0.45, "knockback": 80},
+			{"key": "rubberslam", "name": "Rubber Slam", "type": "meleeAoe", "dmg": 40, "cd": 8.0, "radius": 90},
+			{"key": "braceup", "name": "Brace Up", "type": "selfbuff", "cd": 11.0, "buff": {"dr": 0.30, "dur": 2.4}},
+		],
+	},
+	"shooting_dummy": {
+		"name": "Shooting Dummy", "sport": "", "mob": true, "model": "shooting_dummy",
+		"skins": ["shooting_dummy", "shooting_dummy2"], "anim": "turret", "h": 1.9,
+		"lane": 2, "color": "#4DA6FF", "reflectMult": 1.4,
+		"stats": {"PWR": 46, "PRE": 40, "SPD": 8, "END": 34, "INS": 28, "CLU": 18},
+		"abilities": [
+			{"key": "practiceshot", "name": "Practice Shot", "type": "projectile", "basic": true, "dmg": 38, "cd": 1.3, "range": 300, "speed": 420},
+			{"key": "targetlock", "name": "Target Lock", "type": "projectile", "dmg": 60, "cd": 6.5, "range": 320, "speed": 360, "slow": {"amt": 0.25, "dur": 1.2}},
+			{"key": "calibration", "name": "Calibration Spin", "type": "selfbuff", "cd": 12.0, "buff": {"reflect": true, "dur": 1.2}},
+		],
+	},
 }
 
 # --- Bracket tuning: per-format dmg/hp/ms multipliers (5v5 is baseline) ---
@@ -219,8 +267,17 @@ const UNIQUE_DEFS := {
 }
 const UNIQUE_IDS := ["embermaw", "skullcleaver", "sanguine_band"]
 
-static func class_ids() -> Array:
-	return CLASSES.keys()
+# Player-selectable classes only (CLASSES now also holds non-playable mob defs flagged mob:true).
+# Use this anywhere a player picks/cycles a class and for the AI-duel balance harness — never CLASSES.keys().
+static func playable_ids() -> Array:
+	var out := []
+	for k in CLASSES:
+		if not CLASSES[k].get("mob", false):
+			out.append(k)
+	return out
+
+static func is_mob(class_id: String) -> bool:
+	return CLASSES.get(class_id, {}).get("mob", false)
 
 # --- Derived stats (exact formulas from the sim) ---
 static func derive(s: Dictionary) -> Dictionary:
@@ -237,6 +294,9 @@ static func derive(s: Dictionary) -> Dictionary:
 
 # --- Fighter factory ---
 static func create_fighter(class_id: String, team: int, slot: int, rng, team_size: int = 5) -> Dictionary:
+	if not CLASSES.has(class_id):                # defensive: an unknown id used to crash here (and the client)
+		push_error("[gamedata] unknown classId '%s' — falling back to 'striker'" % class_id)
+		class_id = "striker"
 	var c: Dictionary = CLASSES[class_id]
 	var d: Dictionary = derive(c["stats"])
 	var bm: Dictionary = FORMAT_MODS.get(team_size, {}).get(class_id, {})

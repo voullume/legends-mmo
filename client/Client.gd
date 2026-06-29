@@ -63,6 +63,7 @@ const CAST_DUR_MAX := 1.0       # ceiling so even long-cooldown abilities (power
 
 var _state: Dictionary
 var _meshy := {}
+var _mob_cache := {}                       # mob model basename → loaded GLB PackedScene (lazy, only spawned ones)
 var _nodes := {}                          # fighter id → render node dict
 var _spawn_pos := {}                      # fighter id → Vector2 (sim) spawn for respawn
 var _respawn := {}                        # fighter id → seconds until revive
@@ -188,8 +189,22 @@ func _find_skeleton(node: Node) -> Skeleton3D:
 	return null
 
 # Returns {model, anim, anims, scale} for a fighter's sport (Meshy, or capsule fallback).
+# Glitchyard mobs (def.mob + a `model`) take a separate path: a static GLB grounded + scaled to its def
+# height, driven client-side by the procedural animator (no skeleton/clips). Anything else, or an unknown
+# id, falls through to the sport-rig path / capsule fallback.
 func _make_character(f: Dictionary) -> Dictionary:
-	var sport: String = GameData.CLASSES[f["classId"]]["sport"]
+	var cid: String = str(f["classId"])
+	if not GameData.CLASSES.has(cid):                     # defensive: unknown id used to crash the next line
+		push_warning("[client] unknown classId '%s' — capsule fallback" % cid)
+		return _capsule_kit("#cccccc")
+	var def: Dictionary = GameData.CLASSES[cid]
+	if def.get("mob", false) and def.has("model"):
+		var mk := _make_mob_character(f, def)
+		if not mk.is_empty():
+			return mk
+		# model missing/unloadable → a colored capsule so the zone still runs
+		return _capsule_kit(str(def.get("color", "#cccccc")))
+	var sport: String = def["sport"]
 	if _meshy.has(sport):
 		var entry = _meshy[sport]
 		var inst = entry["base"].instantiate()
@@ -203,15 +218,67 @@ func _make_character(f: Dictionary) -> Dictionary:
 				if not lib.has_animation(cn):
 					lib.add_animation(cn, entry["clips"][cn])
 		return {"model": inst, "anim": ap, "anims": entry["anims"], "scale": MESHY_SCALE}
-	# fallback: a colored capsule (assets missing) so the arena still runs
+	return _capsule_kit(str(def.get("color", "#cccccc")))
+
+# A colored capsule kit (used when a sport rig or a mob GLB is unavailable) so the arena still runs.
+func _capsule_kit(col: String) -> Dictionary:
 	var cap := MeshInstance3D.new()
 	var cm := CapsuleMesh.new()
 	cm.radius = 0.4
 	cm.height = 1.8
 	cap.mesh = cm
 	cap.position.y = 0.9
-	cap.material_override = _mat(GameData.CLASSES[f["classId"]].get("color", "#cccccc"))
+	cap.material_override = _mat(col)
 	return {"model": cap, "anim": null, "anims": {}, "scale": 1.0}
+
+# Lazy-load + cache a mob GLB by basename. Returns the PackedScene, or null if absent.
+func _load_mob_model(model_id: String):
+	if _mob_cache.has(model_id):
+		return _mob_cache[model_id]
+	var path := "res://models/meshy/mobs/%s.glb" % model_id
+	var scene = load(path) if ResourceLoader.exists(path) else null
+	_mob_cache[model_id] = scene
+	return scene
+
+# Merge every MeshInstance3D AABB under `node` into `acc` (a {have,aabb} dict), expressed in the frame
+# reached by `xform` (the transform from node-local up to the reference frame). Used to ground + size mobs.
+func _merge_mesh_aabb(node: Node, xform: Transform3D, acc: Dictionary) -> void:
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var a: AABB = xform * (node as MeshInstance3D).get_aabb()
+		acc["aabb"] = a if not acc["have"] else (acc["aabb"] as AABB).merge(a)
+		acc["have"] = true
+	for c in node.get_children():
+		var cx := xform
+		if c is Node3D:
+			cx = xform * (c as Node3D).transform
+		_merge_mesh_aabb(c, cx, acc)
+
+# Build a mob render kit from a static GLB: pivot → animNode (procedurally animated) → glb (imported
+# transform untouched). The glb is grounded (feet at y=0) and scaled so its rendered height == def.h.
+# Returns {} if the GLB is missing (caller falls back to a capsule).
+func _make_mob_character(f: Dictionary, def: Dictionary) -> Dictionary:
+	var skins: Array = def.get("skins", [])
+	var model_id: String = str(def.get("model", ""))
+	if skins.size() > 0:                                    # alt cosmetic skin, stable per fighter id (all clients agree)
+		model_id = str(skins[abs(str(f["id"]).hash()) % skins.size()])
+	var scene = _load_mob_model(model_id)
+	if scene == null:
+		push_warning("[client] mob model '%s' missing — capsule fallback" % model_id)
+		return {}
+	var pivot := Node3D.new()
+	var anim_node := Node3D.new()
+	pivot.add_child(anim_node)
+	var glb = scene.instantiate()
+	anim_node.add_child(glb)
+	var acc := {"have": false, "aabb": AABB()}
+	_merge_mesh_aabb(glb, glb.transform, acc)              # AABB in anim_node frame (includes glb's imported xform)
+	var aabb: AABB = acc["aabb"]
+	var size_y: float = maxf(aabb.size.y, 0.001)
+	var msc: float = float(def.get("h", 1.8)) / size_y     # scale-to-height (msc applied to pivot by _spawn)
+	var ground_y: float = -aabb.position.y                 # lift so the model's lowest point sits at y=0
+	anim_node.position.y = ground_y
+	return {"model": pivot, "anim": null, "anims": {}, "scale": msc,
+		"mob": str(def.get("anim", "dummy")), "animTarget": anim_node, "baseY": ground_y, "sizeY": size_y}
 
 # ============================================================ world / camera
 func _mat(col) -> StandardMaterial3D:
@@ -449,6 +516,12 @@ func _spawn(f: Dictionary) -> void:
 		"ui": ui, "fill": fill, "label": label, "last": holder.position, "vel": Vector2.ZERO,
 		"pcds": {}, "busy": "", "atk_clip": "", "atk_speed": 1.0, "died": false, "hit_cd": 0.0, "pflash": 0.0,
 	}
+	if kit.has("mob"):     # static-GLB mob → procedural-animator state (skeletal clip path is unused, ap == null)
+		_nodes[f["id"]]["mobanim"] = {
+			"profile": str(kit["mob"]), "target": kit.get("animTarget"),
+			"baseY": float(kit.get("baseY", 0.0)), "sizeY": float(kit.get("sizeY", 1.0)),
+			"t": 0.0, "atk": 0.0, "hit": 0.0, "death": 0.0, "pcds": {},
+		}
 
 # ============================================================ main loop
 func _process(delta: float) -> void:
@@ -762,6 +835,9 @@ func _cast_speed(ap: AnimationPlayer, clip: String, cd: float) -> float:
 	return clampf(clen / target, 1.0, 6.0)
 
 func _drive_anim(n: Dictionary, f: Dictionary, moving: bool) -> void:
+	if n.has("mobanim"):                  # static-GLB mobs: procedural transform animation, no AnimationPlayer
+		_drive_mob_anim(n, f)
+		return
 	var ap: AnimationPlayer = n["anim"]
 	if ap == null:
 		return
@@ -787,6 +863,87 @@ func _drive_anim(n: Dictionary, f: Dictionary, moving: bool) -> void:
 		var clip: String = am.get("run", "run") if moving else am.get("idle", "idle")
 		if ap.current_animation != clip or not ap.is_playing():
 			_safe_play(ap, clip)
+
+# Procedural client-side animator for static-GLB mobs. Drives the inner anim_node's Transform3D
+# (the outer pivot owns facing-yaw + base scale; the glb keeps its imported transform) from the same
+# inferred state the skeletal driver uses: movement intensity (n.vel), a rising-cooldown cast edge, the
+# hit flash, and alive/dead. Purely cosmetic → no determinism impact. Per-profile gestures keep each
+# enemy distinct (cone skitters, the dummy leans into swings, the brute winds up, the turret spins/recoils).
+func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
+	var ma: Dictionary = n["mobanim"]
+	var tgt = ma["target"]
+	if not is_instance_valid(tgt):
+		return
+	var dt := get_process_delta_time()
+	var sy: float = ma["sizeY"]
+	var by: float = ma["baseY"]
+	# death collapse — sink + topple + shrink. n["died"] gates the one-shot UI hide (and the netclient
+	# respawn-reset which restores visibility + snaps to spawn).
+	if not f["alive"]:
+		if not n["died"]:
+			n["died"] = true
+			n["ui"].visible = false
+		ma["death"] = minf(1.0, ma["death"] + dt * 2.2)
+		var dp: float = ma["death"]
+		tgt.position = Vector3(0.0, by - dp * sy * 0.42, 0.0)
+		tgt.rotation = Vector3(dp * 1.25, 0.0, dp * 0.45)
+		var ds: float = 1.0 - dp * 0.32
+		tgt.scale = Vector3(ds, ds, ds)
+		return
+	if ma["death"] > 0.0:                          # revived → clear the collapse pose
+		ma["death"] = 0.0
+	ma["t"] += dt
+	# fresh-cast detection: a cooldown that rose this frame (mirrors _detect_cast's rising edge)
+	for k in f["cds"]:
+		if f["cds"][k] > float(ma["pcds"].get(k, 0.0)) + 0.05:
+			ma["atk"] = 1.0                # fresh cast → trigger the action gesture
+			break
+	ma["pcds"] = f["cds"].duplicate()
+	if f["flash"] > 0.0 and n["pflash"] <= 0.0:   # took a hit this frame → recoil
+		ma["hit"] = 1.0
+	ma["atk"] = maxf(0.0, ma["atk"] - dt * 3.2)
+	ma["hit"] = maxf(0.0, ma["hit"] - dt * 4.0)
+
+	var prof: String = ma["profile"]
+	var a: float = ma["atk"]
+	var q: float = ma["hit"]
+	var movef: float = clampf(n["vel"].length() / 0.12, 0.0, 1.0)
+	var t: float = ma["t"]
+	var hz := 2.0
+	var amp := 0.02
+	var pitch := 0.0
+	var yaw := 0.0
+	var roll := 0.0
+	var lunge := 0.0                              # local +Z offset (small forward/back shove on action)
+	var sq := 1.0                                # uniform squash factor (1 = none)
+	match prof:
+		"cone":
+			hz = 6.5; amp = 0.05 + movef * 0.07
+			roll = sin(t * 9.0 * TAU) * 0.12 * movef     # skitter wobble side to side
+			sq = 1.0 - a * 0.18                          # squash on Trip Dash
+			lunge = a * 0.10 * sy
+		"dummy":
+			hz = 2.2; amp = 0.02 + movef * 0.025
+			pitch = a * 0.6                              # lean-forward swing
+			lunge = a * 0.08 * sy
+		"brute":
+			hz = 1.7; amp = 0.018 + movef * 0.02
+			pitch = a * 0.5                              # heavy forward lurch on Impact Charge
+			roll = sin(t * 1.2 * TAU) * 0.04             # heavy idle wobble
+			lunge = a * 0.12 * sy
+		"turret":
+			hz = 3.0; amp = 0.012
+			yaw = a * 4.0                                # Calibration Spin
+			lunge = -a * 0.06 * sy                       # barrel recoil (backward)
+		_:
+			hz = 2.0; amp = 0.02
+			pitch = a * 0.4
+	pitch += movef * 0.16                                # lean into travel
+	pitch -= q * 0.45                                   # hit flinch back
+	sq *= 1.0 - q * 0.12
+	tgt.position = Vector3(0.0, by + sin(t * hz * TAU) * amp * sy, lunge)
+	tgt.rotation = Vector3(pitch, yaw, roll)
+	tgt.scale = Vector3(sq, 1.0 + (1.0 - sq) * 0.6, sq)
 
 func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	var ui: Node3D = n["ui"]

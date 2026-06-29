@@ -70,12 +70,16 @@ const PORTALS := {
 # difficulty gradient from the arrival side). Tougher zones lean on higher `level` + tier (minion/elite/
 # boss) — _scale_mob handles the scaling, no new stat blocks. The Arena has none (it is a PvP space).
 const MOBS := {
+	# Glitchyard Phase 1: the Combat camp is re-skinned to the new sports-equipment mobs to prove the
+	# mob-framework pipeline end-to-end (the full 5-subzone glitchyard_1..5 rebuild is Phase 3). The *2
+	# GLBs (foam/shooting) are alternate cosmetic skins picked per-spawn client-side. tackle_brute fills
+	# the elite slot for now (no dedicated elites until Phase 2's summon/hazard work).
 	COMBAT: [
-		{"class": "setter",      "level": 1, "tier": "minion", "x": 600.0,  "y": 300.0},
-		{"class": "spiker",      "level": 1, "tier": "minion", "x": 600.0,  "y": 780.0},
-		{"class": "striker",     "level": 2, "tier": "minion", "x": 1150.0, "y": 300.0},
-		{"class": "batter",      "level": 2, "tier": "minion", "x": 1150.0, "y": 780.0},
-		{"class": "linebacker",  "level": 3, "tier": "elite",  "x": 1700.0, "y": 540.0},
+		{"class": "cone_swarmer",   "level": 1, "tier": "minion", "x": 600.0,  "y": 300.0},
+		{"class": "cone_swarmer",   "level": 1, "tier": "minion", "x": 600.0,  "y": 780.0},
+		{"class": "foam_dummy",     "level": 2, "tier": "minion", "x": 1150.0, "y": 300.0},
+		{"class": "shooting_dummy", "level": 2, "tier": "minion", "x": 1150.0, "y": 780.0},
+		{"class": "tackle_brute",   "level": 3, "tier": "elite",  "x": 1700.0, "y": 540.0},
 	],
 	FRONTIER: [
 		{"class": "spiker",      "level": 4, "tier": "minion", "x": 520.0,  "y": 420.0},

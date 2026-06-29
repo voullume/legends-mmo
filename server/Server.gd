@@ -320,7 +320,7 @@ func chat(pid: int, text: String) -> void:
 
 func _spawn_player(ch, level: int) -> String:
 	var cls: String = str(ch.get("class", "striker"))
-	if not GameData.CLASSES.has(cls):
+	if not GameData.CLASSES.has(cls) or GameData.is_mob(cls):   # never let a mob id spawn as a player (HUD reads c["role"])
 		cls = "striker"
 	var map: String = str(ch.get("last_map", World.HOME))
 	if not _worlds.has(map):                       # stale/unknown map (e.g. the DB default 'stadium') → home
@@ -1738,10 +1738,16 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 			if _worlds.has(m):
 				_relocate(f, s, m, World.spawn_for(m))
 		"spawn_mob":
-			var mid := _spawn_fighter("linebacker", 1, Vector2(f["x"] + 100.0, f["y"]), str(s["map"]))
+			var scls := str(args.get("class", "tackle_brute"))      # parameterized: spawn/test any (mob or class) id
+			if not GameData.CLASSES.has(scls):
+				scls = "tackle_brute"
+			var stier := str(args.get("tier", "elite"))
+			if not ["minion", "elite", "boss"].has(stier):
+				stier = "elite"
+			var mid := _spawn_fighter(scls, 1, Vector2(f["x"] + 100.0, f["y"]), str(s["map"]))
 			var mf = _find(mid)
 			mf["mobLevel"] = clampi(int(args.get("level", 3)), 1, 10)
-			mf["mobTier"] = "elite"
+			mf["mobTier"] = stier
 			_scale_mob(mf)
 		"clear_mobs":
 			var w = _worlds[str(s["map"])]
