@@ -64,6 +64,7 @@ const CAST_DUR_MAX := 1.0       # ceiling so even long-cooldown abilities (power
 var _state: Dictionary
 var _meshy := {}
 var _mob_cache := {}                       # mob model basename → loaded GLB PackedScene (lazy, only spawned ones)
+var _rigged := {}                          # rigged-mob id → {base, clips{role:Animation}, render_h, foot_y}
 var _nodes := {}                          # fighter id → render node dict
 var _spawn_pos := {}                      # fighter id → Vector2 (sim) spawn for respawn
 var _respawn := {}                        # fighter id → seconds until revive
@@ -117,6 +118,7 @@ var _tt_label: RichTextLabel
 
 func _ready() -> void:
 	_load_meshy()
+	_load_rigged_mobs()
 	_build_world()
 	_build_hud()
 	_enter_mode()
@@ -198,6 +200,11 @@ func _make_character(f: Dictionary) -> Dictionary:
 		push_warning("[client] unknown classId '%s' — capsule fallback" % cid)
 		return _capsule_kit("#cccccc")
 	var def: Dictionary = GameData.CLASSES[cid]
+	if def.get("mob", false) and def.get("rig", false):       # rigged mob → real skeletal clips (like players)
+		var rk := _make_rigged_character(f, def)
+		if not rk.is_empty():
+			return rk
+		return _capsule_kit(str(def.get("color", "#cccccc")))
 	if def.get("mob", false) and def.has("model"):
 		var mk := _make_mob_character(f, def)
 		if not mk.is_empty():
@@ -278,7 +285,62 @@ func _make_mob_character(f: Dictionary, def: Dictionary) -> Dictionary:
 	var ground_y: float = -aabb.position.y                 # lift so the model's lowest point sits at y=0
 	anim_node.position.y = ground_y
 	return {"model": pivot, "anim": null, "anims": {}, "scale": msc,
-		"mob": str(def.get("anim", "dummy")), "animTarget": anim_node, "baseY": ground_y, "sizeY": size_y}
+		"mob": str(def.get("anim", "")), "animTarget": anim_node, "baseY": ground_y, "sizeY": size_y}
+
+# Rigged mobs (the foam dummies): Meshy biped exports with real skeletal clips. render_h = the rendered
+# mesh height at model-scale 1 (≈ skeleton bone-extent × ~1.07), foot_y = the foot-bone Y at scale 1 —
+# both measured offline (tools/smoke_rigged.gd) so scale-to-height + grounding need no runtime posing.
+const RIGGED_MOBS := {
+	"foam_dummy":  {"render_h": 1.31, "foot_y": 0.075},
+	"foam_dummy2": {"render_h": 1.45, "foot_y": 0.0},   # this model's sole sits at the mesh origin (no drop)
+}
+const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death"]
+
+func _load_rigged_mobs() -> void:
+	for id in RIGGED_MOBS:
+		var base_path := "res://models/meshy/mobs/rigged/%s.glb" % id
+		if not ResourceLoader.exists(base_path):
+			continue
+		var clips := {}
+		for role in RIGGED_ROLES:
+			var cp := "res://models/meshy/mobs/rigged/clips/%s_%s.res" % [id, role]
+			if ResourceLoader.exists(cp):
+				var clip: Animation = load(cp)
+				_strip_hips_scale(clip)        # defensive: Meshy idle clips can bake a Hips scale (balloon)
+				clips[role] = clip
+		if not clips.has("idle"):              # parity with the player path: a clip-starved rig → capsule fallback
+			push_warning("[client] rigged mob '%s' missing idle clip — skipping (capsule fallback)" % id)
+			continue
+		_rigged[id] = {"base": load(base_path), "clips": clips,
+			"render_h": float(RIGGED_MOBS[id]["render_h"]), "foot_y": float(RIGGED_MOBS[id]["foot_y"])}
+	print("[client] rigged mobs loaded: ", _rigged.keys())
+
+# Build a kit from a rigged base + merged .res clips, scaled to def.h and grounded. Drives through the same
+# skeletal _drive_anim path the players use (no procedural animator). Returns {} if assets are missing.
+func _make_rigged_character(f: Dictionary, def: Dictionary) -> Dictionary:
+	var skins: Array = def.get("skins", [])
+	var id: String = str(def.get("model", ""))
+	if skins.size() > 0:
+		id = str(skins[abs(str(f["id"]).hash()) % skins.size()])
+	if not _rigged.has(id):
+		return {}
+	var entry: Dictionary = _rigged[id]
+	var inst = entry["base"].instantiate()
+	var ap := _find_anim(inst)
+	if ap != null:
+		var lib := ap.get_animation_library("")
+		if lib == null:
+			lib = AnimationLibrary.new()
+			ap.add_animation_library("", lib)
+		for role in entry["clips"]:
+			if not lib.has_animation(role):
+				lib.add_animation(role, entry["clips"][role])
+	var msc: float = float(def.get("h", 3.3)) / maxf(float(entry["render_h"]), 0.001)
+	# role → clip name (== role here); a melee mob has no ranged/cast clip
+	var anims := {"idle": "idle", "run": "run", "walk": "walk", "melee": "attack",
+		"ranged": "", "hit": "hit", "death": "death", "cast": ""}
+	return {"model": inst, "anim": ap, "anims": anims, "scale": msc,
+		"yoff": -float(entry["foot_y"]) * msc}        # drop so the foot bone sits at the floor
 
 # ============================================================ world / camera
 func _mat(col) -> StandardMaterial3D:
@@ -474,7 +536,7 @@ func _spawn(f: Dictionary) -> void:
 	var model = kit["model"]
 	var msc: float = kit["scale"]
 	model.scale = Vector3(msc, msc, msc)
-	model.position.y = CHAR_Y
+	model.position.y = CHAR_Y + float(kit.get("yoff", 0.0))   # rigged mobs carry a grounding offset
 	holder.add_child(model)
 	var ap = kit["anim"]
 	if ap != null:
@@ -520,7 +582,7 @@ func _spawn(f: Dictionary) -> void:
 		_nodes[f["id"]]["mobanim"] = {
 			"profile": str(kit["mob"]), "target": kit.get("animTarget"),
 			"baseY": float(kit.get("baseY", 0.0)), "sizeY": float(kit.get("sizeY", 1.0)),
-			"t": 0.0, "atk": 0.0, "hit": 0.0, "death": 0.0, "pcds": {},
+			"t": 0.0, "atk": 0.0, "atkType": "", "hit": 0.0, "death": 0.0, "pcds": {},
 		}
 
 # ============================================================ main loop
@@ -897,6 +959,7 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 	for k in f["cds"]:
 		if f["cds"][k] > float(ma["pcds"].get(k, 0.0)) + 0.05:
 			ma["atk"] = 1.0                # fresh cast → trigger the action gesture
+			ma["atkType"] = _ability_type(str(f["classId"]), k)   # pick a gesture matching the ability
 			break
 	ma["pcds"] = f["cds"].duplicate()
 	if f["flash"] > 0.0 and n["pflash"] <= 0.0:   # took a hit this frame → recoil
@@ -906,40 +969,50 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 
 	var prof: String = ma["profile"]
 	var a: float = ma["atk"]
+	var at: String = str(ma.get("atkType", ""))   # which ability fired → an ability-accurate gesture
 	var q: float = ma["hit"]
 	var movef: float = clampf(n["vel"].length() / 0.12, 0.0, 1.0)
 	var t: float = ma["t"]
+	# bob = vertical breathe; gestures are picked to match the ABILITY that fired (at): a melee punch leans
+	# forward, a turret shot recoils backward, a slam squashes, a guard/brace hunkers. Limbs can't articulate
+	# (static GLB, no skeleton) so whole-body motion carries it.
 	var hz := 2.0
-	var amp := 0.02
+	var amp := 0.04
 	var pitch := 0.0
 	var yaw := 0.0
 	var roll := 0.0
-	var lunge := 0.0                              # local +Z offset (small forward/back shove on action)
+	var lunge := 0.0                              # local +Z offset (forward +, recoil/back -)
 	var sq := 1.0                                # uniform squash factor (1 = none)
 	match prof:
-		"cone":
-			hz = 6.5; amp = 0.05 + movef * 0.07
-			roll = sin(t * 9.0 * TAU) * 0.12 * movef     # skitter wobble side to side
-			sq = 1.0 - a * 0.18                          # squash on Trip Dash
-			lunge = a * 0.10 * sy
-		"dummy":
-			hz = 2.2; amp = 0.02 + movef * 0.025
-			pitch = a * 0.6                              # lean-forward swing
-			lunge = a * 0.08 * sy
-		"brute":
-			hz = 1.7; amp = 0.018 + movef * 0.02
-			pitch = a * 0.5                              # heavy forward lurch on Impact Charge
-			roll = sin(t * 1.2 * TAU) * 0.04             # heavy idle wobble
-			lunge = a * 0.12 * sy
-		"turret":
-			hz = 3.0; amp = 0.012
-			yaw = a * 4.0                                # Calibration Spin
-			lunge = -a * 0.06 * sy                       # barrel recoil (backward)
+		"cone":                                     # legless cone: skitter + trip-jab hop
+			hz = 6.0; amp = 0.06 + movef * 0.07
+			roll = sin(t * 4.0 * TAU) * 0.07 + sin(t * 9.0 * TAU) * 0.12 * movef   # idle teeter + skitter
+			sq = 1.0 - a * 0.22                          # squash on jab / Trip Dash
+			lunge = a * 0.12 * sy                        # hop forward into the hit
+		"brute":                                    # legless leather bag: SLIDES on the floor, no sway/wobble
+			hz = 1.1; amp = 0.012 + movef * 0.012       # near-flat; the bag glides, it doesn't bounce
+			if at == "meleeAoe":
+				sq = 1.0 - a * 0.18                     # Rubber Slam → squash down
+			elif at == "selfbuff":
+				sq = 1.0 - a * 0.12                     # Brace Up → hunker / widen
+			else:
+				pitch = a * 0.3                         # slight forward tilt as it lurches/charges
+				lunge = a * 0.20 * sy                   # strong forward slide (Impact Charge / Bag Bash)
+		"turret":                                   # stationary cannon+shield torso: scan, recoil, shield-tilt
+			hz = 2.2; amp = 0.018
+			yaw = sin(t * 0.5 * TAU) * 0.30             # idle scan (no locomotion — it's stationary)
+			if at == "selfbuff":
+				roll = a * 0.28                         # Calibration/Reflect → tilt behind the shield
+				pitch = -a * 0.12
+			else:
+				lunge = -a * 0.11 * sy                  # cannon recoil: kick backward on a shot
+				pitch = -a * 0.10
 		_:
-			hz = 2.0; amp = 0.02
+			hz = 2.0; amp = 0.04
 			pitch = a * 0.4
-	pitch += movef * 0.16                                # lean into travel
-	pitch -= q * 0.45                                   # hit flinch back
+	pitch += movef * 0.16                                # lean into travel (skip for the stationary turret — movef≈0)
+	pitch -= q * 0.5                                    # hit flinch back
+	roll += q * sin(t * 30.0) * 0.06                    # brief shake on hit
 	sq *= 1.0 - q * 0.12
 	tgt.position = Vector3(0.0, by + sin(t * hz * TAU) * amp * sy, lunge)
 	tgt.rotation = Vector3(pitch, yaw, roll)

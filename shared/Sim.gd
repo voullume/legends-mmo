@@ -337,6 +337,11 @@ static func sim_tick(state, dt) -> void:
 			if f["moveMode"] != "approach" and d > want + 16: f["moveMode"] = "approach"
 			elif f["moveMode"] == "approach" and d < want - 2: f["moveMode"] = "orbit"
 
+		# stationary mobs (legless turrets/targets) hold position: they target + cast (above) but never
+		# relocate. step_toward/separation draw no rng, so skipping them is determinism-neutral.
+		if c.get("stationary", false):
+			continue
+
 		# execute movement
 		if hug_point != null and Vector2(hug_point["x"] - f["x"], hug_point["y"] - f["y"]).length() > 10:
 			AI.step_toward(state, f, hug_point["x"], hug_point["y"], dt)

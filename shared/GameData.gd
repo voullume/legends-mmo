@@ -143,8 +143,8 @@ const CLASSES := {
 		],
 	},
 	"foam_dummy": {
-		"name": "Foam Rookie Dummy", "sport": "", "mob": true, "model": "foam_dummy",
-		"skins": ["foam_dummy", "foam_dummy2"], "anim": "dummy", "h": 1.7,
+		"name": "Foam Rookie Dummy", "sport": "", "mob": true, "rig": true, "model": "foam_dummy",
+		"skins": ["foam_dummy", "foam_dummy2"], "h": 3.3,   # rigged: real skeletal walk/run/punch/hit/death
 		"lane": 0, "color": "#E8D44D",
 		"stats": {"PWR": 42, "PRE": 28, "SPD": 30, "END": 44, "INS": 20, "CLU": 18},
 		"abilities": [
@@ -153,7 +153,7 @@ const CLASSES := {
 		],
 	},
 	"tackle_brute": {
-		"name": "Tackle Bag Brute", "sport": "", "mob": true, "model": "tackle_brute", "anim": "brute", "h": 2.3,
+		"name": "Tackle Bag Brute", "sport": "", "mob": true, "model": "tackle_brute", "anim": "brute", "h": 3.5,
 		"lane": 0, "color": "#C0492E",
 		"stats": {"PWR": 56, "PRE": 24, "SPD": 26, "END": 70, "INS": 22, "CLU": 20},
 		"abilities": [
@@ -165,8 +165,8 @@ const CLASSES := {
 	},
 	"shooting_dummy": {
 		"name": "Shooting Dummy", "sport": "", "mob": true, "model": "shooting_dummy",
-		"skins": ["shooting_dummy", "shooting_dummy2"], "anim": "turret", "h": 1.9,
-		"lane": 2, "color": "#4DA6FF", "reflectMult": 1.4,
+		"skins": ["shooting_dummy", "shooting_dummy2"], "anim": "turret", "h": 3.2,
+		"lane": 2, "color": "#4DA6FF", "reflectMult": 1.4, "stationary": true,   # legless turret — holds position, never chases
 		"stats": {"PWR": 46, "PRE": 40, "SPD": 8, "END": 34, "INS": 28, "CLU": 18},
 		"abilities": [
 			{"key": "practiceshot", "name": "Practice Shot", "type": "projectile", "basic": true, "dmg": 38, "cd": 1.3, "range": 300, "speed": 420},
