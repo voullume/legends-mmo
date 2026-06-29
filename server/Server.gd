@@ -185,6 +185,9 @@ func _check_service_key() -> void:
 func _new_world(map: String) -> Dictionary:
 	var w: Dictionary = Sim.create_match([], [], SEED, MAP_ID)
 	w["zone"] = true                             # persistent: no match-end / no overtime ramp
+	# own map dict per world (NOT the shared GameData venue): the cover-panel rows expand into collision
+	# circles here, which unlock cover/LOS/projectile-block. The client renders the panel props from World.
+	w["map"] = {"id": map, "name": map, "obstacles": World.obstacle_circles(map)}
 	var c := World.cfg(map)                      # per-map size + regen + aggro + pvp
 	w["arenaW"] = int(c["w"])
 	w["arenaH"] = int(c["h"])
@@ -1986,6 +1989,7 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 			continue
 		if Vector2(z["x"] - center.x, z["y"] - center.y).length() <= INTEREST_RADIUS + float(z["radius"]):
 			hz.append({"x": z["x"], "y": z["y"], "radius": z["radius"], "dmg": float(z.get("dmg", 0.0))})
-	return {"fighters": fs, "projectiles": ps, "zones": hz, "events": w["events"].duplicate(true), "t": w["t"],
+	return {"fighters": fs, "projectiles": ps, "zones": hz,   # cover-panel props are read client-side from World.OBSTACLES by map name
+		"events": w["events"].duplicate(true), "t": w["t"],
 		"map": mapname, "portals": World.portals_for(mapname), "pvp": bool(w.get("pvp", false)),
 		"arenaW": int(w.get("arenaW", GameData.ARENA_W)), "arenaH": int(w.get("arenaH", GameData.ARENA_H))}

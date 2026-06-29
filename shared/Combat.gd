@@ -74,14 +74,17 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 	# 5. sudden-death overtime (skipped in a persistent zone — t grows unbounded there)
 	if state["t"] > OT_START and not state.get("zone", false):
 		dmg *= 1.0 + (state["t"] - OT_START) * 0.035
-	# 6. strike zone (own + ally projectile boost)
+	# 6. strike zone (own + ally projectile boost) — only BUFF zones whose owner class carries the boost
+	# fields (the Pitcher); a mob HAZARD zone owner (e.g. the Drill Sergeant) has neither, so .get() → 1.0
+	# (no boost). Guarded access — a missing key here used to crash the sim when a mob shot near a mob zone.
 	if opts.get("projectile", false):
 		for z in state["zones"]:
 			if Vector2(z["x"] - tgt["x"], z["y"] - tgt["y"]).length() >= z["radius"] + 30:
 				continue
 			var p = _find(state["fighters"], z["owner"])
 			if p != null and (p["id"] == src["id"] or is_ally(state, p, src)):   # own/ally zone boosts the shot
-				dmg *= GameData.CLASSES[p["classId"]]["zoneSelfBoost"] if p["id"] == src["id"] else GameData.CLASSES[p["classId"]]["zoneAllyBoost"]
+				var pc: Dictionary = GameData.CLASSES[p["classId"]]
+				dmg *= float(pc.get("zoneSelfBoost", 1.0)) if p["id"] == src["id"] else float(pc.get("zoneAllyBoost", 1.0))
 				break
 	# 7. hat trick (Striker) — NOT for proc/DOT damage (it would advance the chain + refresh hatChainT remotely)
 	if sc.has("hatTrickEvery") and not opts.get("proc", false) and not opts.get("dot", false):

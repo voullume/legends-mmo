@@ -102,6 +102,97 @@ const MOBS := {
 	],
 }
 
+# Phase 3 — per-zone cover geometry. Each entry is a PROP PANEL: {x,y, prop, len(=long-axis length, sim),
+# yaw(=long-axis direction, rad)}. `circles_from` expands a panel into a ROW of collision circles that hug
+# its rectangular footprint (so a wide barrier blocks along its whole length with no end-overhang); the
+# server feeds those circles to each world's map for collision/LOS/projectile-block. The client renders the
+# named GLB prop scaled to `len`, oriented by `yaw`. Coords are in the zone's own space (Combat 1920×1080,
+# Frontier 2200×1240); placed as cover in open lanes, clear of camps + portals.
+const PROP_DIM := {                                  # native GLB footprint (model units): long axis / depth axis
+	"barrier": {"long": 1.91, "depth": 0.69},
+	"rack":    {"long": 1.91, "depth": 0.65},
+	"bag":     {"long": 1.03, "depth": 1.03},         # square → a single round pillar
+}
+const OBSTACLE_PAD := 14.0                            # AI.separation blocks fighters at circle r + this
+
+# Expand prop panels → collision circles hugging each panel's rectangle. r is set so the block boundary
+# (r + OBSTACLE_PAD) sits ~at the panel's thin face; circles are spaced so the row blocks continuously.
+static func circles_from(entries: Array) -> Array:
+	var out := []
+	for e in entries:
+		var prop := str(e.get("prop", "barrier"))
+		var dim: Dictionary = PROP_DIM.get(prop, PROP_DIM["barrier"])
+		var L := float(e.get("len", 80.0))                       # panel length (sim, long axis)
+		var wid := L * float(dim["depth"]) / float(dim["long"])  # panel depth (sim)
+		var half := wid * 0.5
+		var inner := maxf(L - wid, 0.0)                          # span between the two end-circle centers
+		var single := inner < 1.0
+		# A single-circle pillar (the square bag) sits flush (block = face). A multi-circle WALL pulls its
+		# circles in a touch so the row's pinched "waist" between circles still reaches the panel face — i.e.
+		# no slip-through notch — at the cost of a tiny (~0.3-world) gap on the face. Block = cr + PAD.
+		var cr := maxf(half - (OBSTACLE_PAD if single else 8.0), 5.0)
+		var block := cr + OBSTACLE_PAD
+		# spacing whose between-circles waist (sqrt(block² − (s/2)²)) still covers the face `half`
+		var max_s := 2.0 * sqrt(maxf(block * block - half * half, 1.0))
+		var n := maxi(1, int(ceil(inner / maxf(max_s, 1.0))) + 1)
+		var yaw := float(e.get("yaw", 0.0))
+		var dx := cos(yaw)
+		var dy := sin(yaw)
+		for i in n:
+			var tt: float = (float(i) / float(n - 1) - 0.5) if n > 1 else 0.0
+			out.append({"x": float(e["x"]) + dx * tt * inner, "y": float(e["y"]) + dy * tt * inner, "r": cr})
+	return out
+
+static func obstacle_circles(map: String) -> Array:
+	return circles_from(OBSTACLES.get(map, []))
+
+const OBSTACLES := {
+	# Panels run perpendicular to the player's approach (yaw≈PI/2 = a N–S wall blocking the eastward push),
+	# split into lanes so the camps stay reachable. Bags are square pillars (len = footprint, single circle).
+	COMBAT: [
+		{"x": 900.0,  "y": 300.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 900.0,  "y": 780.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1150.0, "y": 540.0, "prop": "bag", "len": 36.0, "yaw": 0.0},     # heavy-bag pillar among the mid camps
+		{"x": 1425.0, "y": 420.0, "prop": "rack", "len": 130.0, "yaw": 1.5708}, {"x": 1425.0, "y": 660.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
+		{"x": 1700.0, "y": 330.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1700.0, "y": 750.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # bag pillars flanking the elite
+		{"x": 380.0,  "y": 540.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+	],
+	FRONTIER: [
+		{"x": 800.0,  "y": 420.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 800.0,  "y": 860.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1340.0, "y": 520.0, "prop": "rack", "len": 140.0, "yaw": 1.5708}, {"x": 1340.0, "y": 760.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 1600.0, "y": 400.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1600.0, "y": 880.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # bag pillars flanking the ball machine
+		{"x": 1820.0, "y": 640.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
+		{"x": 360.0,  "y": 640.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+	],
+}
+
+static func obstacles_for(map: String) -> Array:
+	return OBSTACLES.get(map, [])
+
+# Phase 3 — purely-visual decoration (no sim effect): painted drill rings ("ring") + scattered traffic
+# cones ("cone") that give each zone its training-camp identity. Read CLIENT-side from the current map (the
+# client preloads World.gd) and drawn by Client._render_decals — NOT sent over the wire.
+const DECALS := {
+	COMBAT: [
+		{"kind": "ring", "x": 960.0,  "y": 540.0, "r": 150.0},
+		{"kind": "ring", "x": 600.0,  "y": 540.0, "r": 95.0},  {"kind": "ring", "x": 1150.0, "y": 540.0, "r": 95.0},
+		{"kind": "ring", "x": 1700.0, "y": 540.0, "r": 120.0},
+		{"kind": "cone", "x": 760.0,  "y": 420.0}, {"kind": "cone", "x": 760.0,  "y": 660.0},
+		{"kind": "cone", "x": 1300.0, "y": 410.0}, {"kind": "cone", "x": 1300.0, "y": 670.0},
+		{"kind": "cone", "x": 1560.0, "y": 540.0}, {"kind": "cone", "x": 420.0,  "y": 540.0},
+	],
+	FRONTIER: [
+		{"kind": "ring", "x": 1100.0, "y": 640.0, "r": 150.0},
+		{"kind": "ring", "x": 520.0,  "y": 640.0, "r": 95.0},  {"kind": "ring", "x": 1080.0, "y": 640.0, "r": 95.0},
+		{"kind": "ring", "x": 1600.0, "y": 640.0, "r": 110.0}, {"kind": "ring", "x": 2000.0, "y": 640.0, "r": 110.0},
+		{"kind": "cone", "x": 720.0,  "y": 520.0}, {"kind": "cone", "x": 720.0,  "y": 760.0},
+		{"kind": "cone", "x": 1300.0, "y": 520.0}, {"kind": "cone", "x": 1300.0, "y": 760.0},
+		{"kind": "cone", "x": 1830.0, "y": 540.0}, {"kind": "cone", "x": 1830.0, "y": 740.0},
+	],
+}
+
+static func decals_for(map: String) -> Array:
+	return DECALS.get(map, [])
+
 static func cfg(map: String) -> Dictionary:
 	return MAPS.get(map, MAPS[HOME])
 

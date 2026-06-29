@@ -65,6 +65,7 @@ var _state: Dictionary
 var _meshy := {}
 var _mob_cache := {}                       # mob model basename → loaded GLB PackedScene (lazy, only spawned ones)
 var _rigged := {}                          # rigged-mob id → {base, clips{role:Animation}, render_h, foot_y}
+var _prop_cache := {}                       # prop id → {scene, aabb, foot} (cover-barrier GLBs, lazy)
 var _nodes := {}                          # fighter id → render node dict
 var _spawn_pos := {}                      # fighter id → Vector2 (sim) spawn for respawn
 var _respawn := {}                        # fighter id → seconds until revive
@@ -90,6 +91,10 @@ var _portal_root: Node3D = null            # portal pad visuals (rebuilt when th
 var _portals_sig := ""
 var _zone_root: Node3D = null              # hazard-zone ground discs (rebuilt when zones change)
 var _zones_sig := ""
+var _obstacle_root: Node3D = null          # cover/obstacle barriers (rebuilt when the zone's obstacles change)
+var _obstacles_sig := ""
+var _decal_root: Node3D = null             # purely-visual decals (drill rings + cones), rebuilt on map change
+var _decals_sig := ""
 var _ground: MeshInstance3D                # floor planes, resized when the arena (map) size changes
 var _field: MeshInstance3D
 var _arena_sig := ""
@@ -286,6 +291,7 @@ func _make_mob_character(f: Dictionary, def: Dictionary) -> Dictionary:
 	var msc: float = float(def.get("h", 1.8)) / size_y     # scale-to-height (msc applied to pivot by _spawn)
 	var ground_y: float = -aabb.position.y                 # lift so the model's lowest point sits at y=0
 	anim_node.position.y = ground_y
+	glb.rotation.y += deg_to_rad(float(def.get("face", 0.0)))   # per-model native-front correction (Y-rot: no effect on height/ground)
 	return {"model": pivot, "anim": null, "anims": {}, "scale": msc,
 		"mob": str(def.get("anim", "")), "animTarget": anim_node, "baseY": ground_y, "sizeY": size_y}
 
@@ -295,8 +301,9 @@ func _make_mob_character(f: Dictionary, def: Dictionary) -> Dictionary:
 const RIGGED_MOBS := {
 	"foam_dummy":  {"render_h": 1.31, "foot_y": 0.075},
 	"foam_dummy2": {"render_h": 1.45, "foot_y": 0.0},   # this model's sole sits at the mesh origin (no drop)
+	"drill_sergeant": {"render_h": 1.71, "foot_y": 0.03},   # Devil Drill Sergeant (also has a cast/shout clip)
 }
-const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death"]
+const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death", "cast"]
 
 func _load_rigged_mobs() -> void:
 	for id in RIGGED_MOBS:
@@ -338,9 +345,10 @@ func _make_rigged_character(f: Dictionary, def: Dictionary) -> Dictionary:
 			if not lib.has_animation(role):
 				lib.add_animation(role, entry["clips"][role])
 	var msc: float = float(def.get("h", 3.3)) / maxf(float(entry["render_h"]), 0.001)
-	# role → clip name (== role here); a melee mob has no ranged/cast clip
+	# role → clip name (== role here); ranged is unused; cast only if the rig exported one (the drill shouts)
+	var clips: Dictionary = entry["clips"]
 	var anims := {"idle": "idle", "run": "run", "walk": "walk", "melee": "attack",
-		"ranged": "", "hit": "hit", "death": "death", "cast": ""}
+		"ranged": "", "hit": "hit", "death": "death", "cast": ("cast" if clips.has("cast") else "")}
 	return {"model": inst, "anim": ap, "anims": anims, "scale": msc,
 		"yoff": -float(entry["foot_y"]) * msc}        # drop so the foot bone sits at the floor
 
@@ -664,7 +672,112 @@ func _render_world(delta: float) -> void:
 	_resize_arena()
 	_render_portals()
 	_render_zones()
+	_render_obstacles()
+	_render_decals()
 	_update_hud()
+
+# Draw the zone's purely-visual decoration (training drill rings + traffic cones) for camp identity. Read
+# from World.DECALS for the current map (client-side, not sent over the wire); rebuilt only on a map change.
+func _render_decals() -> void:
+	var decals: Array = _state["decals"] if _state.has("decals") else World.decals_for(str(_state.get("map", "")))
+	var sig := JSON.stringify(decals)
+	if sig == _decals_sig:
+		return
+	_decals_sig = sig
+	if _decal_root != null:
+		_decal_root.queue_free()
+		_decal_root = null
+	if decals.is_empty() or _world_root == null:
+		return
+	_decal_root = Node3D.new()
+	_world_root.add_child(_decal_root)
+	for d in decals:
+		var pos := Vector3((float(d["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(d["y"]) - _ah() / 2.0) * SCALE)
+		if str(d["kind"]) == "ring":
+			var ring := MeshInstance3D.new()
+			var tm := TorusMesh.new()
+			var rr: float = float(d["r"]) * SCALE
+			tm.outer_radius = rr
+			tm.inner_radius = rr - 0.18                  # a thin painted line
+			ring.mesh = tm
+			var rmat := _mat(Color(0.95, 0.82, 0.25))    # painted yellow
+			rmat.emission_enabled = true
+			rmat.emission = Color(0.95, 0.82, 0.25)
+			rmat.emission_energy_multiplier = 0.3
+			ring.material_override = rmat
+			ring.position = pos + Vector3(0.0, 0.04, 0.0)
+			_decal_root.add_child(ring)
+		elif str(d["kind"]) == "cone":
+			var cone := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.0
+			cm.bottom_radius = 0.32
+			cm.height = 0.8
+			cone.mesh = cm
+			cone.material_override = _mat(Color(1.0, 0.45, 0.1))   # traffic orange
+			cone.position = pos + Vector3(0.0, 0.4, 0.0)
+			_decal_root.add_child(cone)
+		elif str(d["kind"]) == "prop":                       # set-dressing GLB (e.g. the heavy bag) — no collision
+			var pe := _prop_entry(str(d.get("model", "bag")))
+			if pe["scene"] != null:
+				var pi = pe["scene"].instantiate()
+				var psc: float = float(d.get("h", 3.0)) / float(pe["h"])
+				pi.scale = Vector3(psc, psc, psc)
+				pi.position = pos + Vector3(0.0, -float(pe["min_y"]) * psc, 0.0)
+				pi.rotation.y = float(d.get("yaw", 0.0))
+				_decal_root.add_child(pi)
+
+# Draw the zone's cover obstacles (sent in the snapshot) as themed padded training barriers — navy pads
+# with a yellow safety stripe. They double as the gameplay cover (collision/LOS/projectile-block live in
+# the sim) and the zone's visual identity. Rebuilt only when the obstacle set changes (per zone), like portals.
+const OBSTACLE_PAD := 14.0                            # the sim blocks fighters at obstacle r + this (AI.separation) — fill the prop to here so there's no gap
+
+# Lazily load a prop GLB + its AABB (footprint + height + ground offset), cached.
+func _prop_entry(id: String) -> Dictionary:
+	if _prop_cache.has(id):
+		return _prop_cache[id]
+	var path := "res://models/meshy/props/%s.glb" % id
+	var e := {"scene": null, "min_y": 0.0, "foot": 1.0, "h": 1.0}
+	if ResourceLoader.exists(path):
+		e["scene"] = load(path)
+		var inst = e["scene"].instantiate()
+		var acc := {"have": false, "aabb": AABB()}
+		_merge_mesh_aabb(inst, inst.transform, acc)
+		inst.free()
+		var a: AABB = acc["aabb"]
+		e["min_y"] = a.position.y
+		e["foot"] = maxf(maxf(a.size.x, a.size.z), 0.001)
+		e["h"] = maxf(a.size.y, 0.001)
+	_prop_cache[id] = e
+	return e
+
+func _render_obstacles() -> void:
+	# the cover-panel entries ({x,y,prop,len,yaw}) come from World by map (client-side, like decals), or the
+	# debug override in the --practice sandbox. The prop is scaled to `len` (uniform → depth/height follow)
+	# and oriented along `yaw` to line up with the collision-circle row the server generated from the same data.
+	var obs: Array = _state["obstacles"] if _state.has("obstacles") else World.obstacles_for(str(_state.get("map", "")))
+	var sig := JSON.stringify(obs)
+	if sig == _obstacles_sig:
+		return
+	_obstacles_sig = sig
+	if _obstacle_root != null:
+		_obstacle_root.queue_free()
+		_obstacle_root = null
+	if obs.is_empty() or _world_root == null:
+		return
+	_obstacle_root = Node3D.new()
+	_world_root.add_child(_obstacle_root)
+	for o in obs:
+		var pos := Vector3((float(o["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(o["y"]) - _ah() / 2.0) * SCALE)
+		var e := _prop_entry(str(o.get("prop", "barrier")))
+		if e["scene"] == null:
+			continue
+		var inst = e["scene"].instantiate()
+		var sc: float = float(o.get("len", 80.0)) * SCALE / float(e["foot"])   # uniform: footprint long axis → len, full natural height
+		inst.scale = Vector3(sc, sc, sc)
+		inst.position = pos + Vector3(0.0, -float(e["min_y"]) * sc, 0.0)   # ground (feet at y=0)
+		inst.rotation.y = -float(o.get("yaw", 0.0))        # align the prop's long axis with the panel direction
+		_obstacle_root.add_child(inst)
 
 # Draw hazard zones (damaging/slow ground areas, sent in the snapshot) as translucent emissive discs so
 # players can see + avoid them. Rebuilt only when the set changes (cheap), like _render_portals. Red =
@@ -916,7 +1029,7 @@ func _detect_cast(n: Dictionary, f: Dictionary) -> void:
 				atk = am.get("ranged", "")
 			elif t == "melee" or t == "meleeAoe" or t == "dashAttack" or t == "leapAttack":
 				atk = am.get("melee", "")
-			elif t == "selfbuff" or t == "allybuff" or t == "allyheal" or t == "teamheal" or t == "zone" or t == "barrier":
+			elif t == "selfbuff" or t == "allybuff" or t == "allyheal" or t == "teamheal" or t == "zone" or t == "barrier" or t == "summon":
 				atk = am.get("cast", "")
 			if atk != "":
 				spd = _cast_speed(n["anim"], atk, float(f["cds"][k]))   # snap to the ability's cadence

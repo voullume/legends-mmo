@@ -177,9 +177,8 @@ const CLASSES := {
 	# ── Glitchyard ELITES (Phase 2) ── new primitives: `summon` (server-spawned adds) + hazard `zone`
 	# (dmg/slow ground area). Sled + Ball Machine are reuse-only; the Drill Sergeant drives both new ones.
 	"drill_sergeant": {
-		"name": "Drill Sergeant Dummy", "sport": "", "mob": true, "model": "drill_sergeant",
-		"skins": ["drill_sergeant", "drill_sergeant2"], "anim": "sergeant", "h": 2.6,
-		"lane": 0, "color": "#9AA86B",
+		"name": "Drill Sergeant Dummy", "sport": "", "mob": true, "rig": true, "model": "drill_sergeant", "h": 2.9,
+		"lane": 0, "color": "#9AA86B",   # rigged: real skeletal idle/run/punch/hit/death + a shout on cast/summon
 		"stats": {"PWR": 48, "PRE": 30, "SPD": 30, "END": 60, "INS": 30, "CLU": 22},
 		"abilities": [
 			{"key": "raporder", "name": "Bark Order", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 62},
@@ -190,6 +189,7 @@ const CLASSES := {
 	},
 	"sled_juggernaut": {
 		"name": "Blocking Sled Juggernaut", "sport": "", "mob": true, "model": "sled_juggernaut", "anim": "brute", "h": 2.9,
+		"face": 90.0,                        # model's native front is 90° off — rotate it to face its target
 		"lane": 0, "color": "#5566AA",
 		"stats": {"PWR": 60, "PRE": 22, "SPD": 18, "END": 90, "INS": 20, "CLU": 20},
 		"abilities": [
@@ -201,6 +201,7 @@ const CLASSES := {
 	},
 	"ball_machine": {
 		"name": "Overclocked Ball Machine", "sport": "", "mob": true, "model": "ball_machine", "anim": "turret", "h": 2.4,
+		"face": 90.0,                        # native front 90° off (same correction as the sled, empirically)
 		"lane": 2, "color": "#D08A2E", "stationary": true,   # turret — holds position
 		"stats": {"PWR": 52, "PRE": 45, "SPD": 8, "END": 40, "INS": 28, "CLU": 18},
 		"abilities": [
