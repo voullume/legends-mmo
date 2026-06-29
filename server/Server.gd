@@ -212,6 +212,8 @@ func _spawn_world_actors() -> void:
 			f["mobLevel"] = int(m["level"])
 			f["mobTier"] = str(m["tier"])
 			_scale_mob(f)
+			if GameData.CLASSES.get(str(m["class"]), {}).get("isCore", false):
+				f["isCore"] = true                   # destructible power core: no loot/XP, gates the boss ult, respawns
 
 func _mob_count() -> int:
 	var n := 0
@@ -1248,6 +1250,9 @@ func _update_mob_ai(w: Dictionary) -> void:
 			f["y"] = spawn.y
 			if was:                                             # heal to full only on the engage→disengage edge
 				f["hp"] = f["maxHP"]
+				f["phase"] = 0                                  # boss: a leashed boss re-runs its phases + re-fires threshold summons on the next pull
+				f["_threshSummoned"] = {}
+				f["casting"] = null                             # drop any in-progress ult telegraph (else a leashed boss shows a phantom Full Camp Reset countdown)
 	w["frozenIds"] = frozen
 
 func _award_kills() -> void:
@@ -1256,7 +1261,7 @@ func _award_kills() -> void:
 			if ev.get("type") != "kill":
 				continue
 			var victim = _find(ev["victim"])
-			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false):  # mobs only; not the dummy or summoned adds (anti-farm)
+			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false) or victim.get("isCore", false):  # mobs only; not the dummy, summoned adds, or power cores (anti-farm)
 				continue
 			for pid in _peers:
 				if _session[pid]["fid"] == ev["killer"]:
@@ -1954,7 +1959,9 @@ func _broadcast() -> void:
 func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dictionary) -> Dictionary:
 	var fs := []
 	for f in w["fighters"]:
-		if Vector2(f["x"] - center.x, f["y"] - center.y).length() <= INTEREST_RADIUS:
+		# always ship the BOSS (phased) regardless of interest distance — its arena-wide ult can hit you from
+		# the far edge (> INTEREST_RADIUS), so its telegraph/phase/scoreboard must always reach every client here.
+		if Vector2(f["x"] - center.x, f["y"] - center.y).length() <= INTEREST_RADIUS or GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false):
 			var d := {
 				"id": f["id"], "classId": f["classId"], "team": f["team"],
 				"x": f["x"], "y": f["y"], "hp": f["hp"], "maxHP": f["maxHP"],
@@ -1977,6 +1984,13 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				d["mobTier"] = str(f.get("mobTier", "minion"))
 				if f.get("dummy", false):
 					d["dummy"] = true
+				if f.get("isCore", false):
+					d["isCore"] = true            # client renders the destructible power core
+				if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false):
+					d["phase"] = int(f.get("phase", 0))   # boss: drives per-phase emissive + the scoreboard
+					var cst = f.get("casting", null)       # Full Camp Reset telegraph countdown (scoreboard + screen tint)
+					if cst != null and str(cst.get("key", "")) == "campreset":
+						d["ultCast"] = maxf(0.0, float(cst["total"]) - float(cst["t"]))
 			fs.append(d)
 	var ps := []
 	for p in w["projectiles"]:

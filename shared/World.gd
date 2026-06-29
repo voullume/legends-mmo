@@ -15,6 +15,7 @@ const GY2 := "glitchyard_2"                 # Agility Grid   — lvl 2-3 + the t
 const GY3 := "glitchyard_3"                 # Impact Lanes   — lvl 4-5 + the Sled Juggernaut elite
 const GY4 := "glitchyard_4"                 # Target Court   — lvl 5-6 + the Ball Machine turret elite
 const GY5 := "glitchyard_5"                 # Command Tower  — lvl 7-8 + the Drill Sergeant summoner elite
+const GY_BOSS := "glitchyard_boss"          # the Head Coach arena (Phase 4) — hangs off GY5's reserved east pad
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
@@ -24,6 +25,7 @@ const GY2_SPAWN := Vector2(200, 450)
 const GY3_SPAWN := Vector2(220, 490)
 const GY4_SPAWN := Vector2(220, 520)
 const GY5_SPAWN := Vector2(220, 550)
+const GYB_SPAWN := Vector2(160, 420)         # boss arena: arrive far WEST, well clear of the central boss camp
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
@@ -38,6 +40,7 @@ const MAPS := {
 	GY3:   {"type": "combat", "w": 1800, "h": 980,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY3_SPAWN},
 	GY4:   {"type": "combat", "w": 1900, "h": 1040, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY4_SPAWN},
 	GY5:   {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY5_SPAWN},
+	GY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYB_SPAWN},
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 }
 
@@ -79,9 +82,15 @@ const PORTALS := {
 		{"x": 1800.0, "y": 520.0,  "to": GY5,  "tx": 220.0,  "ty": 550.0, "label": "▶ Command Tower"},
 	],
 	GY5: [
-		# the forward pad (→ the head_coach boss arena) lands in Phase 4; for now GY5 is the chain's end.
 		# GY4 has TWO elites (mid sled @980,700 + east ball @1580) — drop WEST of both, in the entry lane.
-		{"x": 120.0,  "y": 550.0,  "to": GY4,  "tx": 600.0,  "ty": 520.0, "label": "◀ Target Court"},
+		{"x": 120.0,  "y": 550.0,  "to": GY4,     "tx": 600.0,  "ty": 520.0, "label": "◀ Target Court"},
+		# the reserved east pad → the Head Coach arena (placed clear of the drill camp @1620,550, > AGGRO 320)
+		{"x": 1900.0, "y": 350.0,  "to": GY_BOSS, "tx": 160.0,  "ty": 420.0, "label": "▶ Head Coach Arena"},
+	],
+	GY_BOSS: [
+		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). Boss camp is central-east, far
+		# from this west pad, so an arriving group isn't insta-pulled.
+		{"x": 90.0,   "y": 420.0,  "to": GY5,     "tx": 1500.0, "ty": 250.0, "label": "◀ Command Tower"},
 	],
 	ARENA: [
 		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -129,6 +138,13 @@ const MOBS := {
 		{"class": "shooting_dummy",  "level": 7, "tier": "minion", "x": 1000.0, "y": 360.0},
 		{"class": "ball_machine",    "level": 7, "tier": "elite",  "x": 1000.0, "y": 740.0},
 		{"class": "drill_sergeant",  "level": 8, "tier": "elite",  "x": 1620.0, "y": 550.0},
+	],
+	GY_BOSS: [  # the Head Coach Prototype (sole boss, ×6 HP) + 4 destructible power cores gating its ult.
+		{"class": "head_coach", "level": 8, "tier": "boss",   "x": 880.0,  "y": 410.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 720.0,  "y": 250.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 720.0,  "y": 570.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 1050.0, "y": 250.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 1050.0, "y": 570.0},
 	],
 }
 
@@ -204,6 +220,13 @@ const OBSTACLES := {
 		{"x": 1320.0, "y": 550.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
 		{"x": 1620.0, "y": 380.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1620.0, "y": 720.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the drill (cover vs its hazard + adds)
 	],
+	GY_BOSS: [  # cover walls placed mid-arena so players can break LOS to the central boss (@880,410) and be
+		# SPARED by the Full Camp Reset ult — the counterplay only works if real LOS-blockers exist.
+		{"x": 600.0, "y": 250.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 600.0, "y": 570.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 640.0, "y": 410.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 430.0, "y": 410.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
+	],
 }
 
 static func obstacles_for(map: String) -> Array:
@@ -232,6 +255,10 @@ const DECALS := {
 	GY5: [
 		{"kind": "ring", "x": 1000.0, "y": 550.0, "r": 150.0}, {"kind": "ring", "x": 1620.0, "y": 550.0, "r": 120.0},
 		{"kind": "cone", "x": 760.0, "y": 360.0}, {"kind": "cone", "x": 760.0, "y": 740.0}, {"kind": "cone", "x": 1320.0, "y": 550.0},
+	],
+	GY_BOSS: [
+		{"kind": "ring", "x": 880.0, "y": 410.0, "r": 190.0}, {"kind": "ring", "x": 600.0, "y": 410.0, "r": 120.0},
+		{"kind": "cone", "x": 760.0, "y": 410.0}, {"kind": "cone", "x": 430.0, "y": 250.0}, {"kind": "cone", "x": 430.0, "y": 570.0},
 	],
 }
 

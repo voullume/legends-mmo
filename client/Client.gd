@@ -212,6 +212,8 @@ func _make_character(f: Dictionary) -> Dictionary:
 		if not rk.is_empty():
 			return rk
 		return _capsule_kit(str(def.get("color", "#cccccc")))
+	if def.get("isCore", false):                              # power core — a procedural glowing crystal (no GLB)
+		return _make_core_kit(def)
 	if def.get("mob", false) and def.has("model"):
 		var mk := _make_mob_character(f, def)
 		if not mk.is_empty():
@@ -294,6 +296,35 @@ func _make_mob_character(f: Dictionary, def: Dictionary) -> Dictionary:
 	glb.rotation.y += deg_to_rad(float(def.get("face", 0.0)))   # per-model native-front correction (Y-rot: no effect on height/ground)
 	return {"model": pivot, "anim": null, "anims": {}, "scale": msc,
 		"mob": str(def.get("anim", "")), "animTarget": anim_node, "baseY": ground_y, "sizeY": size_y}
+
+# Power core — a procedural floating crystal (emissive), no GLB. Players destroy it to weaken the boss ult.
+func _make_core_kit(def: Dictionary) -> Dictionary:
+	var h: float = float(def.get("h", 2.0))
+	var pivot := Node3D.new()
+	var anim_node := Node3D.new()
+	pivot.add_child(anim_node)
+	var crystal := MeshInstance3D.new()
+	var pm := PrismMesh.new()
+	pm.size = Vector3(h * 0.55, h * 0.9, h * 0.55)
+	crystal.mesh = pm
+	var col := Color(0.22, 0.78, 1.0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 2.4
+	crystal.material_override = mat
+	crystal.position.y = h * 0.55                       # float above the pad
+	anim_node.add_child(crystal)
+	# a small base disc so it reads as an objective
+	var base := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = h * 0.42; cm.bottom_radius = h * 0.42; cm.height = 0.08
+	base.mesh = cm
+	base.material_override = _mat("#2a6a88")
+	anim_node.add_child(base)
+	return {"model": pivot, "anim": null, "anims": {}, "scale": 1.0,
+		"mob": "core", "animTarget": anim_node, "baseY": 0.0, "sizeY": h}
 
 # Rigged mobs (the foam dummies): Meshy biped exports with real skeletal clips. render_h = the rendered
 # mesh height at model-scale 1 (≈ skeleton bone-extent × ~1.07), foot_y = the foot-bone Y at scale 1 —
@@ -566,7 +597,9 @@ func _spawn(f: Dictionary) -> void:
 			ba.add_child(prop)
 
 	var ui := Node3D.new()
-	ui.position.y = UI_Y
+	var udef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
+	# lift the nameplate/scoreboard clear above tall mobs (e.g. the 4.6-tall boss) instead of overlapping them
+	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) + 0.8) if bool(udef.get("mob", false)) else UI_Y
 	holder.add_child(ui)
 	ui.add_child(_quad(BAR_W + 0.08, BAR_H + 0.08, Color(0, 0, 0, 0.6)))
 	var fill := _quad(BAR_W, BAR_H, Color(0.3, 0.85, 0.4))
@@ -1165,6 +1198,22 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 			roll = sin(t * 1.6 * TAU) * 0.04            # subtle idle sway
 			pitch = 0.06 + a * 0.5                      # constant command lean + bark/clipboard jab forward on action
 			lunge = a * 0.09 * sy
+		"boss":                                     # the Head Coach — heavy + deliberate, more agitated each phase
+			var ph: int = int(f.get("phase", 0))
+			var uc: float = float(f.get("ultCast", 0.0))
+			hz = 1.4 + ph * 0.25; amp = 0.05 + movef * 0.03 + ph * 0.008
+			roll = sin(t * 1.3 * TAU) * (0.04 + ph * 0.015)   # idle sway, edgier late-fight
+			pitch = 0.05 + a * 0.45                     # command lean + lunge on a clipboard/sled action
+			lunge = a * 0.12 * sy
+			if at == "meleeAoe": sq = 1.0 - a * 0.20    # Pancake/Shockwave slam squash
+			if uc > 0.0:                                # Full Camp Reset wind-up: rear back, rise, and heave
+				pitch = -0.32
+				amp = 0.11
+				sq = 1.0 + 0.10 * sin(t * 12.0)
+		"core":                                     # power core — float, slow spin, gentle pulse
+			hz = 1.6; amp = 0.05
+			yaw = t * 0.8
+			sq = 1.0 + sin(t * 3.0) * 0.04
 		_:
 			hz = 2.0; amp = 0.04
 			pitch = a * 0.4
@@ -1188,12 +1237,24 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	if f.get("dummy", false):
 		label.text = "Training Dummy"
 		label.modulate = Color(0.72, 0.74, 0.8)
+	elif f.get("isCore", false):
+		label.text = "◈ POWER CORE"
+		label.modulate = Color(0.32, 0.86, 1.0)
 	elif f.has("mobTier"):
 		var tier: String = str(f["mobTier"])
 		var lvl := int(f.get("mobLevel", 1))
 		if tier == "boss":
-			label.text = "Lv %d  ☠ BOSS" % lvl
-			label.modulate = Color(1.0, 0.3, 0.32)
+			# the boss "scoreboard": current quarter/phase + an explicit Full Camp Reset countdown warning
+			var ph := int(f.get("phase", 0))
+			var uc := float(f.get("ultCast", 0.0))
+			if uc > 0.0:
+				label.text = "⚠  FULL CAMP RESET  %d  ⚠\nBREAK LINE OF SIGHT!" % int(ceil(uc))
+				label.modulate = Color(1.0, 0.2, 0.2)
+			else:
+				var pn := ["EVALUATION", "CONDITIONING", "CONTACT", "RUN IT AGAIN"]
+				var pcol := [Color(1.0, 0.6, 0.42), Color(1.0, 0.48, 0.32), Color(1.0, 0.34, 0.26), Color(1.0, 0.22, 0.22)]
+				label.text = "Lv %d  ☠ HEAD COACH\nQ%d · %s" % [lvl, ph + 1, pn[clampi(ph, 0, 3)]]
+				label.modulate = pcol[clampi(ph, 0, 3)]
 		elif tier == "elite":
 			label.text = "Lv %d  ★ ELITE" % lvl
 			label.modulate = Color(1.0, 0.55, 0.4)

@@ -67,6 +67,7 @@ static func desired_range(class_id) -> float:
 		if a.get("basic", false):
 			basic = a
 			break
+	if basic == null: return 50.0          # ability-less mob (e.g. power_core): guards the null deref below — the return is unused for movement (it's stationary), but the guard is load-bearing
 	if basic["type"] == "melee": return 50.0
 	return min(float(basic["range"]) - 40.0, 250.0)
 

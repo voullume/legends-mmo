@@ -153,6 +153,31 @@ static func sim_tick(state, dt) -> void:
 		if not f["alive"]: continue
 		var c = GameData.CLASSES[f["classId"]]
 
+		# BOSS PHASE SYSTEM (Phase 4) — advance f["phase"] 0→3 by HP fraction (MONOTONIC, never regresses on
+		# heal/lifesteal), and on ENTERING a new phase fire a one-time reinforcement summon. Pure hp/maxHP
+		# compares → ZERO rng; the summon append draws no rng + rides the existing idempotent _consume_summons
+		# bridge. Gated on the boss-only "phased" marker so f["phase"] stays 0 for every player → this whole
+		# block is a structural no-op in the AI/harness path (byte-identity preserved). Latched per phase so
+		# the up-to-5 catch-up sub-steps per frame can't re-fire the wave.
+		if c.get("phased", false):
+			var frac: float = f["hp"] / f["maxHP"]
+			var np: int = 0
+			if frac < 0.15: np = 3
+			elif frac < 0.40: np = 2
+			elif frac < 0.70: np = 1
+			var op: int = int(f.get("phase", 0))
+			if np > op:
+				f["phase"] = np
+				var ts = c.get("threshSummon", null)
+				if ts != null:
+					var latch: Dictionary = f.get("_threshSummoned", {})
+					for ph in range(op + 1, np + 1):   # fire a wave for EACH band newly crossed (a single-tick multi-band burst can't skip waves)
+						if not latch.get(ph, false):
+							latch[ph] = true
+							state["events"].append({"type": "summon", "owner": f["id"], "mobType": str(ts["mobType"]),
+								"count": int(ts.get("count", 1)), "x": f["x"], "y": f["y"], "t": state["t"]})
+					f["_threshSummoned"] = latch
+
 		# timers
 		for k in f["cds"]:
 			f["cds"][k] = max(0.0, f["cds"][k] - dt)
@@ -248,6 +273,23 @@ static func sim_tick(state, dt) -> void:
 					Abilities.exec_dash_attack(state, f, ctgt, ab)
 				elif ab["type"] == "leapAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):
 					Combat.deal_damage(state, f, ctgt, ab["dmg"], {"melee": true, "airborne": ab.get("airborne", false), "key": ab["key"]})
+				elif ab["type"] == "campreset":
+					# Full Camp Reset — arena-wide AoE. Counterplay: (1) COVER — a hostile whose LOS to the boss
+					# is blocked by an obstacle is SPARED; (2) POWER CORES — damage scales by the fraction of the
+					# boss's power cores still alive (kill them during the 3s cast to weaken/cancel). Iterates
+					# fighters in fixed array order, opts.dot → ZERO rng (no crit roll) no matter the target count.
+					var core_total: int = int(c.get("coreCount", 0))
+					var mult: float = 1.0
+					if core_total > 0:
+						var cores_now: int = 0
+						for e in fighters:
+							if e["alive"] and e.get("isCore", false) and Combat.is_ally(state, f, e):
+								cores_now += 1
+						mult = float(cores_now) / float(core_total)
+					if mult > 0.0:
+						for e in fighters:
+							if Combat.is_hostile(state, f, e) and e["alive"] and not e.get("isCore", false) and Geom.has_los(state, e, f):
+								Combat.deal_damage(state, f, e, ab["dmg"] * mult, {"dot": true, "key": ab["key"]})
 				f["casting"] = null
 			continue
 
@@ -280,6 +322,7 @@ static func sim_tick(state, dt) -> void:
 		# offensive ability: ult > special > basic
 		for ab in _ab_order(c):
 			if f["cds"][ab["key"]] > 0: continue
+			if int(ab.get("phase", 0)) > int(f.get("phase", 0)): continue   # BOSS: phase-locked ability not yet unlocked (no-op for players — both default 0)
 			if ab["type"] == "allybuff" or ab["type"] == "allyheal" or ab["type"] == "teamheal": continue
 			if ab.get("ult", false) and target["hp"] / target["maxHP"] > 0.7 and state["t"] < 8: continue
 			if Abilities.try_cast(state, f, ab, target):

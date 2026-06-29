@@ -210,6 +210,42 @@ const CLASSES := {
 			{"key": "overcharge", "name": "Overcharged Cannon", "type": "projectile", "dmg": 92, "cd": 8.5, "range": 340, "speed": 360, "stun": 0.6},
 		],
 	},
+	# THE BOSS (Phase 4). tier:"boss" (×6 HP via _scale_mob). "phased":true → the Sim runs the HP-fraction
+	# phase system: f["phase"] climbs 0→3 across HP bands 100-70 / 70-40 / 40-15 / 15-0, abilities are tagged
+	# with a "phase" and unlock at/above it (min-unlock), and ENTERING a new phase fires the one-time
+	# "threshSummon" cone wave. The Full Camp Reset ult (type "campreset", phase 3) is an arena-wide AoE that
+	# spares fighters whose LOS to the boss is blocked by cover, and is cancelled/weakened by destroying the
+	# arena power cores (coreCount). Static GLB + the "boss" procedural animator + per-phase emissive.
+	"head_coach": {
+		"name": "Head Coach Prototype", "sport": "", "mob": true, "model": "head_coach", "anim": "boss", "h": 4.6,
+		"lane": 0, "color": "#C0392B", "phased": true, "coreCount": 4,
+		"threshSummon": {"mobType": "cone_swarmer", "count": 2},   # P1/P2/P3 entry each calls a cone wave (SUMMON_CAP-bounded)
+		"stats": {"PWR": 56, "PRE": 34, "SPD": 26, "END": 86, "INS": 30, "CLU": 24},
+		"abilities": [
+			# the ult is listed first so _ab_order tries it first among "specials" once unlocked (phase 3) + off cd
+			{"key": "campreset", "name": "Full Camp Reset", "type": "campreset", "dmg": 120, "cd": 15.0, "cast": 3.0, "phase": 3},
+			# P0 Evaluation
+			{"key": "barkpoint", "name": "Point & Bark", "type": "melee", "basic": true, "dmg": 38, "cd": 1.4, "range": 70, "phase": 0},
+			{"key": "clipcheck", "name": "Clipboard Check", "type": "meleeAoe", "dmg": 40, "cd": 6.0, "radius": 95, "cast": 0.5, "phase": 0},
+			{"key": "whistle", "name": "Whistle Burst", "type": "meleeAoe", "dmg": 18, "cd": 9.0, "radius": 125, "stun": 0.8, "cast": 0.4, "phase": 0},
+			{"key": "formcorrect", "name": "Form Correction", "type": "dashAttack", "dmg": 60, "cd": 8.0, "dist": 190, "cast": 0.4, "phase": 0},
+			# P1 Conditioning
+			{"key": "ladderlock", "name": "Ladder Lock", "type": "zone", "cd": 12.0, "radius": 120, "dur": 5.0, "slow": {"amt": 0.35, "dur": 0.6}, "phase": 1},
+			{"key": "shockwave", "name": "Hurdle Shockwave", "type": "meleeAoe", "dmg": 52, "cd": 10.0, "radius": 155, "cast": 0.7, "knockback": 55, "phase": 1},
+			# P2 Contact
+			{"key": "sleddrive", "name": "Sled Drive", "type": "dashAttack", "dmg": 80, "cd": 8.0, "dist": 210, "cast": 0.5, "knockback": 110, "phase": 2},
+			{"key": "pancake", "name": "Pancake Protocol", "type": "meleeAoe", "dmg": 70, "cd": 9.5, "radius": 110, "cast": 0.55, "knockback": 45, "phase": 2},
+		],
+	},
+	# Power cores — inert destructible objects (team 1, the boss's side). No abilities, stationary → they just
+	# sit; players destroy them to weaken/cancel the boss's Full Camp Reset ult (mult = cores_alive/coreCount).
+	# "isCore":true → the server tags them no-loot/no-XP. They respawn like any mob, so the counterplay recurs.
+	"power_core": {
+		"name": "Power Core", "sport": "", "mob": true, "model": "power_core", "anim": "core", "h": 2.0,
+		"lane": 1, "color": "#33CCFF", "stationary": true, "isCore": true,
+		"stats": {"PWR": 1, "PRE": 1, "SPD": 1, "END": 44, "INS": 1, "CLU": 1},
+		"abilities": [],
+	},
 }
 
 # --- Bracket tuning: per-format dmg/hp/ms multipliers (5v5 is baseline) ---
@@ -369,4 +405,7 @@ static func create_fighter(class_id: String, team: int, slot: int, rng, team_siz
 		# procs (P6): procs = this fighter's equipped-item effects; _procT = per-proc ICD; dots = active
 		# damage-over-time on this fighter; _procDmg/_procWin = the per-second proc-damage cap window.
 		"procs": [], "_procT": {}, "dots": [], "_procDmg": 0.0, "_procWin": 1.0,
+		# boss (Phase 4): HP-gated phase (0 for everyone else — inert) + the per-phase threshold-summon latch.
+		# In `fresh` so Server._revive auto-resets them on respawn (a respawned boss re-runs all phases).
+		"phase": 0, "_threshSummoned": {},
 	}

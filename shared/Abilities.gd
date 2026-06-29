@@ -191,6 +191,15 @@ static func try_cast(state, f, ab, target) -> bool:
 			f["_barrierAb"] = ab
 			_fire(f, ab, cd_mult)
 			return true
+		"campreset":
+			# Boss ult (Full Camp Reset) — just OPEN a long telegraph cast; the boss freezes while casting
+			# (the Sim casting block holds position) so the LOS spare-set is stable. The arena-wide AoE +
+			# cover-spare + power-core gate all resolve in Sim's cast-finish branch. Zero rng here.
+			if not _enemy_within(state, f, 1400.0):
+				return false
+			f["casting"] = {"key": ab["key"], "t": 0.0, "total": ab["cast"], "ab": ab}
+			_fire(f, ab, cd_mult)
+			return true
 	return false
 
 static func exec_dash_attack(state, f, target, ab) -> void:
