@@ -72,9 +72,32 @@ static func sim_tick(state, dt) -> void:
 		state["focus"][1] = AI.pick_focus_target(state, 1)
 		state["lastFocusEval"] = state["t"]
 
-	# zones
+	# zones — age, then apply hazard dmg/slow to hostiles inside. Fixed iteration order (zones × fighters)
+	# and dmg routes through deal_damage with opts.dot (zero rng, like a proc/DOT) so the sim stays
+	# deterministic and the player harness — where no ability makes a dmg/slow zone — is byte-identical.
 	for z in state["zones"]:
 		z["t"] -= dt
+		var zdmg: float = float(z.get("dmg", 0.0))
+		var zslow = z.get("slow", null)
+		if zdmg <= 0.0 and zslow == null:
+			continue                                   # buff-only zone (e.g. pitcher strikezone) — no hazard
+		var zowner = _find_fighter(state, z.get("owner", ""))
+		var r2: float = float(z["radius"]) * float(z["radius"])
+		for f in fighters:
+			if not f["alive"]:
+				continue
+			var hostile: bool = (Combat.is_hostile(state, zowner, f) if zowner != null else f["team"] != int(z["team"]))
+			if not hostile:
+				continue
+			var dx: float = f["x"] - z["x"]
+			var dy: float = f["y"] - z["y"]
+			if dx * dx + dy * dy > r2:
+				continue
+			if zslow != null:
+				f["slowAmt"] = maxf(f["slowAmt"] if f["slowT"] > 0.0 else 0.0, float(zslow["amt"]))   # don't weaken a stronger active slow
+				f["slowT"] = maxf(f["slowT"], float(zslow["dur"]))
+			if zdmg > 0.0 and zowner != null and zowner["alive"]:   # a corpse owner stops dealing hazard dmg
+				Combat.deal_damage(state, zowner, f, zdmg * dt, {"dot": true})
 	var live_zones = []
 	for z in state["zones"]:
 		if z["t"] > 0: live_zones.append(z)

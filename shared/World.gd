@@ -81,13 +81,16 @@ const MOBS := {
 		{"class": "shooting_dummy", "level": 2, "tier": "minion", "x": 1150.0, "y": 780.0},
 		{"class": "tackle_brute",   "level": 3, "tier": "elite",  "x": 1700.0, "y": 540.0},
 	],
+	# Glitchyard Phase 2: Frontier re-skinned to the new mobs + the 3 elites (summon + hazard zones live).
+	# The Drill Sergeant (deepest) summons cone adds + drops a Conditioning Drill hazard; Sled Juggernaut
+	# pushes/slams; Ball Machine is a stationary turret. (The head_coach boss replaces the endpoint in P4.)
 	FRONTIER: [
-		{"class": "spiker",      "level": 4, "tier": "minion", "x": 520.0,  "y": 420.0},
-		{"class": "striker",     "level": 4, "tier": "minion", "x": 520.0,  "y": 860.0},
-		{"class": "pitcher",     "level": 5, "tier": "minion", "x": 1080.0, "y": 420.0},
-		{"class": "setter",      "level": 5, "tier": "minion", "x": 1080.0, "y": 860.0},
-		{"class": "batter",      "level": 6, "tier": "elite",  "x": 1600.0, "y": 640.0},
-		{"class": "goalkeeper",  "level": 7, "tier": "boss",   "x": 2000.0, "y": 640.0},
+		{"class": "foam_dummy",      "level": 4, "tier": "minion", "x": 520.0,  "y": 420.0},
+		{"class": "cone_swarmer",    "level": 4, "tier": "minion", "x": 520.0,  "y": 860.0},
+		{"class": "shooting_dummy",  "level": 5, "tier": "minion", "x": 1080.0, "y": 420.0},
+		{"class": "sled_juggernaut", "level": 5, "tier": "elite",  "x": 1080.0, "y": 860.0},
+		{"class": "ball_machine",    "level": 6, "tier": "elite",  "x": 1600.0, "y": 640.0},
+		{"class": "drill_sergeant",  "level": 7, "tier": "elite",  "x": 2000.0, "y": 640.0},
 	],
 	DEPTHS: [
 		{"class": "quarterback", "level": 8,  "tier": "minion", "x": 560.0,  "y": 430.0},

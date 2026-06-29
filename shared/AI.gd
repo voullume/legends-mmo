@@ -133,13 +133,17 @@ static func separation(state, f, dt) -> void:
 			f["y"] += ((f["y"] - o["y"]) / d2) * (mn - d2)
 		elif d2 <= 0.1:
 			f["x"] = o["x"] + mn
-	for z in state["zones"]:
-		if z["team"] == f["team"]: continue
-		var d3 = Vector2(f["x"] - z["x"], f["y"] - z["y"]).length()
-		if d3 < z["radius"] + 18 and d3 > 0.1:
-			var pushz = 60.0 * dt
-			f["x"] += ((f["x"] - z["x"]) / d3) * pushz
-			f["y"] += ((f["y"] - z["y"]) / d3) * pushz
+	# AI fighters get repelled out of enemy zones (avoid buff zones + hazards); player-CONTROLLED fighters
+	# do NOT — auto-shoving a player out of a hazard fights their input + softens the hazard. (AI-only
+	# matches like the balance harness have no "controlled" key → repel still runs → byte-identical.)
+	if not state.get("controlled", {}).has(f["id"]):
+		for z in state["zones"]:
+			if z["team"] == f["team"]: continue
+			var d3 = Vector2(f["x"] - z["x"], f["y"] - z["y"]).length()
+			if d3 < z["radius"] + 18 and d3 > 0.1:
+				var pushz = 60.0 * dt
+				f["x"] += ((f["x"] - z["x"]) / d3) * pushz
+				f["y"] += ((f["y"] - z["y"]) / d3) * pushz
 	Geom.clamp_arena(f)
 
 # --- support routing ---

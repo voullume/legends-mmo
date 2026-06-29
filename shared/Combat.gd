@@ -84,7 +84,7 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 				dmg *= GameData.CLASSES[p["classId"]]["zoneSelfBoost"] if p["id"] == src["id"] else GameData.CLASSES[p["classId"]]["zoneAllyBoost"]
 				break
 	# 7. hat trick (Striker) — NOT for proc/DOT damage (it would advance the chain + refresh hatChainT remotely)
-	if sc.has("hatTrickEvery") and not opts.get("proc", false):
+	if sc.has("hatTrickEvery") and not opts.get("proc", false) and not opts.get("dot", false):
 		if src["hatTarget"] == tgt["id"]:
 			src["hatCount"] += 1
 		else:
@@ -96,14 +96,15 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		if tgt["hp"] / tgt["maxHP"] < sc["lowHPThresh"] and opts.get("key", "") == "clinical":
 			dmg *= sc["lowHPDmg"]
 	# 8. set buff (next damage ability, non-basic) — a proc/DOT tick must not CONSUME the buff
-	if src["buffs"]["nextdmg"] > 0 and not opts.get("basic", false) and not opts.get("proc", false):
+	if src["buffs"]["nextdmg"] > 0 and not opts.get("basic", false) and not opts.get("proc", false) and not opts.get("dot", false):
 		dmg *= src["buffs"]["nextdmg"]
 		src["buffs"]["nextdmg"] = 0.0
-	# 9. crit — proc/DOT damage (opts.proc) skips the roll so PROCS DRAW NO rng (the sim stays byte-identical
-	# whether or not a fighter has procs — determinism preserved).
+	# 9. crit — proc/DOT damage (opts.proc) AND hazard-zone damage (opts.dot) skip the roll so they DRAW NO
+	# rng (the sim stays byte-identical whether or not procs/hazards are present — determinism preserved).
+	# (opts.dot = a zero-rng DOT-style tick like proc, but NOT bounded by PROC_DPS_CAP — see step 13.)
 	var crit_ch: float = src["crit"] + (src["buffs"]["crit"] if src["buffs"]["critT"] > 0 else 0.0)
 	var is_crit: bool = false
-	if not opts.get("proc", false):
+	if not opts.get("proc", false) and not opts.get("dot", false):
 		is_crit = state["rng"].next() < crit_ch
 	if is_crit:
 		dmg *= src["critMult"]
@@ -115,7 +116,7 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 	var tc: Dictionary = GameData.CLASSES[tgt["classId"]]
 	# 11. reflect stance (Goalkeeper) — proc/DOT damage is NOT reflected: reflecting it would draw a crit rng
 	# (breaking the procs-draw-no-rng rule), bounce 1.6× UNCAPPED past PROC_DPS_CAP, and re-resolve procs.
-	if tgt["buffs"]["reflect"] > 0 and not opts.get("proc", false):
+	if tgt["buffs"]["reflect"] > 0 and not opts.get("proc", false) and not opts.get("dot", false):
 		tgt["buffs"]["reflect"] = 0.0
 		tgt["mitigated"] += dmg
 		var back: float = dmg * tc["reflectMult"]
@@ -162,8 +163,8 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		src["kills"] += 1
 		state["events"].append({"type": "kill", "killer": src["id"], "victim": tgt["id"], "t": state["t"]})
 		# (on-kill ability effects — golden goal stealth, thunderspike reset — added with abilities phase)
-	# procs (P6): a REAL hit (not proc-sourced) resolves the source's equipped procs — deterministically.
-	if not opts.get("proc", false):
+	# procs (P6): a REAL hit (not proc/DOT-sourced) resolves the source's equipped procs — deterministically.
+	if not opts.get("proc", false) and not opts.get("dot", false):
 		_resolve_procs(state, src, tgt, is_crit, not tgt["alive"], dmg)
 	return dmg
 

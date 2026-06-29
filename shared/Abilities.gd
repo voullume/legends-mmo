@@ -67,6 +67,9 @@ static func try_cast(state, f, ab, target) -> bool:
 			Combat.deal_damage(state, f, target, ab["dmg"], {"melee": true, "basic": ab.get("basic", false), "key": ab["key"]})
 			if ab.has("stun"):
 				target["stun"] = max(target["stun"], ab["stun"])
+			if ab.has("slow"):
+				target["slowT"] = ab["slow"]["dur"]
+				target["slowAmt"] = ab["slow"]["amt"]
 			if c.has("momentumGain"):
 				f["momentum"] = min(c["momentumMax"], f["momentum"] + 1)
 				f["momentumT"] = 4.0
@@ -162,7 +165,20 @@ static func try_cast(state, f, ab, target) -> bool:
 		"zone":
 			if not Geom.has_los(state, f, target):
 				return false
-			state["zones"].append({"x": target["x"], "y": target["y"], "radius": ab["radius"], "team": f["team"], "owner": f["id"], "t": ab["dur"]})
+			var zd := {"x": target["x"], "y": target["y"], "radius": ab["radius"], "team": f["team"], "owner": f["id"], "t": ab["dur"]}
+			if ab.has("dmg"): zd["dmg"] = ab["dmg"]          # hazard zone: per-second DOT to hostiles inside
+			if ab.has("slow"): zd["slow"] = ab["slow"]       # hazard zone: slow hostiles inside
+			state["zones"].append(zd)
+			_fire(f, ab, cd_mult)
+			return true
+		"summon":
+			# Request adds from the SERVER (post-tick bridge): the sim only EMITS the event (draws zero rng),
+			# the server spawns + caps + tags them. Gated on a nearby hostile so an idle camp doesn't summon.
+			# Spawns around the summoner (f.x/y) so adds emerge from it and chase.
+			if not _enemy_within(state, f, 460.0):
+				return false
+			state["events"].append({"type": "summon", "owner": f["id"], "mobType": str(ab["mobType"]),
+				"count": int(ab.get("count", 1)), "x": f["x"], "y": f["y"], "t": state["t"]})
 			_fire(f, ab, cd_mult)
 			return true
 		"barrier":

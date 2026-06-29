@@ -174,6 +174,41 @@ const CLASSES := {
 			{"key": "calibration", "name": "Calibration Spin", "type": "selfbuff", "cd": 12.0, "buff": {"reflect": true, "dur": 1.2}},
 		],
 	},
+	# ── Glitchyard ELITES (Phase 2) ── new primitives: `summon` (server-spawned adds) + hazard `zone`
+	# (dmg/slow ground area). Sled + Ball Machine are reuse-only; the Drill Sergeant drives both new ones.
+	"drill_sergeant": {
+		"name": "Drill Sergeant Dummy", "sport": "", "mob": true, "model": "drill_sergeant",
+		"skins": ["drill_sergeant", "drill_sergeant2"], "anim": "sergeant", "h": 2.6,
+		"lane": 0, "color": "#9AA86B",
+		"stats": {"PWR": 48, "PRE": 30, "SPD": 30, "END": 60, "INS": 30, "CLU": 22},
+		"abilities": [
+			{"key": "raporder", "name": "Bark Order", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 62},
+			{"key": "clipboardbash", "name": "Clipboard Bash", "type": "melee", "dmg": 30, "cd": 7.5, "range": 64, "stun": 1.0},
+			{"key": "conditioning", "name": "Mandatory Conditioning", "type": "summon", "mobType": "cone_swarmer", "count": 3, "cd": 16.0},
+			{"key": "drillzone", "name": "Conditioning Drill", "type": "zone", "cd": 11.0, "radius": 115, "dur": 4.5, "dmg": 9.0, "slow": {"amt": 0.30, "dur": 0.5}},
+		],
+	},
+	"sled_juggernaut": {
+		"name": "Blocking Sled Juggernaut", "sport": "", "mob": true, "model": "sled_juggernaut", "anim": "brute", "h": 2.9,
+		"lane": 0, "color": "#5566AA",
+		"stats": {"PWR": 60, "PRE": 22, "SPD": 18, "END": 90, "INS": 20, "CLU": 20},
+		"abilities": [
+			{"key": "shoulder", "name": "Shoulder Drive", "type": "melee", "basic": true, "dmg": 48, "cd": 1.6, "range": 66},
+			{"key": "driveblock", "name": "Drive Block", "type": "dashAttack", "dmg": 70, "cd": 7.5, "dist": 175, "cast": 0.45, "knockback": 95},
+			{"key": "pancakeslam", "name": "Pancake Slam", "type": "meleeAoe", "dmg": 56, "cd": 9.0, "radius": 95, "cast": 0.5, "knockback": 50},
+			{"key": "bandlash", "name": "Resistance Band Lash", "type": "melee", "dmg": 34, "cd": 6.0, "range": 72, "slow": {"amt": 0.35, "dur": 1.5}},
+		],
+	},
+	"ball_machine": {
+		"name": "Overclocked Ball Machine", "sport": "", "mob": true, "model": "ball_machine", "anim": "turret", "h": 2.4,
+		"lane": 2, "color": "#D08A2E", "stationary": true,   # turret — holds position
+		"stats": {"PWR": 52, "PRE": 45, "SPD": 8, "END": 40, "INS": 28, "CLU": 18},
+		"abilities": [
+			{"key": "lobshot", "name": "Lob Shot", "type": "projectile", "basic": true, "dmg": 40, "cd": 1.25, "range": 300, "speed": 430},
+			{"key": "tripleshot", "name": "Triple Shot", "type": "barrage", "dmg": 36, "count": 3, "cd": 6.0, "range": 320, "speed": 440},
+			{"key": "overcharge", "name": "Overcharged Cannon", "type": "projectile", "dmg": 92, "cd": 8.5, "range": 340, "speed": 360, "stun": 0.6},
+		],
+	},
 }
 
 # --- Bracket tuning: per-format dmg/hp/ms multipliers (5v5 is baseline) ---

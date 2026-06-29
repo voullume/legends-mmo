@@ -88,6 +88,8 @@ var _world_root: Node3D
 var _fx_root: Node3D
 var _portal_root: Node3D = null            # portal pad visuals (rebuilt when the world's portals change)
 var _portals_sig := ""
+var _zone_root: Node3D = null              # hazard-zone ground discs (rebuilt when zones change)
+var _zones_sig := ""
 var _ground: MeshInstance3D                # floor planes, resized when the arena (map) size changes
 var _field: MeshInstance3D
 var _arena_sig := ""
@@ -661,7 +663,45 @@ func _render_world(delta: float) -> void:
 
 	_resize_arena()
 	_render_portals()
+	_render_zones()
 	_update_hud()
+
+# Draw hazard zones (damaging/slow ground areas, sent in the snapshot) as translucent emissive discs so
+# players can see + avoid them. Rebuilt only when the set changes (cheap), like _render_portals. Red =
+# damaging, amber = slow-only.
+func _render_zones() -> void:
+	var zones: Array = _state.get("zones", [])
+	var sig := JSON.stringify(zones)
+	if sig == _zones_sig:
+		return
+	_zones_sig = sig
+	if _zone_root != null:
+		_zone_root.queue_free()
+		_zone_root = null
+	if zones.is_empty() or _world_root == null:
+		return
+	_zone_root = Node3D.new()
+	_world_root.add_child(_zone_root)
+	for z in zones:
+		var disc := MeshInstance3D.new()
+		var cyl := CylinderMesh.new()
+		var rr: float = float(z["radius"]) * SCALE
+		cyl.top_radius = rr
+		cyl.bottom_radius = rr
+		cyl.height = 0.06
+		disc.mesh = cyl
+		var col: Color = Color(1.0, 0.3, 0.25) if float(z.get("dmg", 0.0)) > 0.0 else Color(1.0, 0.7, 0.2)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(col.r, col.g, col.b, 0.28)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.emission_enabled = true
+		mat.emission = col
+		mat.emission_energy_multiplier = 1.1
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		disc.material_override = mat
+		disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		disc.position = Vector3((float(z["x"]) - _aw() / 2.0) * SCALE, 0.07, (float(z["y"]) - _ah() / 2.0) * SCALE)
+		_zone_root.add_child(disc)
 
 # Draw the current world's portal pads (sent in the snapshot). Rebuilt only when they change
 # (i.e. when you cross into the other world), so it's cheap.
@@ -1007,6 +1047,11 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 			else:
 				lunge = -a * 0.11 * sy                  # cannon recoil: kick backward on a shot
 				pitch = -a * 0.10
+		"sergeant":                                 # humanoid drill instructor (static GLB): bark + command lean
+			hz = 2.0; amp = 0.04 + movef * 0.03
+			roll = sin(t * 1.6 * TAU) * 0.04            # subtle idle sway
+			pitch = 0.06 + a * 0.5                      # constant command lean + bark/clipboard jab forward on action
+			lunge = a * 0.09 * sy
 		_:
 			hz = 2.0; amp = 0.04
 			pitch = a * 0.4

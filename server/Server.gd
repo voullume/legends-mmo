@@ -32,6 +32,8 @@ const SIM_DT := 1.0 / 30.0
 const ZONE_TEAM_SIZE := 5
 const RESPAWN_DELAY := 4.0            # player respawn delay
 const MOB_RESPAWN_DELAY := 6.0        # mobs respawn a bit slower than players (less camp churn)
+const SUMMON_CAP := 3                 # max LIVE summoned adds per summoner (anti-snowball); adds never respawn
+const ADD_SPAWN_R := 70.0             # summoned adds emerge this far from the summoner
 const SAVE_INTERVAL := 15.0
 const HEALTH_INTERVAL := 60.0         # log a players + CPU + RAM line once a minute (upgrade-signal)
 const INTEREST_RADIUS := 450.0
@@ -367,6 +369,7 @@ func _remove_fighter(fid: String) -> void:
 	_spawn_pos.erase(fid)
 	_respawn.erase(fid)
 	_tp_next.erase(fid)
+	_mob_engaged.erase(fid)        # else summoned adds (removed on death) leak _mob_engaged entries forever
 
 func _session_by_fid(fid: String) -> Variant:
 	for pid in _session:
@@ -1099,6 +1102,7 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, ""), "target": str(mv.get("target", "")), "friend": str(mv.get("friend", ""))}
 		_pending_ability[pid] = ""
 	Sim.sim_tick(w, SIM_DT)
+	_consume_summons(w, mapname)                  # spawn any adds the sim requested this tick (summon bridge)
 	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)
 	for f in w["fighters"]:                       # queue the dead for respawn (dummy instant; mobs slower than players)
 		if not f["alive"] and not _respawn.has(f["id"]):
@@ -1132,11 +1136,57 @@ func _advance_respawns(dt: float) -> void:
 	for id in done:
 		_respawn.erase(id)
 		var f = _find(id)
-		if f != null and f["team"] == 0 and bool(_worlds.get(str(f["map"]), {}).get("pvp", false)):
+		if f == null:
+			continue
+		if f.get("isAdd", false):                      # summoned adds despawn — they never respawn
+			_remove_fighter(id)
+			continue
+		if f["team"] == 0 and bool(_worlds.get(str(f["map"]), {}).get("pvp", false)):
 			var s = _session_by_fid(id)               # died in a PvP zone → respawn at the home safe zone
 			if s != null:
 				_relocate(f, s, World.HOME, World.HOME_SPAWN)
 		_revive(f)
+
+# Summon bridge: the sim emits {type:"summon",...} events; the server spawns the adds (it owns fighter
+# lifecycle). Adds are tagged isAdd (never respawn — removed on death in _advance_respawns) + summoner, give
+# no loot/XP (anti-farm, see _award_kills), and are capped at SUMMON_CAP live per summoner (anti-snowball).
+func _consume_summons(w: Dictionary, mapname: String) -> void:
+	if w["events"].is_empty():
+		return
+	var had_summon := false
+	for ev in w["events"]:
+		if ev.get("type") != "summon":
+			continue
+		had_summon = true
+		var owner = _find(str(ev.get("owner", "")))
+		if owner == null or not owner["alive"] or str(owner.get("map", "")) != mapname:
+			continue
+		var mob_type := str(ev.get("mobType", ""))
+		if not GameData.CLASSES.has(mob_type) or not GameData.is_mob(mob_type):
+			continue
+		var live := 0
+		for f in w["fighters"]:
+			if str(f.get("summoner", "")) == owner["id"] and f["alive"]:
+				live += 1
+		var want: int = clampi(int(ev.get("count", 1)), 0, maxi(0, SUMMON_CAP - live))
+		for i in want:
+			var ang: float = TAU * (float(i) + 0.5) / float(maxi(1, want)) + float(live) * 0.7
+			var pos := Vector2(float(ev["x"]) + cos(ang) * ADD_SPAWN_R, float(ev["y"]) + sin(ang) * ADD_SPAWN_R)
+			var aid := _spawn_fighter(mob_type, 1, pos, mapname)
+			var add = _find(aid)
+			if add == null:
+				continue
+			add["summoner"] = owner["id"]
+			add["isAdd"] = true
+			add["mobLevel"] = maxi(1, int(owner.get("mobLevel", 1)) - 1)
+			add["mobTier"] = "minion"
+			_scale_mob(add)
+	if had_summon:                # drop consumed summon events so the multi-sim-step catch-up loop (up to
+		var kept := []            # 5 _tick_world calls/frame, events not cleared until _broadcast) can't re-spawn them
+		for ev in w["events"]:
+			if ev.get("type") != "summon":
+				kept.append(ev)
+		w["events"] = kept
 
 # step into a portal pad → move the player's fighter to the other world at the pad's destination
 func _check_portals() -> void:
@@ -1204,7 +1254,7 @@ func _award_kills() -> void:
 			if ev.get("type") != "kill":
 				continue
 			var victim = _find(ev["victim"])
-			if victim == null or victim["team"] != 1 or victim.get("dummy", false):  # mobs only, not the dummy
+			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false):  # mobs only; not the dummy or summoned adds (anti-farm)
 				continue
 			for pid in _peers:
 				if _session[pid]["fid"] == ev["killer"]:
@@ -1930,6 +1980,12 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 	for p in w["projectiles"]:
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
 			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
-	return {"fighters": fs, "projectiles": ps, "events": w["events"].duplicate(true), "t": w["t"],
+	var hz := []                                  # hazard zones only (dmg/slow) — buff zones stay invisible
+	for z in w["zones"]:
+		if float(z.get("dmg", 0.0)) <= 0.0 and z.get("slow", null) == null:
+			continue
+		if Vector2(z["x"] - center.x, z["y"] - center.y).length() <= INTEREST_RADIUS + float(z["radius"]):
+			hz.append({"x": z["x"], "y": z["y"], "radius": z["radius"], "dmg": float(z.get("dmg", 0.0))})
+	return {"fighters": fs, "projectiles": ps, "zones": hz, "events": w["events"].duplicate(true), "t": w["t"],
 		"map": mapname, "portals": World.portals_for(mapname), "pvp": bool(w.get("pvp", false)),
 		"arenaW": int(w.get("arenaW", GameData.ARENA_W)), "arenaH": int(w.get("arenaH", GameData.ARENA_H))}
