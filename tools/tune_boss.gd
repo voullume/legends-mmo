@@ -14,8 +14,8 @@ const Rng = preload("res://shared/Rng.gd")
 # mirror server/Server.gd _scale_mob + constants
 const MOB_HP_SCALE := 0.35
 const MOB_DMG_SCALE := 0.28
-const MOB_BOSS_HP := 6.0
-const MOB_BOSS_DMG := 1.8
+const MOB_BOSS_HP := 22.0
+const MOB_BOSS_DMG := 2.1
 const LEVEL_HP := 60.0
 
 func _scale_boss(f: Dictionary, lvl: int) -> void:

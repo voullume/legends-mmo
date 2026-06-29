@@ -31,6 +31,7 @@ const SIM_DT := 1.0 / 30.0
 const ZONE_TEAM_SIZE := 5
 const RESPAWN_DELAY := 4.0            # player respawn delay
 const MOB_RESPAWN_DELAY := 6.0        # mobs respawn a bit slower than players (less camp churn)
+const BOSS_RESPAWN_DELAY := 1800.0   # the boss is a rare ~30-min world event (anti-farm), not a respawning camp
 const SUMMON_CAP := 3                 # max LIVE summoned adds per summoner (anti-snowball); adds never respawn
 const ADD_SPAWN_R := 70.0             # summoned adds emerge this far from the summoner
 const SAVE_INTERVAL := 15.0
@@ -46,8 +47,8 @@ const MOB_XP_BASE := 15               # mob XP = base × level × tier mult (min
 const MOB_ELITE_HP := 2.2
 const MOB_ELITE_DMG := 1.6
 const MOB_ELITE_XP := 4
-const MOB_BOSS_HP := 6.0              # a boss is a tanky, rewarding zone target (group/well-geared)
-const MOB_BOSS_DMG := 1.8
+const MOB_BOSS_HP := 22.0             # a raid-style boss tuned for a full party of 5 (NOT soloable) — a long fight
+const MOB_BOSS_DMG := 2.1             # hits hard enough that ignoring its mechanics (ult/adds) wipes a careless group
 const MOB_BOSS_XP := 6                # ≈ 0.9 of a level at its tier — rewarding but kept under a full level
 const LEVEL_HP := 60.0                # bonus max HP per player level
 const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob scaling)
@@ -1113,7 +1114,8 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 			if f.get("dummy", false):
 				_respawn[f["id"]] = 0.0
 			elif f["team"] == 1:
-				_respawn[f["id"]] = MOB_RESPAWN_DELAY
+				# the boss is a rare ~30-min event; its cones/cores + normal mobs churn at the usual rate
+				_respawn[f["id"]] = BOSS_RESPAWN_DELAY if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false) else MOB_RESPAWN_DELAY
 			else:
 				_respawn[f["id"]] = RESPAWN_DELAY
 

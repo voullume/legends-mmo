@@ -25,7 +25,7 @@ const GY2_SPAWN := Vector2(200, 450)
 const GY3_SPAWN := Vector2(220, 490)
 const GY4_SPAWN := Vector2(220, 520)
 const GY5_SPAWN := Vector2(220, 550)
-const GYB_SPAWN := Vector2(160, 420)         # boss arena: arrive far WEST, well clear of the central boss camp
+const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well clear of the central boss camp
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
@@ -85,12 +85,12 @@ const PORTALS := {
 		# GY4 has TWO elites (mid sled @980,700 + east ball @1580) — drop WEST of both, in the entry lane.
 		{"x": 120.0,  "y": 550.0,  "to": GY4,     "tx": 600.0,  "ty": 520.0, "label": "◀ Target Court"},
 		# the reserved east pad → the Head Coach arena (placed clear of the drill camp @1620,550, > AGGRO 320)
-		{"x": 1900.0, "y": 350.0,  "to": GY_BOSS, "tx": 160.0,  "ty": 420.0, "label": "▶ Head Coach Arena"},
+		{"x": 1900.0, "y": 350.0,  "to": GY_BOSS, "tx": 140.0,  "ty": 410.0, "label": "▶ Head Coach Arena"},
 	],
 	GY_BOSS: [
-		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). Boss camp is central-east, far
-		# from this west pad, so an arriving group isn't insta-pulled.
-		{"x": 90.0,   "y": 420.0,  "to": GY5,     "tx": 1500.0, "ty": 250.0, "label": "◀ Command Tower"},
+		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). The boss is central, far from
+		# this west pad, so an arriving group isn't insta-pulled.
+		{"x": 80.0,   "y": 410.0,  "to": GY5,     "tx": 1500.0, "ty": 250.0, "label": "◀ Command Tower"},
 	],
 	ARENA: [
 		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -139,12 +139,12 @@ const MOBS := {
 		{"class": "ball_machine",    "level": 7, "tier": "elite",  "x": 1000.0, "y": 740.0},
 		{"class": "drill_sergeant",  "level": 8, "tier": "elite",  "x": 1620.0, "y": 550.0},
 	],
-	GY_BOSS: [  # the Head Coach Prototype (sole boss, ×6 HP) + 4 destructible power cores gating its ult.
-		{"class": "head_coach", "level": 8, "tier": "boss",   "x": 880.0,  "y": 410.0},
-		{"class": "power_core", "level": 5, "tier": "minion", "x": 720.0,  "y": 250.0},
-		{"class": "power_core", "level": 5, "tier": "minion", "x": 720.0,  "y": 570.0},
-		{"class": "power_core", "level": 5, "tier": "minion", "x": 1050.0, "y": 250.0},
-		{"class": "power_core", "level": 5, "tier": "minion", "x": 1050.0, "y": 570.0},
+	GY_BOSS: [  # the Head Coach Prototype (central boss) + 4 destructible power cores around it gating the ult.
+		{"class": "head_coach", "level": 8, "tier": "boss",   "x": 620.0, "y": 410.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 450.0, "y": 300.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 450.0, "y": 520.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 790.0, "y": 300.0},
+		{"class": "power_core", "level": 5, "tier": "minion", "x": 790.0, "y": 520.0},
 	],
 }
 
@@ -220,12 +220,13 @@ const OBSTACLES := {
 		{"x": 1320.0, "y": 550.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
 		{"x": 1620.0, "y": 380.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1620.0, "y": 720.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the drill (cover vs its hazard + adds)
 	],
-	GY_BOSS: [  # cover walls placed mid-arena so players can break LOS to the central boss (@880,410) and be
-		# SPARED by the Full Camp Reset ult — the counterplay only works if real LOS-blockers exist.
-		{"x": 600.0, "y": 250.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
-		{"x": 600.0, "y": 570.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
-		{"x": 640.0, "y": 410.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
-		{"x": 430.0, "y": 410.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
+	GY_BOSS: [  # a RING of cover around the central boss (@620,410): a wall on each side, so from ANY fighting
+		# position the Full Camp Reset ult forces a deliberate run to the nearest cover to break LOS — there is
+		# no passively-safe spot (hiding the whole fight = you can't damage the boss through the same wall).
+		{"x": 330.0, "y": 410.0, "prop": "barrier", "len": 150.0, "yaw": 1.5708},   # W — hide x<330
+		{"x": 910.0, "y": 410.0, "prop": "barrier", "len": 150.0, "yaw": 1.5708},   # E — hide x>910
+		{"x": 620.0, "y": 170.0, "prop": "rack", "len": 160.0, "yaw": 0.0},          # N — hide y<170
+		{"x": 620.0, "y": 650.0, "prop": "rack", "len": 160.0, "yaw": 0.0},          # S — hide y>650
 	],
 }
 
@@ -257,8 +258,8 @@ const DECALS := {
 		{"kind": "cone", "x": 760.0, "y": 360.0}, {"kind": "cone", "x": 760.0, "y": 740.0}, {"kind": "cone", "x": 1320.0, "y": 550.0},
 	],
 	GY_BOSS: [
-		{"kind": "ring", "x": 880.0, "y": 410.0, "r": 190.0}, {"kind": "ring", "x": 600.0, "y": 410.0, "r": 120.0},
-		{"kind": "cone", "x": 760.0, "y": 410.0}, {"kind": "cone", "x": 430.0, "y": 250.0}, {"kind": "cone", "x": 430.0, "y": 570.0},
+		{"kind": "ring", "x": 620.0, "y": 410.0, "r": 200.0}, {"kind": "ring", "x": 620.0, "y": 410.0, "r": 110.0},
+		{"kind": "cone", "x": 620.0, "y": 290.0}, {"kind": "cone", "x": 620.0, "y": 530.0}, {"kind": "cone", "x": 480.0, "y": 410.0}, {"kind": "cone", "x": 760.0, "y": 410.0},
 	],
 }
 

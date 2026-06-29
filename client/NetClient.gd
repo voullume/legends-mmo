@@ -2282,6 +2282,42 @@ func _play_cast_sound(key: String) -> void:
 			return
 
 # render only — the server owns the sim
+var _ult_tint: ColorRect = null
+var _ult_banner: Label = null
+
+# Full-screen telegraph while the boss is casting Full Camp Reset — a red tint that intensifies toward
+# impact + a "BREAK LINE OF SIGHT" banner, so players learn the ult is arena-wide and cover is the answer.
+func _update_boss_telegraph() -> void:
+	var uc := 0.0
+	for f in _state.get("fighters", []):
+		var c := float(f.get("ultCast", 0.0))
+		if c > uc: uc = c
+	if uc <= 0.0:
+		if _ult_tint != null: _ult_tint.visible = false
+		if _ult_banner != null: _ult_banner.visible = false
+		return
+	if _ult_tint == null:
+		_ult_tint = ColorRect.new()
+		_ult_tint.color = Color(0.85, 0.06, 0.06, 0.0)
+		_ult_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ult_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_hud.add_child(_ult_tint)
+		_ult_banner = Label.new()
+		_ult_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ult_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_ult_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_ult_banner.anchor_left = 0.0; _ult_banner.anchor_right = 1.0
+		_ult_banner.offset_top = 90.0
+		_ult_banner.add_theme_font_size_override("font_size", 40)
+		_ult_banner.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+		_ult_banner.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+		_ult_banner.add_theme_constant_override("outline_size", 14)
+		_hud.add_child(_ult_banner)
+	_ult_tint.visible = true
+	_ult_banner.visible = true
+	_ult_tint.color.a = lerpf(0.10, 0.40, clampf(1.0 - uc / 3.0, 0.0, 1.0))   # intensify as impact nears
+	_ult_banner.text = "⚠  FULL CAMP RESET  %d  ⚠\nBREAK LINE OF SIGHT — GET BEHIND COVER" % int(ceil(uc))
+
 func _process(delta: float) -> void:
 	if supa != null and net != null and _connected:
 		_reauth_t += delta
@@ -2293,6 +2329,7 @@ func _process(delta: float) -> void:
 		return
 	_sync_nodes_to_state()
 	_render_world(delta)
+	_update_boss_telegraph()
 	_update_focus()
 	_update_party()
 	_render_shop_pad()
