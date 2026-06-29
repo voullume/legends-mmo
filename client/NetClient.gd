@@ -1889,7 +1889,7 @@ func _build_admin_panel() -> void:
 		["God Mode", "god", {}], ["Heal", "heal", {}],
 		["→ Home", "goto", {"map": "home"}], ["→ Arena", "goto", {"map": "arena"}],
 		["→ GY1", "goto", {"map": "glitchyard_1"}], ["→ GY2", "goto", {"map": "glitchyard_2"}], ["→ GY3", "goto", {"map": "glitchyard_3"}],
-		["→ GY4", "goto", {"map": "glitchyard_4"}], ["→ GY5", "goto", {"map": "glitchyard_5"}],
+		["→ GY4", "goto", {"map": "glitchyard_4"}], ["→ GY5", "goto", {"map": "glitchyard_5"}], ["→ BOSS", "goto", {"map": "glitchyard_boss"}],
 		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}],
 	]
 	for c in cmds:
