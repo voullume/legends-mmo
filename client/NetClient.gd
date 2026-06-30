@@ -1918,6 +1918,18 @@ func _render_vendor_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_vendor_root.add_child(pillar)
+	var lbl := Label3D.new()
+	lbl.text = "◈ Practice Vendor"
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0016
+	lbl.font_size = 52
+	lbl.outline_size = 16
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	lbl.modulate = Color(0.5, 0.9, 1.0)
+	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
+	_vendor_root.add_child(lbl)
 
 func _update_vendor_proximity() -> void:
 	if _vendor_hint == null:
@@ -2604,6 +2616,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				return
 			elif _forge_panel != null and _forge_panel.visible:
 				_forge_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
+			elif _vendor_panel != null and _vendor_panel.visible:
+				_vendor_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
 			elif _invite_prompt != null or _invite_popup != null:

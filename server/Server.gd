@@ -109,7 +109,7 @@ const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legenda
 const SET_MIN_RANK := 3                       # only EPIC+ pieces count toward a set bonus (gates above-cap power)
 # Set bonus STACKS ABOVE EQUIP_STAT_CAP (a set can push its signature stat past 60) — but only from EPIC+
 # pieces, so the balance impact is limited to high-tier gear. Capped here; harness-tuned.
-const SET_BONUS_CAP := 15
+const SET_BONUS_CAP := 20                     # raised so the vendor-only Rookie Camp 4pc (20) actually lands; the sport sets stay 15 (their own th caps them)
 const UNIQUE_DROP_CHANCE := 0.15              # P6: fraction of BOSS drops that are a unique instead
 
 var net: Node = null
@@ -231,8 +231,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)):
-		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade credits across awaits and owns
+	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)):
+		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy owns its OWN terminal
 		                                         # its OWN terminal save; saving here too would race that credit
 		                                         # write (a stale absolute write could clobber it). Skip it.
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
@@ -678,9 +678,8 @@ func _give_and_charge_tokens(pid: int, item: Dictionary, price: int) -> void:
 	s["tokens"] = int(s.get("tokens", 0)) - price             # deduct up front; refund if the write fails
 	var r = await supa.add_item_as(s["access"], s["char_id"], item)
 	if not r.get("ok"):
-		if _session.has(pid):
-			s["tokens"] = int(s["tokens"]) + price
-			_save_one(s, _find(s["fid"]))
+		s["tokens"] = int(s["tokens"]) + price                # refund + persist even if the peer left mid-buy (s survives the session erase)
+		_save_one(s, _find(s["fid"]))
 		return
 	_save_one(s, _find(s["fid"]))                             # success: the token spend is now durable
 	if net != null and _session.has(pid):
