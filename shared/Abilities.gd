@@ -41,7 +41,7 @@ static func try_cast(state, f, ab, target) -> bool:
 			state["projectiles"].append({
 				"x": f["x"], "y": f["y"], "tx": target["id"], "speed": ab["speed"], "dmg": ab["dmg"],
 				"team": f["team"], "owner": f["id"], "key": ab["key"], "basic": ab.get("basic", false),
-				"stun": ab.get("stun", null), "slow": ab.get("slow", null), "born": state["t"],
+				"stun": ab.get("stun", null), "slow": ab.get("slow", null), "wobble": ab.get("wobble", null), "born": state["t"],
 				"teamShieldPct": ab.get("teamShieldPct", null), "delay": 0.0,
 			})
 			_fire(f, ab, cd_mult)
@@ -91,6 +91,13 @@ static func try_cast(state, f, ab, target) -> bool:
 				if ab.has("slow"):
 					e["slowT"] = ab["slow"]["dur"]
 					e["slowAmt"] = ab["slow"]["amt"]
+				if ab.has("pull") and not Combat.kb_immune(e):     # P5: yank toward the caster (off cover)
+					var pd = Vector2(f["x"] - e["x"], f["y"] - e["y"]).length()
+					var pamt = minf(float(ab["pull"]), pd - 30.0)
+					if pamt > 0.0:
+						e["x"] += ((f["x"] - e["x"]) / pd) * pamt
+						e["y"] += ((f["y"] - e["y"]) / pd) * pamt
+						Geom.clamp_arena(e)
 			_fire(f, ab, cd_mult)
 			return true
 		"dashAttack":
@@ -200,9 +207,41 @@ static func try_cast(state, f, ab, target) -> bool:
 			f["casting"] = {"key": ab["key"], "t": 0.0, "total": ab["cast"], "ab": ab}
 			_fire(f, ab, cd_mult)
 			return true
+		"spread":
+			# P5 — fire a FAN of direction-mode projectiles (count over arc radians). `bounces` makes them
+			# RICOCHET off cover walls. Fixed angles → zero rng. Aims at the target's current position.
+			if Geom.dist(f, target) > ab["range"]:
+				return false
+			if not Geom.has_los(state, f, target):
+				return false
+			var aim := atan2(target["y"] - f["y"], target["x"] - f["x"])
+			var n := int(ab.get("count", 3))
+			var arc := float(ab.get("arc", 0.5))
+			for i in n:
+				var frac := (float(i) / float(maxi(1, n - 1)) - 0.5) if n > 1 else 0.0
+				var ang := aim + frac * arc
+				state["projectiles"].append({
+					"x": f["x"], "y": f["y"], "dx": cos(ang), "dy": sin(ang), "speed": ab["speed"], "dmg": ab["dmg"],
+					"team": f["team"], "owner": f["id"], "key": ab["key"], "basic": false,
+					"stun": ab.get("stun", null), "wobble": ab.get("wobble", null), "bounces": int(ab.get("bounces", 0)),
+					"born": state["t"], "delay": 0.0,
+				})
+			_fire(f, ab, cd_mult)
+			return true
 	return false
 
 static func exec_dash_attack(state, f, target, ab) -> void:
+	# BAIT-INTO-WALL (P5): a charge with `wallStun` whose target juked behind cover during the telegraph
+	# (a wall now blocks LOS) CRASHES — the mob lunges partway toward the wall, eats a self-stun, no hit.
+	# (the lunge only clamps to the arena; AI.separation shoves it back outside the wall on the next tick.)
+	if ab.has("wallStun") and not Geom.has_los(state, f, target):
+		var bd0 = Vector2(target["x"] - f["x"], target["y"] - f["y"]).length()
+		if bd0 == 0: bd0 = 1.0
+		f["x"] += ((target["x"] - f["x"]) / bd0) * (float(ab["dist"]) * 0.5)
+		f["y"] += ((target["y"] - f["y"]) / bd0) * (float(ab["dist"]) * 0.5)
+		Geom.clamp_arena(f)
+		f["stun"] = max(f["stun"], float(ab["wallStun"]))
+		return
 	var dx = target["x"] - f["x"]
 	var dy = target["y"] - f["y"]
 	var d = Vector2(dx, dy).length()
@@ -219,7 +258,7 @@ static func exec_dash_attack(state, f, target, ab) -> void:
 		if ab.has("slow"):
 			target["slowT"] = ab["slow"]["dur"]
 			target["slowAmt"] = ab["slow"]["amt"]
-		if ab.has("knockback"):
+		if ab.has("knockback") and not Combat.kb_immune(target):
 			var kx = target["x"] - f["x"]
 			var ky = target["y"] - f["y"]
 			var kd = Vector2(kx, ky).length()

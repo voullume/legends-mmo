@@ -9,6 +9,58 @@ const Combat := preload("res://shared/Combat.gd")
 const Abilities := preload("res://shared/Abilities.gd")
 const AI := preload("res://shared/AI.gd")
 
+# P5 Wobble — a stacking destabilize. An ability tagged `wobble` adds stacks on hit; stacks decay one per
+# WOBBLE_DECAY seconds; hitting WOBBLE_MAX triggers a STUMBLE (a short stun) and resets the bar. Deterministic
+# (no rng); applied only by tagged mob abilities, so it never touches the player AI-duel harness (byte-identity).
+const WOBBLE_MAX := 4.0
+const WOBBLE_STUMBLE := 1.1
+const WOBBLE_DECAY := 2.0
+
+static func _apply_wobble(tgt: Dictionary, amt: float) -> void:
+	tgt["wobble"] = float(tgt.get("wobble", 0.0)) + amt
+	tgt["wobbleT"] = WOBBLE_DECAY
+	if tgt["wobble"] >= WOBBLE_MAX:
+		tgt["stun"] = maxf(float(tgt.get("stun", 0.0)), WOBBLE_STUMBLE)
+		tgt["wobble"] = 0.0
+		tgt["wobbleT"] = 0.0
+
+# P5 DIRECTION-MODE projectile (spread/ricochet) — travels along a fixed (dx,dy) instead of homing; hits the
+# first hostile in its path (fixed fighter order); on hitting an obstacle it REFLECTS if `bounces` remain,
+# else dies. Pure geometry → zero rng (the only rng is deal_damage's crit, same as any projectile, and this
+# path never runs in the player harness — mob-only). Returns nothing; sets p["dead"] when consumed.
+static func _step_dir_projectile(state, p, dt, fighters) -> void:
+	var step: float = float(p["speed"]) * dt
+	var nx: float = float(p["x"]) + float(p["dx"]) * step
+	var ny: float = float(p["y"]) + float(p["dy"]) * step
+	for o in state["map"]["obstacles"]:
+		if Vector2(nx - o["x"], ny - o["y"]).length() < float(o["r"]) + 4.0:
+			if int(p.get("bounces", 0)) > 0:
+				var n := Vector2(float(p["x"]) - o["x"], float(p["y"]) - o["y"])
+				n = n.normalized() if n.length() > 0.001 else Vector2(-float(p["dx"]), -float(p["dy"]))
+				var dir := Vector2(float(p["dx"]), float(p["dy"]))
+				var refl := dir - 2.0 * dir.dot(n) * n
+				p["dx"] = refl.x; p["dy"] = refl.y
+				p["bounces"] = int(p["bounces"]) - 1
+				p["x"] = o["x"] + n.x * (float(o["r"]) + 5.0)   # snap ONTO the wall surface so a deep hit can't re-collide
+				p["y"] = o["y"] + n.y * (float(o["r"]) + 5.0)
+			else:
+				p["dead"] = true
+			return
+	p["x"] = nx
+	p["y"] = ny
+	var src = _find_fighter(state, p["owner"])
+	if src == null:
+		p["dead"] = true
+		return
+	for e in fighters:
+		if Combat.is_hostile(state, src, e) and e["alive"] and e["evade"] <= 0 and e["untarget"] <= 0 \
+				and Vector2(float(p["x"]) - e["x"], float(p["y"]) - e["y"]).length() < 16.0:
+			Combat.deal_damage(state, src, e, p["dmg"], {"projectile": true, "key": p["key"]})
+			if p.get("stun", null) != null: e["stun"] = maxf(e["stun"], float(p["stun"]))
+			if p.get("wobble", null) != null: _apply_wobble(e, float(p["wobble"]))
+			p["dead"] = true
+			return
+
 static func _find_fighter(state, id) -> Variant:
 	for f in state["fighters"]:
 		if f["id"] == id:
@@ -108,6 +160,9 @@ static func sim_tick(state, dt) -> void:
 		if p["delay"] > 0:
 			p["delay"] -= dt
 			continue
+		if p.has("dx"):                              # P5 direction-mode (spread/ricochet) — no homing target
+			_step_dir_projectile(state, p, dt, fighters)
+			continue
 		var tgt = _find_fighter(state, p["tx"])
 		if tgt == null or not tgt["alive"]:
 			p["dead"] = true
@@ -125,6 +180,7 @@ static func sim_tick(state, dt) -> void:
 					if p.get("slow", null) != null:
 						tgt["slowT"] = p["slow"]["dur"]
 						tgt["slowAmt"] = p["slow"]["amt"]
+					if p.get("wobble", null) != null: _apply_wobble(tgt, float(p["wobble"]))   # P5 Wobble on hit
 				if p.get("teamShieldPct", null) != null:
 					for a in fighters:
 						if (a["id"] == src["id"] or Combat.is_ally(state, src, a)) and a["alive"]:
@@ -187,6 +243,11 @@ static func sim_tick(state, dt) -> void:
 		f["slowT"] = max(0.0, f["slowT"] - dt)
 		f["flash"] = max(0.0, f["flash"] - dt)
 		f["noDmgT"] += dt
+		if float(f.get("wobble", 0.0)) > 0.0:                # P5 Wobble: stacks decay one at a time (no-op for anyone never wobbled)
+			f["wobbleT"] = maxf(0.0, float(f.get("wobbleT", 0.0)) - dt)
+			if f["wobbleT"] <= 0.0:
+				f["wobble"] = maxf(0.0, float(f["wobble"]) - 1.0)
+				if f["wobble"] > 0.0: f["wobbleT"] = WOBBLE_DECAY
 		f["buffs"]["critT"] = max(0.0, f["buffs"]["critT"] - dt)
 		f["buffs"]["atkspdT"] = max(0.0, f["buffs"]["atkspdT"] - dt)
 		f["buffs"]["drT"] = max(0.0, f["buffs"]["drT"] - dt)
@@ -253,7 +314,7 @@ static func sim_tick(state, dt) -> void:
 					ctgt = _find_fighter(state, f["casting"]["targetId"])
 				if ab["type"] == "melee" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt) and Geom.dist(f, ctgt) < ab["range"] + 30:
 					Combat.deal_damage(state, f, ctgt, ab["dmg"], {"melee": true, "key": ab["key"]})
-					if ab.has("knockback"):
+					if ab.has("knockback") and not Combat.kb_immune(ctgt):
 						var kd = Vector2(ctgt["x"] - f["x"], ctgt["y"] - f["y"]).length()
 						if kd == 0: kd = 1.0
 						ctgt["x"] += ((ctgt["x"] - f["x"]) / kd) * ab["knockback"]
@@ -263,12 +324,19 @@ static func sim_tick(state, dt) -> void:
 					for e in fighters:
 						if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < ab["radius"]:
 							Combat.deal_damage(state, f, e, ab["dmg"], {"melee": true, "key": ab["key"]})
-							if ab.has("knockback"):
+							if ab.has("knockback") and not Combat.kb_immune(e):
 								var kd = Vector2(e["x"] - f["x"], e["y"] - f["y"]).length()
 								if kd == 0: kd = 1.0
 								e["x"] += ((e["x"] - f["x"]) / kd) * ab["knockback"]
 								e["y"] += ((e["y"] - f["y"]) / kd) * ab["knockback"]
 								Geom.clamp_arena(e)
+							if ab.has("pull") and not Combat.kb_immune(e):   # P5: yank the target TOWARD the caster (off cover)
+								var pd = Vector2(f["x"] - e["x"], f["y"] - e["y"]).length()
+								var pamt = minf(float(ab["pull"]), pd - 30.0)
+								if pamt > 0.0:
+									e["x"] += ((f["x"] - e["x"]) / pd) * pamt
+									e["y"] += ((f["y"] - e["y"]) / pd) * pamt
+									Geom.clamp_arena(e)
 				elif ab["type"] == "dashAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):
 					Abilities.exec_dash_attack(state, f, ctgt, ab)
 				elif ab["type"] == "leapAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):

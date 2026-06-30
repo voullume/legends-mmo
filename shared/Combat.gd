@@ -44,6 +44,29 @@ static func _same_party(a, b) -> bool:
 	var pa := str(a.get("party", ""))
 	return pa != "" and pa == str(b.get("party", ""))
 
+# P5: a heavy mob (the boss + big elites) can be flagged knockback-immune — forced displacement (melee /
+# dash knockback) is skipped on it, so players can't kb-lock it. Players never carry the flag (no-op for them).
+static func kb_immune(f: Dictionary) -> bool:
+	return GameData.CLASSES.get(str(f["classId"]), {}).get("kbImmune", false)
+
+# P5 frontal DR — a mob with a `frontalDR` def value takes that fraction LESS from an attacker standing in
+# its facing arc (it blocks the front; flank/back it for full damage). Geometric (uses the mob's hx/hy
+# heading), zero rng; returns 1.0 for anything without frontalDR (so players are unaffected → byte-identical).
+static func frontal_mult(src: Dictionary, tgt: Dictionary) -> float:
+	var fdr := float(GameData.CLASSES.get(str(tgt["classId"]), {}).get("frontalDR", 0.0))
+	if fdr <= 0.0:
+		return 1.0
+	var hx := float(tgt.get("hx", 0.0))
+	var hy := float(tgt.get("hy", 0.0))
+	if hx == 0.0 and hy == 0.0:
+		return 1.0
+	var dx := float(src["x"]) - float(tgt["x"])
+	var dy := float(src["y"]) - float(tgt["y"])
+	var d := Vector2(dx, dy).length()
+	if d < 0.001:
+		return 1.0
+	return (1.0 - fdr) if ((hx * dx + hy * dy) / d) > 0.5 else 1.0   # attacker within ~60° of the front → reduced
+
 # effectiveDR — sum of all damage-reduction sources, capped at 0.75.
 static func effective_dr(t: Dictionary) -> float:
 	var dr := 0.0
@@ -71,6 +94,8 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 	# 4. airborne (Spiker)
 	if opts.get("airborne", false) and sc.has("airborneDmg"):
 		dmg *= sc["airborneDmg"]
+	# 4b. frontal DR (P5) — a mob that blocks from the front takes less; flank/back it for full (no-op for players)
+	dmg *= frontal_mult(src, tgt)
 	# 5. sudden-death overtime (skipped in a persistent zone — t grows unbounded there)
 	if state["t"] > OT_START and not state.get("zone", false):
 		dmg *= 1.0 + (state["t"] - OT_START) * 0.035

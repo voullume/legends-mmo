@@ -178,7 +178,7 @@ const CLASSES := {
 	# (dmg/slow ground area). Sled + Ball Machine are reuse-only; the Drill Sergeant drives both new ones.
 	"drill_sergeant": {
 		"name": "Drill Sergeant Dummy", "sport": "", "mob": true, "rig": true, "model": "drill_sergeant", "h": 2.9,
-		"lane": 0, "color": "#9AA86B",   # rigged: real skeletal idle/run/punch/hit/death + a shout on cast/summon
+		"lane": 0, "color": "#9AA86B", "kbImmune": true,   # rigged: real skeletal idle/run/punch/hit/death + a shout on cast/summon
 		"stats": {"PWR": 48, "PRE": 30, "SPD": 30, "END": 60, "INS": 30, "CLU": 22},
 		"abilities": [
 			{"key": "raporder", "name": "Bark Order", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 62},
@@ -190,11 +190,11 @@ const CLASSES := {
 	"sled_juggernaut": {
 		"name": "Blocking Sled Juggernaut", "sport": "", "mob": true, "model": "sled_juggernaut", "anim": "brute", "h": 2.9,
 		"face": 90.0,                        # model's native front is 90° off — rotate it to face its target
-		"lane": 0, "color": "#5566AA",
+		"lane": 0, "color": "#5566AA", "kbImmune": true, "frontalDR": 0.55,   # a blocking sled: immovable + frontal armor (flank it)
 		"stats": {"PWR": 60, "PRE": 22, "SPD": 18, "END": 90, "INS": 20, "CLU": 20},
 		"abilities": [
 			{"key": "shoulder", "name": "Shoulder Drive", "type": "melee", "basic": true, "dmg": 48, "cd": 1.6, "range": 66},
-			{"key": "driveblock", "name": "Drive Block", "type": "dashAttack", "dmg": 70, "cd": 7.5, "dist": 175, "cast": 0.45, "knockback": 95},
+			{"key": "driveblock", "name": "Drive Block", "type": "dashAttack", "dmg": 70, "cd": 7.5, "dist": 175, "cast": 0.45, "knockback": 95, "wallStun": 1.5},
 			{"key": "pancakeslam", "name": "Pancake Slam", "type": "meleeAoe", "dmg": 56, "cd": 9.0, "radius": 95, "cast": 0.5, "knockback": 50},
 			{"key": "bandlash", "name": "Resistance Band Lash", "type": "melee", "dmg": 34, "cd": 6.0, "range": 72, "slow": {"amt": 0.35, "dur": 1.5}},
 		],
@@ -205,8 +205,9 @@ const CLASSES := {
 		"lane": 2, "color": "#D08A2E", "stationary": true,   # turret — holds position
 		"stats": {"PWR": 52, "PRE": 45, "SPD": 8, "END": 40, "INS": 28, "CLU": 18},
 		"abilities": [
-			{"key": "lobshot", "name": "Lob Shot", "type": "projectile", "basic": true, "dmg": 40, "cd": 1.25, "range": 300, "speed": 430},
-			{"key": "tripleshot", "name": "Triple Shot", "type": "barrage", "dmg": 36, "count": 3, "cd": 6.0, "range": 320, "speed": 440},
+			{"key": "lobshot", "name": "Lob Shot", "type": "projectile", "basic": true, "dmg": 40, "cd": 1.25, "range": 300, "speed": 430, "wobble": 1},   # sustained fire stacks Wobble (cd 1.25 < decay 2.0 → builds while you facetank)
+			{"key": "scatter", "name": "Scatter Volley", "type": "spread", "dmg": 24, "count": 5, "arc": 0.7, "cd": 7.0, "range": 320, "speed": 420, "wobble": 1},   # 5-shot fan also stacks Wobble
+			{"key": "bankshot", "name": "Bank Shot", "type": "spread", "dmg": 44, "count": 2, "arc": 0.22, "cd": 9.0, "range": 340, "speed": 380, "bounces": 2},   # ricochets off cover walls
 			{"key": "overcharge", "name": "Overcharged Cannon", "type": "projectile", "dmg": 92, "cd": 8.5, "range": 340, "speed": 360, "stun": 0.6},
 		],
 	},
@@ -218,7 +219,7 @@ const CLASSES := {
 	# arena power cores (coreCount). Static GLB + the "boss" procedural animator + per-phase emissive.
 	"head_coach": {
 		"name": "Head Coach Prototype", "sport": "", "mob": true, "model": "head_coach", "anim": "boss", "h": 4.6,
-		"lane": 0, "color": "#C0392B", "phased": true, "coreCount": 4,
+		"lane": 0, "color": "#C0392B", "phased": true, "coreCount": 4, "kbImmune": true,
 		"threshSummon": {"mobType": "cone_swarmer", "count": 2},   # P1/P2/P3 entry each calls a cone wave (SUMMON_CAP-bounded)
 		"stats": {"PWR": 56, "PRE": 34, "SPD": 26, "END": 86, "INS": 30, "CLU": 24},
 		"abilities": [
@@ -233,8 +234,9 @@ const CLASSES := {
 			{"key": "ladderlock", "name": "Ladder Lock", "type": "zone", "cd": 12.0, "radius": 120, "dur": 5.0, "slow": {"amt": 0.35, "dur": 0.6}, "phase": 1},
 			{"key": "shockwave", "name": "Hurdle Shockwave", "type": "meleeAoe", "dmg": 52, "cd": 10.0, "radius": 155, "cast": 0.7, "knockback": 55, "phase": 1},
 			# P2 Contact
-			{"key": "sleddrive", "name": "Sled Drive", "type": "dashAttack", "dmg": 80, "cd": 8.0, "dist": 210, "cast": 0.5, "knockback": 110, "phase": 2},
+			{"key": "sleddrive", "name": "Sled Drive", "type": "dashAttack", "dmg": 80, "cd": 8.0, "dist": 210, "cast": 0.5, "knockback": 110, "wallStun": 1.4, "phase": 2},
 			{"key": "pancake", "name": "Pancake Protocol", "type": "meleeAoe", "dmg": 70, "cd": 9.5, "radius": 110, "cast": 0.55, "knockback": 45, "phase": 2},
+			{"key": "respull", "name": "Resistance Pull", "type": "meleeAoe", "dmg": 28, "cd": 11.0, "radius": 300, "cast": 0.8, "pull": 220, "phase": 2},   # yanks players OFF cover toward the boss
 		],
 	},
 	# Power cores — inert destructible objects (team 1, the boss's side). No abilities, stationary → they just
@@ -408,4 +410,6 @@ static func create_fighter(class_id: String, team: int, slot: int, rng, team_siz
 		# boss (Phase 4): HP-gated phase (0 for everyone else — inert) + the per-phase threshold-summon latch.
 		# In `fresh` so Server._revive auto-resets them on respawn (a respawned boss re-runs all phases).
 		"phase": 0, "_threshSummoned": {},
+		# P5 Wobble destabilize stacks (0 = inert; only tagged mob abilities ever raise it).
+		"wobble": 0.0, "wobbleT": 0.0,
 	}
