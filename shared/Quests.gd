@@ -76,11 +76,21 @@ const QUESTS := {
 		"rewards": {"xp": 1400, "credits": 660, "tokens": 50,
 			"item": {"name": "Drillmaster's Bulwark", "rarity": "epic", "slot": "chest", "bonus_stat": "END", "bonus_amt": 28}},
 	},
+	# CAPSTONE — beat Boss1 (the Head Coach, in the arena past Command Tower). Completing it is the last gate
+	# on the SECRET boss: once EVERY quest (this included) is done, the gated portal to Head Coach PRIME reveals.
+	"headcoach_down": {
+		"name": "The Head Coach",
+		"desc": "Enter the Head Coach Arena (the pad past the Command Tower) and defeat the Head Coach Prototype.",
+		"min_level": 7, "prereq": "gy5_command",
+		"objective": {"type": "kill", "match": {"map": "glitchyard_boss", "tier": "boss"}, "count": 1},
+		"rewards": {"xp": 2000, "credits": 800, "tokens": 80,
+			"item": {"name": "Head Coach's Whistle", "rarity": "epic", "slot": "trinket", "bonus_stat": "INS", "bonus_amt": 26}},
+	},
 }
 
 # stable display/iteration order (also the chain order)
 const ORDER := ["gy1_intro", "gy2_push", "gy2_brute", "gy3_clear", "gy3_sled",
-	"gy4_clear", "gy4_elites", "gy5_command"]
+	"gy4_clear", "gy4_elites", "gy5_command", "headcoach_down"]
 
 static func order() -> Array:
 	return ORDER

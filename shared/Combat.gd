@@ -67,6 +67,18 @@ static func frontal_mult(src: Dictionary, tgt: Dictionary) -> float:
 		return 1.0
 	return (1.0 - fdr) if ((hx * dx + hy * dy) / d) > 0.5 else 1.0   # attacker within ~60° of the front → reduced
 
+# P-secret CORE SHIELD — a boss with a `coreShield` def value takes that fraction LESS damage while ANY of
+# its own (team-ally) power cores is still alive: the raid must keep the respawning cores down to damage it.
+# Geometric/boolean, zero rng; 1.0 (no-op) for anything without coreShield (so players + other mobs unaffected).
+static func core_shield_mult(state: Dictionary, tgt: Dictionary) -> float:
+	var cs := float(GameData.CLASSES.get(str(tgt["classId"]), {}).get("coreShield", 0.0))
+	if cs <= 0.0:
+		return 1.0
+	for e in state["fighters"]:
+		if e["alive"] and e.get("isCore", false) and is_ally(state, tgt, e):
+			return 1.0 - cs                  # a core is up → the boss is shielded
+	return 1.0
+
 # effectiveDR — sum of all damage-reduction sources, capped at 0.75.
 static func effective_dr(t: Dictionary) -> float:
 	var dr := 0.0
@@ -96,6 +108,8 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		dmg *= sc["airborneDmg"]
 	# 4b. frontal DR (P5) — a mob that blocks from the front takes less; flank/back it for full (no-op for players)
 	dmg *= frontal_mult(src, tgt)
+	# 4c. core shield (secret boss) — heavy DR while its power cores are up; kill them to damage it (no-op otherwise)
+	dmg *= core_shield_mult(state, tgt)
 	# 5. sudden-death overtime (skipped in a persistent zone — t grows unbounded there)
 	if state["t"] > OT_START and not state.get("zone", false):
 		dmg *= 1.0 + (state["t"] - OT_START) * 0.035

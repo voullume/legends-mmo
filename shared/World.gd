@@ -16,6 +16,8 @@ const GY3 := "glitchyard_3"                 # Impact Lanes   — lvl 4-5 + the S
 const GY4 := "glitchyard_4"                 # Target Court   — lvl 5-6 + the Ball Machine turret elite
 const GY5 := "glitchyard_5"                 # Command Tower  — lvl 7-8 + the Drill Sergeant summoner elite
 const GY_BOSS := "glitchyard_boss"          # the Head Coach arena (Phase 4) — hangs off GY5's reserved east pad
+const GY_SECRET := "glitchyard_secret"      # the SECRET boss arena (Head Coach PRIME) — gated portal in GY_BOSS,
+                                            # only revealed once you've completed EVERY quest (incl. beating Boss1)
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
@@ -26,6 +28,7 @@ const GY3_SPAWN := Vector2(220, 490)
 const GY4_SPAWN := Vector2(220, 520)
 const GY5_SPAWN := Vector2(220, 550)
 const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well clear of the central boss camp
+const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of Head Coach PRIME
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
@@ -41,6 +44,7 @@ const MAPS := {
 	GY4:   {"type": "combat", "w": 1900, "h": 1040, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY4_SPAWN},
 	GY5:   {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY5_SPAWN},
 	GY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYB_SPAWN},
+	GY_SECRET: {"type": "combat", "w": 1440, "h": 940, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYS_SPAWN},
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 }
 
@@ -93,6 +97,13 @@ const PORTALS := {
 		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). The boss is central, far from
 		# this west pad, so an arriving group isn't insta-pulled.
 		{"x": 80.0,   "y": 410.0,  "to": GY5,     "tx": 1500.0, "ty": 250.0, "label": "◀ Command Tower"},
+		# the SECRET portal (far east, past Boss1) — gated: hidden + inert until EVERY quest is done (incl.
+		# beating Boss1). Server hides it from the snapshot + refuses the teleport until _all_quests_done.
+		{"x": 1150.0, "y": 410.0,  "to": GY_SECRET, "tx": 160.0, "ty": 460.0, "gate": "all_quests", "label": "▶ ??? — The Final Lesson"},
+	],
+	GY_SECRET: [
+		# drop WEST of the secret pad (@1150,410) so returning doesn't instantly bounce back through it.
+		{"x": 80.0,   "y": 460.0,  "to": GY_BOSS, "tx": 980.0, "ty": 410.0, "label": "◀ Head Coach Arena"},
 	],
 	ARENA: [
 		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -147,6 +158,16 @@ const MOBS := {
 		{"class": "power_core", "level": 5, "tier": "minion", "x": 450.0, "y": 520.0},
 		{"class": "power_core", "level": 5, "tier": "minion", "x": 790.0, "y": 300.0},
 		{"class": "power_core", "level": 5, "tier": "minion", "x": 790.0, "y": 520.0},
+	],
+	GY_SECRET: [  # Head Coach PRIME (secret raid boss) + 6 power cores — the cores SHIELD it (60% DR while up),
+		# so the raid must keep them down. Their level is higher so they take a moment to clear each cycle.
+		{"class": "head_coach_prime", "level": 10, "tier": "boss",   "x": 700.0, "y": 470.0},
+		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 500.0, "y": 330.0},
+		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 500.0, "y": 610.0},
+		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 700.0, "y": 250.0},
+		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 700.0, "y": 690.0},
+		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 360.0},
+		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 580.0},
 	],
 }
 
@@ -230,6 +251,13 @@ const OBSTACLES := {
 		{"x": 620.0, "y": 170.0, "prop": "rack", "len": 160.0, "yaw": 0.0},          # N — hide y<170
 		{"x": 620.0, "y": 650.0, "prop": "rack", "len": 160.0, "yaw": 0.0},          # S — hide y>650
 	],
+	GY_SECRET: [  # the same cover-ring idea, larger, around Head Coach PRIME (@700,470) — its Total Camp Reset
+		# fires often, so cover positions on every side are essential.
+		{"x": 380.0,  "y": 470.0, "prop": "barrier", "len": 160.0, "yaw": 1.5708},   # W
+		{"x": 1020.0, "y": 470.0, "prop": "barrier", "len": 160.0, "yaw": 1.5708},   # E
+		{"x": 700.0,  "y": 200.0, "prop": "rack", "len": 180.0, "yaw": 0.0},          # N
+		{"x": 700.0,  "y": 740.0, "prop": "rack", "len": 180.0, "yaw": 0.0},          # S
+	],
 }
 
 static func obstacles_for(map: String) -> Array:
@@ -262,6 +290,10 @@ const DECALS := {
 	GY_BOSS: [
 		{"kind": "ring", "x": 620.0, "y": 410.0, "r": 200.0}, {"kind": "ring", "x": 620.0, "y": 410.0, "r": 110.0},
 		{"kind": "cone", "x": 620.0, "y": 290.0}, {"kind": "cone", "x": 620.0, "y": 530.0}, {"kind": "cone", "x": 480.0, "y": 410.0}, {"kind": "cone", "x": 760.0, "y": 410.0},
+	],
+	GY_SECRET: [
+		{"kind": "ring", "x": 700.0, "y": 470.0, "r": 240.0}, {"kind": "ring", "x": 700.0, "y": 470.0, "r": 130.0},
+		{"kind": "cone", "x": 700.0, "y": 320.0}, {"kind": "cone", "x": 700.0, "y": 620.0}, {"kind": "cone", "x": 540.0, "y": 470.0}, {"kind": "cone", "x": 860.0, "y": 470.0},
 	],
 }
 

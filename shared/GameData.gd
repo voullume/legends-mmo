@@ -239,6 +239,36 @@ const CLASSES := {
 			{"key": "respull", "name": "Resistance Pull", "type": "meleeAoe", "dmg": 28, "cd": 11.0, "radius": 300, "cast": 0.8, "pull": 220, "phase": 2},   # yanks players OFF cover toward the boss
 		],
 	},
+	# THE SECRET BOSS (Boss2) — Head Coach PRIME. Reachable only via the gated portal in the boss arena, which
+	# unlocks once a character has completed EVERY Glitchyard quest (incl. the headcoach_down capstone = beating
+	# Boss1). A 10+ minute raid: a huge HP pool (hpMult on top of tier:boss ×6), SIX HP phases, the full P5 kit
+	# intensified, and CORE-SHIELD — it takes `coreShield` less damage while ANY of its power cores live, so the
+	# team must keep the (respawning) cores down to make a dent. Static GLB (boss2) + the "boss" animator.
+	"head_coach_prime": {
+		"name": "Head Coach PRIME", "sport": "", "mob": true, "model": "boss2", "anim": "boss", "h": 6.0,
+		"lane": 0, "color": "#8E2DE2", "phased": true, "coreCount": 6, "kbImmune": true,
+		"hpMult": 9.0, "coreShield": 0.55, "dmgScale": 0.55,   # ×9 HP; 55% DR while a core lives (kill them!); damage dialed so it's a survivable >10-min execution fight, not an instant wipe. (Tunable — playtest the exact length.)
+		"threshSummon": {"mobType": "cone_swarmer", "count": 3},   # a bigger wave per phase entry
+		"stats": {"PWR": 64, "PRE": 38, "SPD": 30, "END": 96, "INS": 34, "CLU": 28},
+		"abilities": [
+			# the ult unlocks at phase 2 + fires often — the cover LOS-spare is the recurring survival check
+			{"key": "totalreset", "name": "Total Camp Reset", "type": "campreset", "dmg": 150, "cd": 12.0, "cast": 3.0, "phase": 2},
+			# P0
+			{"key": "primebark", "name": "Prime Bark", "type": "melee", "basic": true, "dmg": 50, "cd": 1.3, "range": 74, "phase": 0},
+			{"key": "primeclip", "name": "Clipboard Storm", "type": "meleeAoe", "dmg": 50, "cd": 5.5, "radius": 115, "cast": 0.5, "phase": 0},
+			{"key": "primeform", "name": "Form Correction", "type": "dashAttack", "dmg": 70, "cd": 7.0, "dist": 220, "cast": 0.4, "wallStun": 1.4, "phase": 0},
+			# P1
+			{"key": "primeladder", "name": "Conditioning Grid", "type": "zone", "cd": 9.0, "radius": 140, "dur": 6.0, "dmg": 12.0, "slow": {"amt": 0.4, "dur": 0.6}, "phase": 1},
+			{"key": "primeshock", "name": "Hurdle Shockwave", "type": "meleeAoe", "dmg": 60, "cd": 8.0, "radius": 175, "cast": 0.6, "knockback": 60, "phase": 1},
+			# P2
+			{"key": "primesled", "name": "Sled Drive", "type": "dashAttack", "dmg": 95, "cd": 7.0, "dist": 240, "cast": 0.5, "knockback": 120, "wallStun": 1.6, "phase": 2},
+			{"key": "primepull", "name": "Resistance Pull", "type": "meleeAoe", "dmg": 35, "cd": 9.0, "radius": 340, "cast": 0.7, "pull": 260, "phase": 2},
+			# P3
+			{"key": "primepancake", "name": "Pancake Protocol", "type": "meleeAoe", "dmg": 85, "cd": 8.0, "radius": 130, "cast": 0.5, "knockback": 50, "phase": 3},
+			# P4
+			{"key": "primewhistle", "name": "Whistle Burst", "type": "meleeAoe", "dmg": 26, "cd": 7.0, "radius": 155, "stun": 1.0, "cast": 0.4, "phase": 4},
+		],
+	},
 	# Power cores — inert destructible objects (team 1, the boss's side). No abilities, stationary → they just
 	# sit; players destroy them to weaken/cancel the boss's Full Camp Reset ult (mult = cores_alive/coreCount).
 	# "isCore":true → the server tags them no-loot/no-XP. They respawn like any mob, so the counterplay recurs.

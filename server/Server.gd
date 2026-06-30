@@ -1281,9 +1281,37 @@ func _check_portals() -> void:
 			continue
 		for portal in World.PORTALS.get(s["map"], []):
 			if Vector2(f["x"] - float(portal["x"]), f["y"] - float(portal["y"])).length() <= World.PORTAL_RADIUS:
+				if portal.has("gate") and not _portal_unlocked(pid, str(portal["gate"])):
+					continue                          # gated + locked (e.g. the secret boss) — no teleport (it's also hidden in the snapshot)
 				_portal_teleport(f, s, portal)
 				_tp_next[f["id"]] = now + TP_GRACE_MS
 				break
+
+# A character UNLOCKS a gated portal (the secret boss) by completing EVERY Glitchyard quest — the chain ends
+# with headcoach_down (= beating Boss1), so "all quests done" means "all quests AND Boss1 beaten".
+func _all_quests_done(pid: int) -> bool:
+	if not _session.has(pid):
+		return false
+	var q: Dictionary = _session[pid].get("quests", {})
+	for qid in Quests.ORDER:
+		if not bool((q.get(qid, {}) as Dictionary).get("completed", false)):
+			return false
+	return true
+
+func _portal_unlocked(pid: int, gate: String) -> bool:
+	if gate == "all_quests":
+		return _all_quests_done(pid)
+	return true
+
+# per-player portal list for the snapshot: gated portals the player hasn't unlocked are HIDDEN (the secret
+# zone's entrance doesn't render until you've earned it).
+func _portals_for_player(map: String, pid: int) -> Array:
+	var out := []
+	for p in World.PORTALS.get(map, []):
+		if p.has("gate") and not _portal_unlocked(pid, str(p["gate"])):
+			continue
+		out.append({"x": p["x"], "y": p["y"], "label": p["label"]})
+	return out
 
 func _portal_teleport(f, s, portal) -> void:
 	var from_map: String = str(f["map"])
@@ -1402,9 +1430,10 @@ func _scale_mob(f) -> void:
 	var dmg_t := MOB_BOSS_DMG if tier == "boss" else (MOB_ELITE_DMG if tier == "elite" else 1.0)
 	var hp_s := MOB_HP_SCALE * (1.0 + (lvl - 1) * 0.3) * hp_t
 	var dmg_s := MOB_DMG_SCALE * (1.0 + (lvl - 1) * 0.2) * dmg_t
-	f["maxHP"] = f["maxHP"] * hp_s
+	var bdef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
+	f["maxHP"] = f["maxHP"] * hp_s * float(bdef.get("hpMult", 1.0))   # per-boss HP multiplier (the secret raid boss)
 	f["hp"] = f["maxHP"]
-	f["dmgMult"] *= dmg_s
+	f["dmgMult"] *= dmg_s * float(bdef.get("dmgScale", 1.0))   # per-boss damage multiplier (the secret raid boss is tuned for a long survivable fight)
 
 func _mob_xp(mob) -> int:
 	var lvl := int(mob.get("mobLevel", 1))
@@ -2012,6 +2041,7 @@ func _broadcast() -> void:
 		if f == null or not _worlds.has(s["map"]):
 			continue
 		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
+		snap["portals"] = _portals_for_player(str(s["map"]), pid)   # hide gated (secret) portals until unlocked
 		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
 		if str(s["map"]) == World.HOME:           # the shop / forge pads + quest giver only exist in the home base
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
