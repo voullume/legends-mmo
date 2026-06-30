@@ -241,13 +241,13 @@ const CLASSES := {
 	},
 	# THE SECRET BOSS (Boss2) — Head Coach PRIME. Reachable only via the gated portal in the boss arena, which
 	# unlocks once a character has completed EVERY Glitchyard quest (incl. the headcoach_down capstone = beating
-	# Boss1). A 10+ minute raid: a huge HP pool (hpMult on top of tier:boss ×6), SIX HP phases, the full P5 kit
+	# Boss1). A 10+ minute raid: a huge HP pool (hpMult on top of tier:boss ×6), 4 HP phases, the full P5 kit
 	# intensified, and CORE-SHIELD — it takes `coreShield` less damage while ANY of its power cores live, so the
 	# team must keep the (respawning) cores down to make a dent. Static GLB (boss2) + the "boss" animator.
 	"head_coach_prime": {
 		"name": "Head Coach PRIME", "sport": "", "mob": true, "model": "boss2", "anim": "boss", "h": 6.0,
 		"lane": 0, "color": "#8E2DE2", "phased": true, "coreCount": 6, "kbImmune": true,
-		"hpMult": 9.0, "coreShield": 0.55, "dmgScale": 0.55,   # ×9 HP; 55% DR while a core lives (kill them!); damage dialed so it's a survivable >10-min execution fight, not an instant wipe. (Tunable — playtest the exact length.)
+		"hpMult": 6.0, "coreShield": 0.55, "dmgScale": 0.55,   # ×6 HP; 55% DR while a core lives (kill them!); damage dialed so a geared team survives + PROGRESSES the phases (so the ult/mechanics engage) over ~10+ min. (Very tunable — playtest the length; dial hpMult up if too fast, down if a wall.)
 		"threshSummon": {"mobType": "cone_swarmer", "count": 3},   # a bigger wave per phase entry
 		"stats": {"PWR": 64, "PRE": 38, "SPD": 30, "END": 96, "INS": 34, "CLU": 28},
 		"abilities": [
@@ -263,10 +263,9 @@ const CLASSES := {
 			# P2
 			{"key": "primesled", "name": "Sled Drive", "type": "dashAttack", "dmg": 95, "cd": 7.0, "dist": 240, "cast": 0.5, "knockback": 120, "wallStun": 1.6, "phase": 2},
 			{"key": "primepull", "name": "Resistance Pull", "type": "meleeAoe", "dmg": 35, "cd": 9.0, "radius": 340, "cast": 0.7, "pull": 260, "phase": 2},
-			# P3
+			# P3 (final band — the phase ladder is 4 bands: 0/1/2/3, so the kit fully unlocks here)
 			{"key": "primepancake", "name": "Pancake Protocol", "type": "meleeAoe", "dmg": 85, "cd": 8.0, "radius": 130, "cast": 0.5, "knockback": 50, "phase": 3},
-			# P4
-			{"key": "primewhistle", "name": "Whistle Burst", "type": "meleeAoe", "dmg": 26, "cd": 7.0, "radius": 155, "stun": 1.0, "cast": 0.4, "phase": 4},
+			{"key": "primewhistle", "name": "Whistle Burst", "type": "meleeAoe", "dmg": 26, "cd": 7.0, "radius": 155, "stun": 1.0, "cast": 0.4, "phase": 3},
 		],
 	},
 	# Power cores — inert destructible objects (team 1, the boss's side). No abilities, stationary → they just

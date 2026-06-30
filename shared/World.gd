@@ -159,7 +159,7 @@ const MOBS := {
 		{"class": "power_core", "level": 5, "tier": "minion", "x": 790.0, "y": 300.0},
 		{"class": "power_core", "level": 5, "tier": "minion", "x": 790.0, "y": 520.0},
 	],
-	GY_SECRET: [  # Head Coach PRIME (secret raid boss) + 6 power cores — the cores SHIELD it (60% DR while up),
+	GY_SECRET: [  # Head Coach PRIME (secret raid boss) + 6 power cores — the cores SHIELD it (55% DR while up),
 		# so the raid must keep them down. Their level is higher so they take a moment to clear each cycle.
 		{"class": "head_coach_prime", "level": 10, "tier": "boss",   "x": 700.0, "y": 470.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 500.0, "y": 330.0},

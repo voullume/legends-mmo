@@ -1,6 +1,6 @@
 extends SceneTree
 ## Secret-boss (Head Coach PRIME) length probe — 5 level-10 AI players vs the boss scaled EXACTLY like the
-## server (tier boss ×6, ×hpMult 8, level) + its 6 power cores (which give it 60% DR while any is alive), in
+## server (tier boss ×6, ×hpMult 9, level) + its 6 power cores (which give it 55% DR while any is alive), in
 ## the persistent-zone model with the secret-arena cover. Reports kill time or cap-survival. This is a FLOOR
 ## with a big caveat: the AI does not optimally focus the cores to drop the shield, so it runs LONGER than a
 ## coordinated team — treat a long floor as "very hard", and the real >10-min target as a design goal to be
@@ -12,7 +12,7 @@ const Rng = preload("res://shared/Rng.gd")
 
 const MOB_HP_SCALE := 0.35
 const MOB_DMG_SCALE := 0.28
-const MOB_BOSS_HP := 6.0
+const MOB_BOSS_HP := 22.0   # live value (was a stale 6.0)
 const MOB_BOSS_DMG := 1.8
 const MOB_ELITE_HP := 2.2
 const LEVEL_HP := 60.0
@@ -68,7 +68,7 @@ func _run(n_players: int, seed_value: int) -> Dictionary:
 	return {"res": "cap", "dur": st["t"], "phase": maxphase, "hp_pct": 100.0 * boss["hp"] / bosshp}
 
 func _init() -> void:
-	print("=== Head Coach PRIME (secret) — 5 lvl-10 AI vs boss + 6 cores (60% DR while cores up), floor ===")
+	print("=== Head Coach PRIME (secret) — 5 lvl-10 AI vs boss + 6 cores (55% DR while cores up), floor ===")
 	for s in [1, 2]:
 		var r = _run(5, s)
 		print("  seed %d: %s after %ds  | maxphase %d | boss HP left %.0f%%" % [s, r["res"], int(r["dur"]), r["phase"], r["hp_pct"]])

@@ -2106,7 +2106,7 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false):
 					d["phase"] = int(f.get("phase", 0))   # boss: drives per-phase emissive + the scoreboard
 					var cst = f.get("casting", null)       # Full Camp Reset telegraph countdown (scoreboard + screen tint)
-					if cst != null and str(cst.get("key", "")) == "campreset":
+					if cst != null and str((cst.get("ab", {}) as Dictionary).get("type", "")) == "campreset":   # match the ult TYPE (Boss2's key is "totalreset")
 						d["ultCast"] = maxf(0.0, float(cst["total"]) - float(cst["t"]))
 			fs.append(d)
 	var ps := []
