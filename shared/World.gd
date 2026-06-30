@@ -53,6 +53,8 @@ const FORGE_POS := Vector2(480, 150)         # the forge pad (home base only) �
 const FORGE_RADIUS := 80.0
 const QUESTGIVER_POS := Vector2(250, 150)    # the quest giver (home base only) — stand near it to accept/turn in quests
 const QUESTGIVER_RADIUS := 80.0
+const PRACTICE_POS := Vector2(820, 220)      # the Practice Vendor (home base only) — spend Practice Tokens on the Rookie Camp set
+const PRACTICE_RADIUS := 80.0
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
 # Zone graph:  Home ↔ Arena,  Home → Glitchyard 1 ↔ 2 ↔ 3 ↔ 4 ↔ 5  (a linear chain; you arrive west, the

@@ -251,6 +251,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_shop_next.erase(pid)
 	_sellmany_busy.erase(pid)
 	_sellmany_next.erase(pid)
+	_vendor_busy.erase(pid)
+	_vendor_next.erase(pid)
 	_lock_busy.erase(pid)
 	_lock_next.erase(pid)
 	_salvage_busy.erase(pid)
@@ -283,13 +285,14 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
 		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": int(ch.get("credits", 0)),
-		"scrap": 0, "quests": {}}
+		"scrap": 0, "tokens": int(ch.get("practice_tokens", 0)), "quests": {}}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
 	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE})
+	net.recv_vendor_info.rpc_id(pid, {"catalog": _token_catalog()})   # the Practice Vendor (Rookie Camp set)
 	var mr = await supa.get_mats_as(access)           # load the player's salvage materials into the session
 	if _session.has(pid):
 		_session[pid]["scrap"] = int(mr.get("scrap", 0))
@@ -529,6 +532,18 @@ func _award_credits(pid: int, amt: int) -> void:
 	if _session.has(pid):
 		_session[pid]["credits"] = int(_session[pid]["credits"]) + amt
 
+# Practice Tokens (Glitchyard reward loop). Awarded in-session; persistence rides the _save_one in the
+# _award_xp call that follows every kill (practice_tokens is in the saved fields). Tier-scaled.
+func _award_tokens(pid: int, amt: int) -> void:
+	if amt > 0 and _session.has(pid):
+		_session[pid]["tokens"] = int(_session[pid].get("tokens", 0)) + amt
+
+func _mob_tokens(mob) -> int:
+	var tier := str(mob.get("mobTier", "minion"))
+	if tier == "boss": return 60
+	if tier == "elite": return 5
+	return 1
+
 # the single item builder — loot, the shop catalog, and the gamble roll all go through this so power is
 # consistent (replaces the old divergent mult*6 / mult*(qty+lvl) formulas). rng-driven (deterministic via
 # _loot_rng) when picking a stat/affixes/base; pass a fixed primary_stat + base_name + with_affixes=false
@@ -596,6 +611,22 @@ func _catalog() -> Array:
 			out.append(item)
 	return out
 
+# The Practice Vendor catalog (reward loop): the 5 EPIC Rookie Camp set pieces, bought with Practice Tokens.
+# Deterministic (base_name given → _make_item draws no rng), set_id forced to "rookie_camp" (the vendor-only set).
+const ROOKIE_PIECES := {"head": "Rookie Helm", "chest": "Rookie Pads", "hands": "Rookie Gloves",
+	"legs": "Rookie Leggings", "trinket": "Rookie Whistle"}
+const TOKEN_PRICE := 120
+
+func _token_catalog() -> Array:
+	var out := []
+	for slot in ROOKIE_PIECES:
+		var stat: String = str(SHOP_SLOT_STAT.get(slot, "END"))
+		var item := _make_item(slot, "epic", SHOP_ILVL, stat, false, str(ROOKIE_PIECES[slot]))
+		item["set_id"] = "rookie_camp"
+		item["price"] = TOKEN_PRICE
+		out.append(item)
+	return out
+
 func _give_and_charge(pid: int, item: Dictionary, price: int) -> void:
 	var s = _session[pid]
 	s["credits"] = int(s["credits"]) - price                  # deduct up front; refund if the write fails
@@ -605,6 +636,53 @@ func _give_and_charge(pid: int, item: Dictionary, price: int) -> void:
 		_save_one(s, _find(s["fid"]))
 		return
 	_save_one(s, _find(s["fid"]))                             # success: the deduction is now durable
+	if net != null and _session.has(pid):
+		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+		net.recv_inventory_changed.rpc_id(pid)
+
+# Practice Vendor buy — the reward-loop mirror of _give_and_charge, spending Practice Tokens. Its own dupe-
+# safe lock (_vendor_lock, set BEFORE the await), deduct-before-write + refund-on-fail, persist, notify.
+var _vendor_busy := {}                            # pid -> a vendor op is in flight
+var _vendor_next := {}                            # pid -> earliest next vendor op (ms)
+
+func _vendor_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_vendor_busy.get(pid, false)) or now < int(_vendor_next.get(pid, 0)):
+		return false
+	_vendor_busy[pid] = true
+	_vendor_next[pid] = now + 300
+	return true
+
+func vendor_buy(pid: int, slot: String) -> void:
+	if not _vendor_lock(pid):
+		return
+	await _do_vendor_buy(pid, slot)
+	_vendor_busy.erase(pid)
+
+func _do_vendor_buy(pid: int, slot: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return                                                # the Practice Vendor only exists in the home base
+	var entry = null
+	for e in _token_catalog():
+		if str(e["slot"]) == slot:
+			entry = e
+			break
+	if entry == null or int(_session[pid].get("tokens", 0)) < int(entry["price"]):
+		return                                                # unknown piece or not enough tokens — no-op
+	var item: Dictionary = (entry as Dictionary).duplicate()
+	item.erase("price")                                       # "price" is display-only, not an inventory column
+	await _give_and_charge_tokens(pid, item, int(entry["price"]))
+
+func _give_and_charge_tokens(pid: int, item: Dictionary, price: int) -> void:
+	var s = _session[pid]
+	s["tokens"] = int(s.get("tokens", 0)) - price             # deduct up front; refund if the write fails
+	var r = await supa.add_item_as(s["access"], s["char_id"], item)
+	if not r.get("ok"):
+		if _session.has(pid):
+			s["tokens"] = int(s["tokens"]) + price
+			_save_one(s, _find(s["fid"]))
+		return
+	_save_one(s, _find(s["fid"]))                             # success: the token spend is now durable
 	if net != null and _session.has(pid):
 		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
 		net.recv_inventory_changed.rpc_id(pid)
@@ -1265,9 +1343,12 @@ func _award_kills() -> void:
 			var victim = _find(ev["victim"])
 			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false) or victim.get("isCore", false):  # mobs only; not the dummy, summoned adds, or power cores (anti-farm)
 				continue
+			var gy := str(mapname).begins_with("glitchyard")   # the reward loop: Practice Tokens drop in the Glitchyard
 			for pid in _peers:
 				if _session[pid]["fid"] == ev["killer"]:
 					_award_credits(pid, _mob_credits(victim))   # credits before xp's save persists both
+					if gy:
+						_award_tokens(pid, _mob_tokens(victim))
 					_award_xp(pid, _mob_xp(victim))
 					_grant_loot(pid, victim)
 					_quest_on_kill(pid, victim)             # advance any matching kill-quest
@@ -1734,6 +1815,9 @@ func _grant_quest_rewards(pid: int, qid: String) -> void:
 		if int(rw.get("credits", 0)) > 0:
 			_award_credits(pid, int(rw["credits"]))
 			_save_one(_session[pid], _find(_session[pid]["fid"]))
+		if int(rw.get("tokens", 0)) > 0:                  # reward loop: quest turn-ins grant Practice Tokens
+			_award_tokens(pid, int(rw["tokens"]))
+			_save_one(_session[pid], _find(_session[pid]["fid"]))
 		if int(rw.get("xp", 0)) > 0:
 			_award_xp(pid, int(rw["xp"]))
 		if net != null:
@@ -1900,7 +1984,8 @@ func _save_one(session: Dictionary, f) -> void:
 	# for a corpse. Position is the live spot when alive, else the respawn point — never the death
 	# spot — so last_map and last_x/last_y always stay consistent (you resume in the world you were in).
 	var fields := {"xp": int(session["xp"]), "level": int(session["level"]),
-		"last_map": str(session.get("map", World.HOME)), "credits": int(session.get("credits", 0))}
+		"last_map": str(session.get("map", World.HOME)), "credits": int(session.get("credits", 0)),
+		"practice_tokens": int(session.get("tokens", 0))}
 	if f != null:
 		if f["alive"]:
 			fields["last_x"] = f["x"]
@@ -1933,10 +2018,11 @@ func _broadcast() -> void:
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
 			snap["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}
 			snap["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
+			snap["practice"] = {"x": World.PRACTICE_POS.x, "y": World.PRACTICE_POS.y}   # the Practice Vendor (reward loop)
 		# self stat block for the character sheet (P3) — only the recipient's own APPLIED (capped, post-
 		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
 		snap["self"] = {
-			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)),
+			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
 			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 			"procs": (s.get("procs", []) as Array).duplicate(),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),

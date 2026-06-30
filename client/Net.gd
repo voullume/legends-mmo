@@ -120,6 +120,17 @@ func shop_sell_many(item_ids: Array) -> void:
 	if server != null:
 		server.shop_sell_many(multiplayer.get_remote_sender_id(), item_ids)
 
+# ---- Practice Vendor (reward loop): buy a Rookie Camp piece with Practice Tokens; server re-validates ----
+@rpc("any_peer", "call_remote", "reliable")
+func vendor_buy(slot: String) -> void:
+	if server != null:
+		server.vendor_buy(multiplayer.get_remote_sender_id(), slot)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_vendor_info(info: Dictionary) -> void:
+	if client != null:
+		client.recv_vendor_info(info)
+
 # toggle an item's persistent locked (protected-from-sell) flag
 @rpc("any_peer", "call_remote", "reliable")
 func inv_set_locked(item_id: String, locked: bool) -> void:

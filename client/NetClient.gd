@@ -90,6 +90,15 @@ var _forge_craft_grid: GridContainer = null   # craft recipe tiles
 var _sell_salvage := false    # sell panel mode: false = sell for credits, true = salvage for scrap
 var _forge_items := []        # last-loaded inventory cache for the forge panel
 var _forge_loading := false   # re-entrancy guard for the forge load (mirrors _inv_loading)
+# Practice Vendor (reward loop) — the Rookie Camp set bought with Practice Tokens, at a home pad.
+var _vendor_info := {}
+var _vendor_panel: Control = null
+var _vendor_status: Label = null
+var _vendor_rows: VBoxContainer = null
+var _vendor_root: Node3D = null
+var _vendor_sig := ""
+var _vendor_hint: Label = null
+var _near_vendor := false
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
@@ -125,6 +134,7 @@ func _enter_mode() -> void:
 	_build_charsheet()
 	_build_forge()
 	_build_shop()
+	_build_vendor()
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
@@ -748,6 +758,8 @@ func recv_inventory_changed() -> void:
 		_load_shop_sell()
 	if _forge_panel != null and _forge_panel.visible: # an upgrade/salvage changed items, level, scrap
 		_load_forge()
+	if _vendor_panel != null and _vendor_panel.visible:   # a token buy changed our balance → refresh buttons
+		_render_vendor()
 
 # ---- quests (server-authoritative; the log + tracker render from server-pushed state) ----
 # server pushes the full quest state once on join (recv_quest_state) and an update per change.
@@ -1239,6 +1251,78 @@ func _my_credits() -> int:
 
 func _my_scrap() -> int:
 	return int(_state.get("self", {}).get("scrap", 0))
+
+func _my_tokens() -> int:
+	return int(_state.get("self", {}).get("tokens", 0))
+
+# --- Practice Vendor (V at the home pad): spend Practice Tokens on the Rookie Camp set (reward loop) ---
+func recv_vendor_info(info: Dictionary) -> void:
+	_vendor_info = info
+
+func _build_vendor() -> void:
+	_vendor_panel = CenterContainer.new()
+	_vendor_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_vendor_panel.visible = false
+	_hud.add_child(_vendor_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(580, 0)
+	_vendor_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "◈ Practice Vendor — Rookie Camp Set   (V to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_vendor_status = Label.new()
+	_vendor_status.add_theme_font_size_override("font_size", 16)
+	_vendor_status.add_theme_color_override("font_color", Color(0.4, 0.85, 1.0))
+	vb.add_child(_vendor_status)
+	var hint := Label.new()
+	hint.text = "Earn Practice Tokens from Glitchyard kills + quest turn-ins. Equip 2 / 4 EPIC pieces for the set bonus (+END)."
+	hint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(hint)
+	_vendor_rows = VBoxContainer.new()
+	_vendor_rows.add_theme_constant_override("separation", 6)
+	vb.add_child(_vendor_rows)
+
+func _toggle_vendor() -> void:
+	if _vendor_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_vendor_panel.visible = not _vendor_panel.visible
+	if _vendor_panel.visible:
+		_render_vendor()
+
+func _render_vendor() -> void:
+	if _vendor_panel == null or not _vendor_panel.visible or _vendor_rows == null:
+		return
+	_vendor_status.text = "Balance:  %d Practice Tokens" % _my_tokens()
+	for c in _vendor_rows.get_children():
+		c.queue_free()
+	for it in (_vendor_info.get("catalog", []) as Array):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var lbl := Label.new()
+		lbl.text = "%s   [%s]   %s +%d" % [str(it.get("name", "?")), str(it.get("slot", "")), str(it.get("primary_stat", "")), int(it.get("primary_amt", 0))]
+		lbl.custom_minimum_size = Vector2(380, 0)
+		row.add_child(lbl)
+		var price := int(it.get("price", 0))
+		var btn := Button.new()
+		btn.text = "Buy   %d ◈" % price
+		btn.disabled = _my_tokens() < price
+		btn.pressed.connect(_on_vendor_buy.bind(str(it.get("slot", ""))))
+		row.add_child(btn)
+		_vendor_rows.add_child(row)
+
+func _on_vendor_buy(slot: String) -> void:
+	if net != null:
+		net.vendor_buy.rpc_id(1, slot)
 
 # human-readable description of a proc at a given tier (P6) — from GameData.PROC_CATALOG
 func _proc_desc(proc_id: String, tier: int) -> String:
@@ -1802,6 +1886,62 @@ func _update_shop_proximity() -> void:
 		_shop_panel.visible = false                  # walked away → close the shop
 		_close_sell_confirm()
 
+# the Practice Vendor pad in the home base + the "press V" prompt (mirrors the shop pad, cyan)
+func _render_vendor_pad() -> void:
+	var v = _state.get("practice")
+	var sig := JSON.stringify(v)
+	if sig == _vendor_sig:
+		return
+	_vendor_sig = sig
+	if _vendor_root != null:
+		_vendor_root.queue_free()
+		_vendor_root = null
+	if v == null or _world_root == null:
+		return
+	_vendor_root = Node3D.new()
+	_world_root.add_child(_vendor_root)
+	var pos := Vector3((float(v["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(v["y"]) - _ah() / 2.0) * SCALE)
+	var pillar := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = World.PRACTICE_RADIUS * SCALE * 0.5
+	cyl.bottom_radius = World.PRACTICE_RADIUS * SCALE * 0.6
+	cyl.height = 2.6
+	pillar.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.3, 0.85, 1.0, 0.34)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(0.3, 0.82, 1.0)
+	mat.emission_energy_multiplier = 1.6
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	pillar.material_override = mat
+	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
+	_vendor_root.add_child(pillar)
+
+func _update_vendor_proximity() -> void:
+	if _vendor_hint == null:
+		_vendor_hint = Label.new()
+		_vendor_hint.add_theme_font_size_override("font_size", 18)
+		_vendor_hint.modulate = Color(0.5, 0.9, 1.0)
+		_vendor_hint.visible = false
+		_hud.add_child(_vendor_hint)
+	var v = _state.get("practice")
+	var pf = _find_fighter(_player_id)
+	_near_vendor = false
+	if v != null and pf != null:
+		var d := Vector2(float(pf["x"]) - float(v["x"]), float(pf["y"]) - float(v["y"])).length()
+		_near_vendor = d <= World.PRACTICE_RADIUS
+	if _near_vendor and (_vendor_panel == null or not _vendor_panel.visible):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_vendor_hint.text = "Press [V] for the Practice Vendor"
+		_vendor_hint.position = Vector2(vp.x / 2.0 - 110.0, vp.y - 178.0)
+		_vendor_hint.visible = true
+	else:
+		_vendor_hint.visible = false
+	if not _near_vendor and _vendor_panel != null and _vendor_panel.visible:
+		_vendor_panel.visible = false                # walked away → close the vendor
+
 # the forge pad in the home base + the "press F" proximity prompt (mirrors the shop pad)
 func _render_forge_pad() -> void:
 	var forge = _state.get("forge")
@@ -2338,6 +2478,8 @@ func _process(delta: float) -> void:
 	_update_forge_proximity()
 	_render_questgiver_pad()
 	_update_questgiver_proximity()
+	_render_vendor_pad()
+	_update_vendor_proximity()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -2514,6 +2656,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_toggle_qgiver()                # talk to the quest giver while near it
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_V and not _chatting and (_near_vendor or (_vendor_panel != null and _vendor_panel.visible)):
+			_toggle_vendor()                # the Practice Vendor while near it (reward loop)
+			get_viewport().set_input_as_handled()
+			return
 		elif e.keycode == KEY_O and not _chatting:
 			_toggle_settings()              # audio / options
 			get_viewport().set_input_as_handled()
@@ -2556,8 +2702,8 @@ func _update_hud() -> void:
 	var xpn := int(pf.get("xpNext", 100))
 	var zone := _zone_name(str(_state.get("map", "")))
 	var zone_chip := ("[color=#ff6b6b][b]⚔ %s · PvP[/b][/color]" % zone) if bool(_state.get("pvp", false)) else ("[color=#8ad6ff]◗ %s[/color]" % zone)
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#c9a36a]%d scrap[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]K[/b] sheet · [b]J[/b] journal · [b]F[/b] forge · [b]O[/b] options[/color]" % [
-		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), _my_scrap(), zone_chip]
+	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#c9a36a]%d scrap[/color]   [color=#4fd4ff]%d tokens[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]K[/b] sheet · [b]J[/b] journal · [b]F[/b] forge · [b]O[/b] options[/color]" % [
+		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), _my_scrap(), _my_tokens(), zone_chip]
 	_bar.text = ""
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
 

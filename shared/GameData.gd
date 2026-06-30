@@ -302,6 +302,9 @@ const SET_DEFS := {
 	"football":   {"name": "Gridiron",  "stat": "END", "th": {"2": 8, "4": 15}},
 	"volleyball": {"name": "Spiker",    "stat": "PRE", "th": {"2": 8, "4": 15}},
 	"soccer":     {"name": "Striker",   "stat": "SPD", "th": {"2": 8, "4": 15}},
+	# Reward-loop chase set (Glitchyard) — vendor-only (NOT in SET_IDS, so random loot can't roll it), bought
+	# with Practice Tokens. A survivability theme + a stronger bonus than the sport sets to reward the grind.
+	"rookie_camp": {"name": "Rookie Camp", "stat": "END", "th": {"2": 12, "4": 22}},
 }
 const SET_IDS := ["baseball", "football", "volleyball", "soccer"]
 
