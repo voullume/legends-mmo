@@ -243,6 +243,11 @@ func _mob_count() -> int:
 # ---- instances (endgame P0/P1): private per-party worlds spun up on demand + torn down when empty ----
 var _instances := {}                             # instance key → {template, owner, tier, created_ms, cleared}
 const INTENSITY_MAX := 30                         # ceiling on the ladder (the DB CHECK bounds it too)
+# --- attunement (P2): Playbook Pages → the Master Key → the secret boss gate ---
+const MASTER_KEY_PAGES := 300                     # pages to forge the Master Key (the ~6h chase dial)
+const CIRCUIT_CLEAR_PAGES_BASE := 5              # a Circuit clear yields BASE + tier*PER_TIER pages
+const CIRCUIT_CLEAR_PAGES_PER_TIER := 3
+const BOSS_PAGES := 50                            # the Head Coach boss also drops a page chunk
 
 # Intensity multipliers (P1): geometric so each tier is a real power check but the ladder is unbounded.
 # hp ×1.6 / dmg ×1.13 per tier (tuned so a geared team clears its max tier, the next is a wall to grow into).
@@ -371,11 +376,63 @@ func _grant_circuit_clear(pid: int, tier: int) -> void:
 			var nm = await supa.progression_unlock_as(str(s["char_id"]), tier)
 			if _session.has(pid) and int(nm) > 0:
 				s["max_intensity"] = int(nm)
+	await _award_pages(pid, CIRCUIT_CLEAR_PAGES_BASE + tier * CIRCUIT_CLEAR_PAGES_PER_TIER)   # attunement (P2)
 	# a guaranteed Intensity-scaled bonus drop (a synthetic elite-tier roll) as the clear reward
 	if _session.has(pid):
 		await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
 	if net != null and _session.has(pid):
 		net.recv_circuit_clear.rpc_id(pid, tier, int(_session[pid].get("max_intensity", 1)))
+
+# ---- attunement (P2): Playbook Pages currency + the Master Key craft ----
+var _key_busy := {}                              # pid → a key craft is in flight
+var _key_next := {}                              # pid → earliest next key op (ms)
+
+func _has_master_key(pid: int) -> bool:
+	return _session.has(pid) and bool(_session[pid].get("has_key", false))
+
+# award Playbook Pages (Circuit clears + the boss). Atomic DB add (source of truth) → sync the session total.
+func _award_pages(pid: int, amt: int) -> void:
+	if amt <= 0 or not _session.has(pid):
+		return
+	var char_id := str(_session[pid]["char_id"])
+	var r = await supa.progression_add_pages_as(char_id, amt)
+	if _session.has(pid) and r.get("ok"):
+		_session[pid]["pages"] = int(r["total"])
+
+func _key_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_key_busy.get(pid, false)) or now < int(_key_next.get(pid, 0)):
+		return false
+	_key_busy[pid] = true
+	_key_next[pid] = now + 500
+	return true
+
+# client → server: forge the Master Key (spend MASTER_KEY_PAGES, set has_key). Dupe-safe: own lock set before
+# the await; the spend+set is a single atomic gated DB update (no double-craft / double-spend). Home-gated.
+func craft_master_key(pid: int) -> void:
+	if not _key_lock(pid):
+		return
+	await _do_craft_master_key(pid)
+	_key_busy.erase(pid)
+
+func _do_craft_master_key(pid: int) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return
+	var s = _session[pid]
+	if bool(s.get("has_key", false)):
+		return                                    # already forged
+	if int(s.get("pages", 0)) < MASTER_KEY_PAGES:
+		return                                    # not enough pages
+	var ok: bool = await supa.progression_craft_key_as(str(s["char_id"]), MASTER_KEY_PAGES)
+	if not _session.has(pid):
+		return
+	if not ok:                                    # lost the atomic race / insufficient → nothing changed
+		return
+	s["has_key"] = true
+	s["pages"] = maxi(0, int(s.get("pages", 0)) - MASTER_KEY_PAGES)
+	if net != null:
+		net.recv_key_crafted.rpc_id(pid, true)
+	print("[zone] %s forged the Master Key" % s["name"])
 
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
@@ -424,6 +481,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_quest_busy.erase(pid)
 	_quest_next.erase(pid)
 	_camp_next.erase(pid)
+	_key_busy.erase(pid)
+	_key_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -450,7 +509,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"name": str(ch.get("name", "?")), "xp": maxi(0, int(ch.get("xp", 0))), "level": lvl,
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": maxi(0, int(ch.get("credits", 0))),
 		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {},
-		"max_intensity": 1, "pages": 0}
+		"max_intensity": 1, "pages": 0, "has_key": false}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -461,12 +520,22 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	var mr = await supa.get_mats_as(access)           # load the player's salvage materials into the session
 	if _session.has(pid):
 		_session[pid]["scrap"] = int(mr.get("scrap", 0))
-	var pr = await supa.get_progression_as(access)    # load the Camp Circuit Intensity ladder + Playbook Pages
+	var pr = await supa.get_progression_as(access)    # load the Camp Circuit Intensity ladder + Playbook Pages + Master Key
 	if _session.has(pid):
 		_session[pid]["max_intensity"] = maxi(1, int(pr.get("max_intensity", 1)))
 		_session[pid]["pages"] = maxi(0, int(pr.get("pages", 0)))
+		_session[pid]["has_key"] = bool(pr.get("has_key", false))
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	await _load_quests(pid)                           # load + push the player's quest progress
+	# GATE RE-VALIDATION: _spawn_player restores last_map (client-writable position columns) BEFORE quests/key
+	# are known, so re-check the restored map against its entry gate now that they're loaded — a client that
+	# PATCHed last_map to a gated zone (or a pre-P2 logout inside it) is sent HOME instead of spawning past the gate.
+	if _session.has(pid):
+		var gpf = _find(_session[pid]["fid"])
+		if gpf != null:
+			var gate := World.gate_for_map(str(gpf["map"]))
+			if gate != "" and not _portal_unlocked(pid, gate):
+				_relocate(gpf, _session[pid], World.HOME, World.HOME_SPAWN)
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
 		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
 		_session[pid]["admin"] = is_admin
@@ -1482,8 +1551,11 @@ func _all_quests_done(pid: int) -> bool:
 	return true
 
 func _portal_unlocked(pid: int, gate: String) -> bool:
-	if gate == "all_quests":
-		return _all_quests_done(pid)
+	match gate:
+		"all_quests":
+			return _all_quests_done(pid)
+		"secret_key":                            # the secret boss: finish EVERY quest (incl. Boss1) AND forge the Master Key
+			return _all_quests_done(pid) and _has_master_key(pid)
 	return true
 
 # per-player portal list for the snapshot: gated portals the player hasn't unlocked are HIDDEN (the secret
@@ -1565,6 +1637,8 @@ func _award_kills() -> void:
 					_award_xp(pid, _mob_xp(victim))
 					_grant_loot(pid, victim)
 					_quest_on_kill(pid, victim)             # advance any matching kill-quest
+					if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
+						_award_pages(pid, BOSS_PAGES)
 					break
 
 func _award_xp(pid: int, amt: int) -> void:
@@ -2270,7 +2344,7 @@ func _broadcast() -> void:
 		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
 		snap["self"] = {
 			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
-			"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)),   # Camp Circuit ladder (client selector) + Pages (P2)
+			"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
 			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 			"procs": (s.get("procs", []) as Array).duplicate(),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),

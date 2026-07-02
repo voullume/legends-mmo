@@ -1334,6 +1334,12 @@ func _on_vendor_buy(slot: String) -> void:
 # ---- Camp Circuit: the Intensity selector at the home entry portal + the clear notification ----
 func _my_max_intensity() -> int:
 	return maxi(1, int(_state.get("self", {}).get("max_intensity", 1)))
+func _my_pages() -> int:
+	return maxi(0, int(_state.get("self", {}).get("pages", 0)))
+func _has_key() -> bool:
+	return bool(_state.get("self", {}).get("has_key", false))
+func _key_cost() -> int:                          # authoritative Master Key cost from the server (no client drift)
+	return maxi(1, int(_state.get("self", {}).get("key_cost", 300)))
 
 func _camp_portal() -> Variant:                  # find the Camp ENTRY portal (only in home) by its label —
 	if str(_state.get("map", "")) != "home":     # match "Circuit" so the instance's "◀ Leave Camp" exit never counts
@@ -1404,6 +1410,33 @@ func _render_camp() -> void:
 		btn.pressed.connect(_on_enter_camp.bind(tier))
 		row.add_child(btn)
 		_camp_rows.add_child(row)
+	# --- attunement (P2): Playbook Pages + the Master Key forge ---
+	var sep := HSeparator.new()
+	_camp_rows.add_child(sep)
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 10)
+	var plbl := Label.new()
+	plbl.text = "◈ Playbook Pages:  %d / %d" % [_my_pages(), _key_cost()]
+	plbl.add_theme_color_override("font_color", Color(0.31, 0.83, 1.0))
+	plbl.custom_minimum_size = Vector2(360, 0)
+	prow.add_child(plbl)
+	if _has_key():
+		var done := Label.new()
+		done.text = "🔑 Master Key forged"
+		done.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+		prow.add_child(done)
+	else:
+		var kbtn := Button.new()
+		kbtn.text = "🔑 Forge Master Key"
+		kbtn.disabled = _my_pages() < _key_cost()
+		kbtn.pressed.connect(_on_craft_key)
+		prow.add_child(kbtn)
+	_camp_rows.add_child(prow)
+	var khint := Label.new()
+	khint.text = "The Master Key + every quest done opens the secret boss. Earn Pages from Circuit clears (more at higher Intensity) + the Head Coach."
+	khint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	khint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_camp_rows.add_child(khint)
 
 func _on_enter_camp(tier: int) -> void:
 	if net != null:
@@ -1411,11 +1444,24 @@ func _on_enter_camp(tier: int) -> void:
 	if _camp_panel != null:
 		_camp_panel.visible = false
 
+func _on_craft_key() -> void:
+	if net != null:
+		net.craft_master_key.rpc_id(1)
+
 # server → client: a Circuit run completed (bonus loot already granted server-side; announce + unlock)
 func recv_circuit_clear(intensity: int, max_intensity: int) -> void:
-	_quest_toast("[color=#ffd24d]⚔ Circuit Cleared — Intensity %d![/color]  Bonus loot awarded." % intensity)
+	_quest_toast("[color=#ffd24d]⚔ Circuit Cleared — Intensity %d![/color]  Bonus loot + Pages awarded." % intensity)
 	if max_intensity > intensity:
 		_quest_toast("[color=#9fe8a0]★ Intensity %d unlocked![/color]" % max_intensity)
+	if _camp_panel != null and _camp_panel.visible:
+		_render_camp()                            # refresh the Pages counter live
+
+# server → client: the Master Key was forged
+func recv_key_crafted(ok: bool) -> void:
+	if ok:
+		_quest_toast("[color=#ffd24d]🔑 Master Key forged![/color]  The Final Lesson awaits past the Head Coach Arena.")
+	if _camp_panel != null and _camp_panel.visible:
+		_render_camp()
 
 func _update_camp_proximity() -> void:
 	if _camp_hint == null:

@@ -174,6 +174,17 @@ func recv_circuit_clear(intensity: int, max_intensity: int) -> void:
 	if client != null:
 		client.recv_circuit_clear(intensity, max_intensity)
 
+# forge the Master Key (spend Playbook Pages); server validates + notifies (attunement)
+@rpc("any_peer", "call_remote", "reliable")
+func craft_master_key() -> void:
+	if server != null:
+		server.craft_master_key(multiplayer.get_remote_sender_id())
+
+@rpc("authority", "call_remote", "reliable")
+func recv_key_crafted(ok: bool) -> void:
+	if client != null:
+		client.recv_key_crafted(ok)
+
 # ---- quests (client → server: accept/turn-in; server → client: state + progress) ----
 @rpc("any_peer", "call_remote", "reliable")
 func quest_action(action: String, quest_id: String) -> void:

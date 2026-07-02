@@ -229,10 +229,32 @@ func mats_add_as(char_id: String, delta: int) -> Dictionary:
 # --- progression (endgame P1): Intensity ladder + Playbook Pages. Server-only writes; client READS own. ---
 # READ on the player's token (RLS-scoped). No row yet → defaults (max_intensity 1, pages 0).
 func get_progression_as(token: String) -> Dictionary:
-	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/progression?select=max_intensity,playbook_pages&limit=1", "", PackedStringArray(), token)
+	# select=* (not a column list) so a not-yet-applied column (e.g. has_master_key before its migration lands)
+	# can't 400 the whole read and transiently reset the live Intensity ladder to 1 during a deploy window.
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/progression?select=*&limit=1", "", PackedStringArray(), token)
 	if r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0:
-		return {"ok": true, "max_intensity": int(r["data"][0].get("max_intensity", 1)), "pages": int(r["data"][0].get("playbook_pages", 0))}
-	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0}
+		return {"ok": true, "max_intensity": int(r["data"][0].get("max_intensity", 1)), "pages": int(r["data"][0].get("playbook_pages", 0)), "has_key": bool(r["data"][0].get("has_master_key", false))}
+	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0, "has_key": false}
+
+# atomically add (+earn) or spend (−) Playbook Pages via progression_add_pages. Returns {ok,total}: ok=false
+# when a spend underflows (insufficient). Service-role only.
+func progression_add_pages_as(char_id: String, delta: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false, "total": 0}
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_add_pages", JSON.stringify({"p_char": char_id, "p_delta": delta}), PackedStringArray(), service_key)
+	var val = r["data"]
+	if val is Array and (val as Array).size() > 0:
+		val = val[0]
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and val != null
+	return {"ok": ok, "total": int(val) if ok else 0}
+
+# atomically forge the Master Key: spend `cost` pages + set has_master_key in ONE gated update. Returns true
+# only if it crafted (enough pages AND not already keyed) — no double-spend/craft. Service-role only.
+func progression_craft_key_as(char_id: String, cost: int) -> bool:
+	if service_key == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_craft_key", JSON.stringify({"p_char": char_id, "p_cost": cost}), PackedStringArray(), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
 
 # atomic Intensity unlock via the progression_unlock rpc (ensures the row + bumps only from the cleared tier).
 # Returns the resulting max_intensity. Service-role only (clients can't self-unlock).

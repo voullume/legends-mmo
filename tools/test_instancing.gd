@@ -33,6 +33,9 @@ func _init() -> void:
 	ok(srv._template("home") == "home", "_template leaves static names")
 	ok(srv._is_instance("camp#p9#3") and not srv._is_instance("home"), "_is_instance parse")
 	ok(not srv._worlds.has("camp"), "camp template is NOT a static world")
+	# gate re-validation helper (P2): the secret zone is gated, open zones aren't
+	ok(World.gate_for_map("glitchyard_secret") == "secret_key", "gate_for_map finds the secret gate")
+	ok(World.gate_for_map("home") == "" and World.gate_for_map("glitchyard_1") == "", "open zones are ungated")
 
 	var static_worlds: int = srv._worlds.size()
 	var home_mobs := 0

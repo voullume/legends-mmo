@@ -112,7 +112,7 @@ const PORTALS := {
 		{"x": 80.0,   "y": 410.0,  "to": GY5,     "tx": 1500.0, "ty": 250.0, "label": "◀ Command Tower"},
 		# the SECRET portal (far east, past Boss1) — gated: hidden + inert until EVERY quest is done (incl.
 		# beating Boss1). Server hides it from the snapshot + refuses the teleport until _all_quests_done.
-		{"x": 1150.0, "y": 410.0,  "to": GY_SECRET, "tx": 160.0, "ty": 460.0, "gate": "all_quests", "label": "▶ ??? — The Final Lesson"},
+		{"x": 1150.0, "y": 410.0,  "to": GY_SECRET, "tx": 160.0, "ty": 460.0, "gate": "secret_key", "label": "▶ ??? — The Final Lesson"},
 	],
 	GY_SECRET: [
 		# drop WEST of the secret pad (@1150,410) so returning doesn't instantly bounce back through it.
@@ -293,6 +293,15 @@ const OBSTACLES := {
 		{"x": 1300.0, "y": 300.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1300.0, "y": 560.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
 }
+
+# the gate protecting ENTRY to `map` (scans portals leading to it), or "" if ungated. Lets the server
+# re-validate a restored/teleported map against its gate (not just the walk-in portal path).
+static func gate_for_map(map: String) -> String:
+	for src in PORTALS:
+		for p in PORTALS[src]:
+			if str(p.get("to", "")) == map and p.has("gate"):
+				return str(p["gate"])
+	return ""
 
 static func obstacles_for(map: String) -> Array:
 	return OBSTACLES.get(map, [])
