@@ -51,6 +51,7 @@ const MOB_BOSS_HP := 22.0             # a raid-style boss tuned for a full party
 const MOB_BOSS_DMG := 2.1             # hits hard enough that ignoring its mechanics (ult/adds) wipes a careless group
 const MOB_BOSS_XP := 6                # ≈ 0.9 of a level at its tier — rewarding but kept under a full level
 const LEVEL_HP := 60.0                # bonus max HP per player level
+const LEVEL_CAP := 30                 # endgame P1: the level ceiling (mobs scale via Intensity, not level, past here)
 const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob scaling)
 const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity to re-triggering a pad
 
@@ -139,7 +140,7 @@ var _health_t := 0.0
 var _tick_us_peak := 0                # peak server compute time per frame this minute (CPU headroom)
 
 static func _xp_to_next(level: int) -> int:
-	return level * 100
+	return int(100.0 * level * (1.0 + level * 0.05))   # super-linear so the 1→30 climb stays meaningful
 
 func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	var peer := ENetMultiplayerPeer.new()
@@ -163,7 +164,9 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	# vary loot per launch with process-unique, high-res entropy (no same-second seed collisions)
 	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ Time.get_ticks_usec() ^ (OS.get_process_id() << 13))
 	Engine.max_fps = 60
-	for mapname in World.MAPS:                   # one independent sim per zone (home/combat/frontier/arena)
+	for mapname in World.MAPS:                   # one independent sim per STATIC zone (instance templates are
+		if World.is_instance_template(mapname):  # spun up on demand per party, not created here)
+			continue
 		_worlds[mapname] = _new_world(mapname)
 	_spawn_world_actors()                        # the home dummy + every combat zone's mob camps
 	print("[zone] online on UDP %d  (%d zones, %d mobs%s)" % [port, _worlds.size(), _mob_count(), "  · DTLS" if use_dtls else ""])
@@ -182,13 +185,24 @@ func _check_service_key() -> void:
 	else:
 		print("[zone] ✗ SUPABASE_SERVICE_KEY INVALID (HTTP %s) — loot/equip will NOT save. Redeploy with the correct service_role key." % str(r.get("code")))
 
+# A world key is either a static map name ("home") or an instance key ("camp#<owner>"). The TEMPLATE is the
+# static prefix — all World.gd lookups (cfg/obstacles/portals/mobs/spawn) resolve by template so every instance
+# of "camp" shares the camp blueprint.
+func _template(map: String) -> String:
+	var i := map.find("#")
+	return map.substr(0, i) if i >= 0 else map
+
+func _is_instance(map: String) -> bool:
+	return map.find("#") >= 0
+
 func _new_world(map: String) -> Dictionary:
+	var tmpl := _template(map)
 	var w: Dictionary = Sim.create_match([], [], SEED, MAP_ID)
 	w["zone"] = true                             # persistent: no match-end / no overtime ramp
 	# own map dict per world (NOT the shared GameData venue): the cover-panel rows expand into collision
 	# circles here, which unlock cover/LOS/projectile-block. The client renders the panel props from World.
-	w["map"] = {"id": map, "name": map, "obstacles": World.obstacle_circles(map)}
-	var c := World.cfg(map)                      # per-map size + regen + aggro + pvp
+	w["map"] = {"id": map, "name": tmpl, "obstacles": World.obstacle_circles(tmpl)}
+	var c := World.cfg(tmpl)                      # per-map size + regen + aggro + pvp (by template)
 	w["arenaW"] = int(c["w"])
 	w["arenaH"] = int(c["h"])
 	w["regen"] = float(c["regen"])
@@ -207,6 +221,8 @@ func _spawn_world_actors() -> void:
 		dummy["maxHP"] = DUMMY_HP
 		dummy["hp"] = DUMMY_HP
 	for mapname in World.MOBS:                    # MOBS is keyed by world → spawn each zone's camps
+		if World.is_instance_template(mapname):   # instance templates are populated per-instance, not statically
+			continue
 		for m in World.MOBS[mapname]:
 			var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), mapname)
 			var f = _find(fid)
@@ -219,8 +235,147 @@ func _spawn_world_actors() -> void:
 func _mob_count() -> int:
 	var n := 0
 	for mapname in World.MOBS:
+		if World.is_instance_template(mapname):
+			continue
 		n += (World.MOBS[mapname] as Array).size()
 	return n
+
+# ---- instances (endgame P0/P1): private per-party worlds spun up on demand + torn down when empty ----
+var _instances := {}                             # instance key → {template, owner, tier, created_ms, cleared}
+const INTENSITY_MAX := 30                         # ceiling on the ladder (the DB CHECK bounds it too)
+
+# Intensity multipliers (P1): geometric so each tier is a real power check but the ladder is unbounded.
+# hp ×1.6 / dmg ×1.13 per tier (tuned so a geared team clears its max tier, the next is a wall to grow into).
+func _intensity_hp(tier: int) -> float:
+	return pow(1.6, float(maxi(1, tier) - 1))
+func _intensity_dmg(tier: int) -> float:
+	return pow(1.13, float(maxi(1, tier) - 1))
+
+# spawn a template's mob roster into an already-created instance world, stamped with the instance's Intensity
+# (read by _scale_mob) + the clear-objective flag (its death completes the run).
+func _spawn_instance_actors(key: String, tmpl: String, tier: int) -> void:
+	for m in World.MOBS.get(tmpl, []):
+		var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), key)
+		var f = _find(fid)
+		if f == null:
+			continue
+		f["mobLevel"] = int(m["level"])
+		f["mobTier"] = str(m["tier"])
+		f["intensity"] = tier                    # _scale_mob reads this for the ladder multiplier
+		if bool(m.get("objective", false)):
+			f["objective"] = true                # killing it completes the Circuit (grants tier reward + unlock)
+		_scale_mob(f)
+		if GameData.CLASSES.get(str(m["class"]), {}).get("isCore", false):
+			f["isCore"] = true
+
+# get-or-create the instance world for (template, owner, tier). Owner = a party key or a solo fid, so
+# party-mates entering at the same tier share one instance. Idempotent: returns the existing key if live.
+func _ensure_instance(tmpl: String, owner: String, tier: int) -> String:
+	var key := "%s#%s#%d" % [tmpl, owner, tier]
+	if not _worlds.has(key):
+		_worlds[key] = _new_world(key)
+		_spawn_instance_actors(key, tmpl, tier)
+		_instances[key] = {"template": tmpl, "owner": owner, "tier": tier, "created_ms": Time.get_ticks_msec(), "cleared": false}
+		print("[zone] instance %s created (I%d)" % [key, tier])
+	return key
+
+# route a player into a private instance of `tmpl` at Intensity `tier`. Party-aware owner keying.
+func _enter_instance(pid: int, tmpl: String, tier: int) -> void:
+	if not _session.has(pid):
+		return
+	var f = _find(_session[pid]["fid"])
+	if f == null:
+		return
+	var owner := _party_key(pid)
+	if owner == "":                              # solo → own the instance by fighter id
+		owner = str(_session[pid]["fid"])
+	var key := _ensure_instance(tmpl, owner, tier)
+	_relocate(f, _session[pid], key, World.spawn_for(tmpl))
+
+# tear down an instance world once no players remain in it: remove its mobs (cleaning their id-keyed dicts)
+# and drop the world + meta. Called whenever a player leaves an instance (portal out, death-relocate, disconnect).
+func _maybe_teardown_instance(key: String) -> void:
+	if not _is_instance(key) or not _worlds.has(key):
+		return
+	var w = _worlds[key]
+	for fr in w["fighters"]:
+		if fr["team"] == 0:                      # ANY connected player still inside (incl. a DEAD one awaiting its
+			return                               # in-place respawn) keeps the instance — disconnected players are
+			                                     # already stripped by _remove_fighter, so a corpse here = a live session
+			                                     # (checking f["alive"] would tear the world out from under a downed co-op partner)
+	for fr in w["fighters"]:                     # empty of players → purge every fighter's per-id server state
+		var fid: String = fr["id"]
+		_spawn_pos.erase(fid)
+		_respawn.erase(fid)
+		_tp_next.erase(fid)
+		_mob_engaged.erase(fid)
+	_worlds.erase(key)
+	_instances.erase(key)
+	print("[zone] instance %s torn down" % key)
+
+# ---- Camp Circuit entry (RPC-driven so the client picks an Intensity tier) + clear/unlock (P1) ----
+var _camp_next := {}                              # pid → earliest next enter_camp (light rate-limit)
+
+# is the player standing at the home Camp entry pad? (mirrors _at_questgiver; entry is gated on this server-side)
+func _at_camp_pad(pid: int) -> bool:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return false
+	var f = _find(_session[pid]["fid"])
+	if f == null:
+		return false
+	for p in World.PORTALS.get(World.HOME, []):
+		if p.has("instance") and str(p["instance"]) == World.CAMP:
+			return Vector2(f["x"] - float(p["x"]), f["y"] - float(p["y"])).length() <= World.PORTAL_RADIUS + 24.0
+	return false
+
+# client → server: enter the Camp Circuit at a chosen Intensity. Server-validated: at the pad, tier within
+# [1, max_intensity]. Not economy-mutating (no dupe surface); lightly rate-limited against spam.
+func enter_camp(pid: int, intensity: int) -> void:
+	if not _session.has(pid):
+		return
+	var now := Time.get_ticks_msec()
+	if now < int(_camp_next.get(pid, 0)):
+		return
+	_camp_next[pid] = now + 500
+	if not _at_camp_pad(pid):
+		return
+	var tier := clampi(int(intensity), 1, int(_session[pid].get("max_intensity", 1)))
+	_enter_instance(pid, World.CAMP, tier)
+
+# the Circuit's objective mob died → complete the run for EVERY player in that instance (unlock + bonus loot).
+func _on_circuit_clear(key: String) -> void:
+	var meta = _instances.get(key)
+	if meta == null or bool(meta.get("cleared", false)):
+		return
+	meta["cleared"] = true
+	var tier := int(meta.get("tier", 1))
+	var w = _worlds.get(key)
+	if w == null:
+		return
+	var pids := []                                # snapshot the pids first (grants await + can mutate state)
+	for f in w["fighters"]:
+		if f["team"] == 0:
+			var pid := _pid_by_fid(f["id"])
+			if pid >= 0:
+				pids.append(pid)
+	print("[zone] CIRCUIT CLEAR %s (I%d) for %d player(s)" % [key, tier, pids.size()])
+	for pid in pids:
+		await _grant_circuit_clear(pid, tier)
+
+func _grant_circuit_clear(pid: int, tier: int) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	if tier >= int(s.get("max_intensity", 1)):    # cleared at your ceiling → unlock the next tier (atomic, race-safe)
+		if tier < INTENSITY_MAX:
+			var nm = await supa.progression_unlock_as(str(s["char_id"]), tier)
+			if _session.has(pid) and int(nm) > 0:
+				s["max_intensity"] = int(nm)
+	# a guaranteed Intensity-scaled bonus drop (a synthetic elite-tier roll) as the clear reward
+	if _session.has(pid):
+		await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
+	if net != null and _session.has(pid):
+		net.recv_circuit_clear.rpc_id(pid, tier, int(_session[pid].get("max_intensity", 1)))
 
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
@@ -233,13 +388,15 @@ func _on_peer_disconnected(pid: int) -> void:
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
 	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)):
 		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy owns its OWN terminal
-		                                         # its OWN terminal save; saving here too would race that credit
-		                                         # write (a stale absolute write could clobber it). Skip it.
+												 # its OWN terminal save; saving here too would race that credit
+												 # write (a stale absolute write could clobber it). Skip it.
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
 	for tk in _party_invites.keys():             # sweep invites this peer SENT (keyed by target) so a stale
 		if int((_party_invites[tk] as Dictionary).get("from", -1)) == pid:   # entry can't block the target's re-invites for 30s
 			_party_invites.erase(tk)
+	var left_map: String = str(s.get("map", ""))
 	_remove_fighter(s["fid"])
+	_maybe_teardown_instance(left_map)           # last player out of a private instance → tear it down
 	_peers.erase(pid)
 	_session.erase(pid)
 	_move.erase(pid)
@@ -266,6 +423,7 @@ func _on_peer_disconnected(pid: int) -> void:
 	_craft_next.erase(pid)
 	_quest_busy.erase(pid)
 	_quest_next.erase(pid)
+	_camp_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -291,7 +449,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
 		"name": str(ch.get("name", "?")), "xp": maxi(0, int(ch.get("xp", 0))), "level": lvl,
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": maxi(0, int(ch.get("credits", 0))),
-		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {}}
+		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {},
+		"max_intensity": 1, "pages": 0}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -302,6 +461,10 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	var mr = await supa.get_mats_as(access)           # load the player's salvage materials into the session
 	if _session.has(pid):
 		_session[pid]["scrap"] = int(mr.get("scrap", 0))
+	var pr = await supa.get_progression_as(access)    # load the Camp Circuit Intensity ladder + Playbook Pages
+	if _session.has(pid):
+		_session[pid]["max_intensity"] = maxi(1, int(pr.get("max_intensity", 1)))
+		_session[pid]["pages"] = maxi(0, int(pr.get("pages", 0)))
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	await _load_quests(pid)                           # load + push the player's quest progress
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
@@ -541,7 +704,7 @@ func _mob_credits(mob) -> int:
 		base *= 4
 	elif tier == "elite":
 		base *= 2
-	return base
+	return int(base * _intensity_reward(mob))    # Circuit Intensity scales the payout (1.0 for open-world mobs)
 
 func _award_credits(pid: int, amt: int) -> void:
 	if _session.has(pid):
@@ -1201,11 +1364,14 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 	Sim.sim_tick(w, SIM_DT)
 	_consume_summons(w, mapname)                  # spawn any adds the sim requested this tick (summon bridge)
 	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)
+	var instance := _is_instance(mapname)
 	for f in w["fighters"]:                       # queue the dead for respawn (dummy instant; mobs slower than players)
 		if not f["alive"] and not _respawn.has(f["id"]):
 			if f.get("dummy", false):
 				_respawn[f["id"]] = 0.0
 			elif f["team"] == 1:
+				if instance:
+					continue                          # Circuit mobs DON'T respawn — a finite clear (killing the objective completes it)
 				# the boss is a rare ~30-min event; its cones/cores + normal mobs churn at the usual rate
 				_respawn[f["id"]] = BOSS_RESPAWN_DELAY if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false) else MOB_RESPAWN_DELAY
 			else:
@@ -1294,8 +1460,10 @@ func _check_portals() -> void:
 		var f = _find(s["fid"])
 		if f == null or not f["alive"] or now < int(_tp_next.get(f["id"], 0)):
 			continue
-		for portal in World.PORTALS.get(s["map"], []):
+		for portal in World.PORTALS.get(_template(s["map"]), []):   # portals resolve by template (instances share theirs)
 			if Vector2(f["x"] - float(portal["x"]), f["y"] - float(portal["y"])).length() <= World.PORTAL_RADIUS:
+				if portal.has("instance"):            # instance ENTRY is RPC-driven (enter_camp; the client picks an
+					continue                          # Intensity tier). Walking onto the pad only opens the client selector.
 				if portal.has("gate") and not _portal_unlocked(pid, str(portal["gate"])):
 					continue                          # gated + locked (e.g. the secret boss) — no teleport (it's also hidden in the snapshot)
 				_portal_teleport(f, s, portal)
@@ -1322,7 +1490,7 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 # zone's entrance doesn't render until you've earned it).
 func _portals_for_player(map: String, pid: int) -> Array:
 	var out := []
-	for p in World.PORTALS.get(map, []):
+	for p in World.PORTALS.get(_template(map), []):   # by template so instance worlds render their exit pad
 		if p.has("gate") and not _portal_unlocked(pid, str(p["gate"])):
 			continue
 		out.append({"x": p["x"], "y": p["y"], "label": p["label"]})
@@ -1343,6 +1511,7 @@ func _portal_teleport(f, s, portal) -> void:
 	_spawn_pos[f["id"]] = Vector2(f["x"], f["y"])    # respawn at the arrival point in the new world
 	s["map"] = to_map
 	print("[zone] %s → %s" % [s["name"], to_map])
+	_maybe_teardown_instance(from_map)               # left an instance? tear it down if now empty of players
 
 # mob behaviour: engage players near the camp; otherwise hold/reset home (frozen via the seam).
 # the training dummy is always frozen — it never moves or attacks (just takes hits).
@@ -1385,6 +1554,8 @@ func _award_kills() -> void:
 			var victim = _find(ev["victim"])
 			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false) or victim.get("isCore", false):  # mobs only; not the dummy, summoned adds, or power cores (anti-farm)
 				continue
+			if victim.get("objective", false) and _is_instance(str(mapname)):   # the Circuit gatekeeper died → complete the run
+				_on_circuit_clear(str(mapname))                # (idempotent; instance mobs don't respawn so it fires once)
 			var gy := str(mapname).begins_with("glitchyard")   # the reward loop: Practice Tokens drop in the Glitchyard
 			for pid in _peers:
 				if _session[pid]["fid"] == ev["killer"]:
@@ -1401,13 +1572,15 @@ func _award_xp(pid: int, amt: int) -> void:
 		return
 	var s = _session[pid]
 	s["xp"] = int(s["xp"]) + amt
-	while s["xp"] >= _xp_to_next(int(s["level"])):
+	while int(s["level"]) < LEVEL_CAP and s["xp"] >= _xp_to_next(int(s["level"])):
 		s["xp"] -= _xp_to_next(int(s["level"]))
 		s["level"] = int(s["level"]) + 1
 		var f = _find(s["fid"])
 		if f != null:
 			f["maxHP"] += LEVEL_HP
 			f["hp"] = f["maxHP"]
+	if int(s["level"]) >= LEVEL_CAP:             # at cap: park xp at a full bar (no unbounded growth)
+		s["xp"] = mini(int(s["xp"]), _xp_to_next(LEVEL_CAP))
 	_save_one(s, _find(s["fid"]))                # persist xp/level on every kill (durable progression)
 	print("[zone] %s +%d xp → lvl %d (%d/%d)" % [s["name"], amt, s["level"], s["xp"], _xp_to_next(int(s["level"]))])
 
@@ -1446,15 +1619,21 @@ func _scale_mob(f) -> void:
 	var hp_s := MOB_HP_SCALE * (1.0 + (lvl - 1) * 0.3) * hp_t
 	var dmg_s := MOB_DMG_SCALE * (1.0 + (lvl - 1) * 0.2) * dmg_t
 	var bdef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
-	f["maxHP"] = f["maxHP"] * hp_s * float(bdef.get("hpMult", 1.0))   # per-boss HP multiplier (the secret raid boss)
+	var i_hp := _intensity_hp(int(f.get("intensity", 1)))     # Camp Circuit Intensity ladder (1 = no-op for open-world mobs)
+	var i_dmg := _intensity_dmg(int(f.get("intensity", 1)))
+	f["maxHP"] = f["maxHP"] * hp_s * float(bdef.get("hpMult", 1.0)) * i_hp   # per-boss + per-instance-Intensity HP multiplier
 	f["hp"] = f["maxHP"]
-	f["dmgMult"] *= dmg_s * float(bdef.get("dmgScale", 1.0))   # per-boss damage multiplier (the secret raid boss is tuned for a long survivable fight)
+	f["dmgMult"] *= dmg_s * float(bdef.get("dmgScale", 1.0)) * i_dmg   # per-boss + per-instance-Intensity damage multiplier
+
+# Intensity reward factor for xp/credits (a Circuit mob at tier N is worth more): +50% per tier above 1.
+func _intensity_reward(mob) -> float:
+	return 1.0 + float(maxi(1, int(mob.get("intensity", 1))) - 1) * 0.5
 
 func _mob_xp(mob) -> int:
 	var lvl := int(mob.get("mobLevel", 1))
 	var tier := str(mob.get("mobTier", "minion"))
 	var mult := MOB_BOSS_XP if tier == "boss" else (MOB_ELITE_XP if tier == "elite" else 1)
-	return MOB_XP_BASE * lvl * mult
+	return int(MOB_XP_BASE * lvl * mult * _intensity_reward(mob))
 
 func _grant_loot(pid: int, mob) -> void:
 	if not _session.has(pid):
@@ -1474,15 +1653,17 @@ func _grant_loot(pid: int, mob) -> void:
 func _roll_loot(mob) -> Dictionary:
 	var tier := str(mob.get("mobTier", "minion"))
 	var lvl := int(mob.get("mobLevel", 1))
-	var chance := 1.0 if tier != "minion" else 0.65    # elites and bosses always drop
+	var intensity := int(mob.get("intensity", 1))            # Circuit Intensity (1 = open world → no change)
+	var chance := 1.0 if tier != "minion" else clampf(0.65 + (intensity - 1) * 0.05, 0.0, 1.0)   # higher tiers drop more
 	if _loot_rng.next() > chance:
 		return {}
-	var rar := _roll_rarity(tier)
+	var rar := _roll_rarity(tier, intensity)
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	var tbonus := 12 if tier == "boss" else (5 if tier == "elite" else 0)   # drop ilvl = mob level + tier
-	var ilvl := clampi(lvl + tbonus, 1, 80)
-	if tier == "boss" and _loot_rng.next() < UNIQUE_DROP_CHANCE:             # bosses rarely drop a UNIQUE instead
+	var tbonus := 12 if tier == "boss" else (5 if tier == "elite" else 0)   # drop ilvl = mob level + tier + Intensity
+	var ilvl := clampi(lvl + tbonus + (intensity - 1) * 2, 1, 80)
+	# uniques from bosses always, and from high-Intensity elite gatekeepers (the Circuit chase) — never routine
+	if (tier == "boss" or (tier == "elite" and intensity >= 3)) and _loot_rng.next() < UNIQUE_DROP_CHANCE:
 		return _make_unique(GameData.UNIQUE_IDS[_loot_rng.next_int(GameData.UNIQUE_IDS.size())], ilvl)
 	return _make_item(slot, str(rar["name"]), ilvl)
 
@@ -1499,7 +1680,7 @@ func _make_unique(unique_id: String, ilvl: int) -> Dictionary:
 	item["proc_tier"] = _loot_rng.next_int(3)                                # 0..2
 	return item
 
-func _roll_rarity(tier: String) -> Dictionary:
+func _roll_rarity(tier: String, intensity: int = 1) -> Dictionary:
 	var total := 0.0
 	for r in RARITIES:
 		total += float(r["weight"])
@@ -1517,6 +1698,7 @@ func _roll_rarity(tier: String) -> Dictionary:
 		idx = clampi(idx + 2, 3, RARITIES.size() - 1)  # floor at epic (index 3)
 	elif tier == "elite":
 		idx = clampi(idx + 1, 0, RARITIES.size() - 1)
+	idx = clampi(idx + int((intensity - 1) / 2), 0, RARITIES.size() - 1)   # Circuit Intensity raises the rarity floor ~1 per 2 tiers
 	return RARITIES[idx]
 
 # ---- equipment ----
@@ -1967,6 +2149,8 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 # whose mobs were cleared and never came back (cleared mobs aren't queued for respawn).
 func _reset_mobs() -> void:
 	for mapname in _worlds:
+		if _is_instance(mapname):                 # leave private instances alone (they self-manage + tear down)
+			continue
 		var w = _worlds[mapname]
 		var keep := []
 		for ff in w["fighters"]:
@@ -2009,7 +2193,8 @@ func _admin_give_item(pid: int) -> void:
 func _relocate(f, s, to_map: String, pos: Vector2) -> void:
 	if not _worlds.has(to_map):
 		return
-	_worlds[str(f["map"])]["fighters"].erase(f)
+	var from_map: String = str(f["map"])
+	_worlds[from_map]["fighters"].erase(f)
 	f["x"] = pos.x
 	f["y"] = pos.y
 	f["map"] = to_map
@@ -2019,6 +2204,7 @@ func _relocate(f, s, to_map: String, pos: Vector2) -> void:
 	_spawn_pos[f["id"]] = pos
 	s["map"] = to_map
 	_tp_next[f["id"]] = Time.get_ticks_msec() + TP_GRACE_MS
+	_maybe_teardown_instance(from_map)               # left an instance (death/goto)? tear it down if now empty
 
 func _find(id) -> Variant:
 	for mapname in _worlds:
@@ -2039,10 +2225,14 @@ func _save_one(session: Dictionary, f) -> void:
 	# xp/level + the current world are always valid (they live on the session), so persist them even
 	# for a corpse. Position is the live spot when alive, else the respawn point — never the death
 	# spot — so last_map and last_x/last_y always stay consistent (you resume in the world you were in).
+	# never persist a transient instance key as last_map (it won't exist on reconnect) — resume at home instead
+	var save_map: String = str(session.get("map", World.HOME))
+	if _is_instance(save_map):
+		save_map = World.HOME
 	var fields := {"xp": int(session["xp"]), "level": int(session["level"]),
-		"last_map": str(session.get("map", World.HOME)), "credits": int(session.get("credits", 0)),
+		"last_map": save_map, "credits": int(session.get("credits", 0)),
 		"practice_tokens": int(session.get("tokens", 0))}
-	if f != null:
+	if f != null and not _is_instance(str(f.get("map", ""))):   # in an instance → don't save its coords either (home uses its fixed spawn)
 		if f["alive"]:
 			fields["last_x"] = f["x"]
 			fields["last_y"] = f["y"]
@@ -2080,6 +2270,7 @@ func _broadcast() -> void:
 		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
 		snap["self"] = {
 			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
+			"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)),   # Camp Circuit ladder (client selector) + Pages (P2)
 			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 			"procs": (s.get("procs", []) as Array).duplicate(),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
@@ -2147,7 +2338,8 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 			continue
 		if Vector2(z["x"] - center.x, z["y"] - center.y).length() <= INTEREST_RADIUS + float(z["radius"]):
 			hz.append({"x": z["x"], "y": z["y"], "radius": z["radius"], "dmg": float(z.get("dmg", 0.0))})
+	var tmpl := _template(mapname)                # client renders geometry/decals/portals by TEMPLATE name
 	return {"fighters": fs, "projectiles": ps, "zones": hz,   # cover-panel props are read client-side from World.OBSTACLES by map name
 		"events": w["events"].duplicate(true), "t": w["t"],
-		"map": mapname, "portals": World.portals_for(mapname), "pvp": bool(w.get("pvp", false)),
+		"map": tmpl, "portals": World.portals_for(tmpl), "pvp": bool(w.get("pvp", false)),
 		"arenaW": int(w.get("arenaW", GameData.ARENA_W)), "arenaH": int(w.get("arenaH", GameData.ARENA_H))}

@@ -19,6 +19,14 @@ const GY_BOSS := "glitchyard_boss"          # the Head Coach arena (Phase 4) —
 const GY_SECRET := "glitchyard_secret"      # the SECRET boss arena (Head Coach PRIME) — gated portal in GY_BOSS,
                                             # only revealed once you've completed EVERY quest (incl. beating Boss1)
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
+# INSTANCE TEMPLATES (endgame P0+). Never created as a static shared world — the server spins up a private
+# per-party copy on demand (world key "<template>#<owner>"), scales it, and tears it down when empty. The
+# template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
+const CAMP := "camp"                        # the instanced Camp Circuit run (endgame grind + Intensity ladder)
+const INSTANCE_MAPS := ["camp"]             # templates that are instance-only (skipped by static-world boot)
+
+static func is_instance_template(map: String) -> bool:
+	return INSTANCE_MAPS.has(map)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
 const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
@@ -30,6 +38,7 @@ const GY5_SPAWN := Vector2(220, 550)
 const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well clear of the central boss camp
 const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of Head Coach PRIME
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
+const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
@@ -46,6 +55,8 @@ const MAPS := {
 	GY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYB_SPAWN},
 	GY_SECRET: {"type": "combat", "w": 1440, "h": 940, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYS_SPAWN},
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
+	# instance TEMPLATE (P0 = a single proving room; P1 expands it into the condensed multi-room Circuit)
+	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
 }
 
 const DUMMY_POS := Vector2(660, 300)         # the training dummy (home only)
@@ -68,6 +79,8 @@ const PORTALS := {
 	HOME: [
 		{"x": 300.0,  "y": 300.0, "to": GY1,   "tx": 200.0,  "ty": 425.0, "label": "▶ Glitchyard"},
 		{"x": 660.0,  "y": 460.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
+		# INSTANCE entry: no static `to` — the server spins up (or rejoins) the player's private Camp instance.
+		{"x": 420.0,  "y": 460.0, "instance": CAMP, "label": "▶ Camp Circuit"},
 	],
 	GY1: [
 		{"x": 120.0,  "y": 425.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -107,6 +120,10 @@ const PORTALS := {
 	],
 	ARENA: [
 		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
+	],
+	# Camp instance exit (resolved by TEMPLATE — every "camp#<owner>" instance shares this exit back to home).
+	CAMP: [
+		{"x": 120.0,  "y": 420.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ Leave Camp"},
 	],
 }
 
@@ -168,6 +185,19 @@ const MOBS := {
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 700.0, "y": 690.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 360.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 580.0},
+	],
+	# Camp Circuit instance TEMPLATE roster (P0 proving room — a spread of minions + one elite gatekeeper by
+	# the exit; P1 replaces this with the condensed multi-room circuit + Intensity scaling). mobLevel/tier are
+	# the BASE; the server multiplies by the instance's Intensity in _scale_mob (P1).
+	CAMP: [
+		{"class": "cone_swarmer",   "level": 5, "tier": "minion", "x": 460.0,  "y": 300.0},
+		{"class": "cone_swarmer",   "level": 5, "tier": "minion", "x": 460.0,  "y": 560.0},
+		{"class": "foam_dummy",     "level": 6, "tier": "minion", "x": 820.0,  "y": 300.0},
+		{"class": "shooting_dummy", "level": 6, "tier": "minion", "x": 820.0,  "y": 560.0},
+		{"class": "sled_juggernaut","level": 7, "tier": "elite",  "x": 1080.0, "y": 430.0},
+		# the CLEAR objective: killing the gatekeeper completes the run (grants the tier reward + unlocks the
+		# next Intensity). Instance mobs don't respawn, so a Circuit is a finite clear.
+		{"class": "tackle_brute",   "level": 8, "tier": "elite",  "x": 1320.0, "y": 430.0, "objective": true},
 	],
 }
 
@@ -258,6 +288,10 @@ const OBSTACLES := {
 		{"x": 700.0,  "y": 200.0, "prop": "rack", "len": 180.0, "yaw": 0.0},          # N
 		{"x": 700.0,  "y": 740.0, "prop": "rack", "len": 180.0, "yaw": 0.0},          # S
 	],
+	CAMP: [  # proving-room cover: mid barriers split the lanes + bags flank the elite gatekeeper
+		{"x": 720.0,  "y": 300.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 720.0, "y": 560.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+		{"x": 1300.0, "y": 300.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1300.0, "y": 560.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
+	],
 }
 
 static func obstacles_for(map: String) -> Array:
@@ -294,6 +328,10 @@ const DECALS := {
 	GY_SECRET: [
 		{"kind": "ring", "x": 700.0, "y": 470.0, "r": 240.0}, {"kind": "ring", "x": 700.0, "y": 470.0, "r": 130.0},
 		{"kind": "cone", "x": 700.0, "y": 320.0}, {"kind": "cone", "x": 700.0, "y": 620.0}, {"kind": "cone", "x": 540.0, "y": 470.0}, {"kind": "cone", "x": 860.0, "y": 470.0},
+	],
+	CAMP: [
+		{"kind": "ring", "x": 760.0, "y": 430.0, "r": 150.0}, {"kind": "ring", "x": 1300.0, "y": 430.0, "r": 100.0},
+		{"kind": "cone", "x": 520.0, "y": 300.0}, {"kind": "cone", "x": 520.0, "y": 560.0}, {"kind": "cone", "x": 1300.0, "y": 430.0},
 	],
 }
 

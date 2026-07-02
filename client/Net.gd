@@ -163,6 +163,17 @@ func recv_shop_info(info: Dictionary) -> void:
 	if client != null:
 		client.recv_shop_info(info)
 
+# ---- Camp Circuit (endgame): enter at a chosen Intensity; server notifies on a clear (unlock + reward) ----
+@rpc("any_peer", "call_remote", "reliable")
+func enter_camp(intensity: int) -> void:
+	if server != null:
+		server.enter_camp(multiplayer.get_remote_sender_id(), intensity)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_circuit_clear(intensity: int, max_intensity: int) -> void:
+	if client != null:
+		client.recv_circuit_clear(intensity, max_intensity)
+
 # ---- quests (client → server: accept/turn-in; server → client: state + progress) ----
 @rpc("any_peer", "call_remote", "reliable")
 func quest_action(action: String, quest_id: String) -> void:

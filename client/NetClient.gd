@@ -99,6 +99,12 @@ var _vendor_root: Node3D = null
 var _vendor_sig := ""
 var _vendor_hint: Label = null
 var _near_vendor := false
+# Camp Circuit (endgame): the Intensity selector at the home entry portal
+var _camp_panel: Control = null
+var _camp_rows: VBoxContainer = null
+var _camp_status: Label = null
+var _camp_hint: Label = null
+var _near_camp := false
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
@@ -135,6 +141,7 @@ func _enter_mode() -> void:
 	_build_forge()
 	_build_shop()
 	_build_vendor()
+	_build_camp()
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
@@ -1324,6 +1331,115 @@ func _on_vendor_buy(slot: String) -> void:
 	if net != null:
 		net.vendor_buy.rpc_id(1, slot)
 
+# ---- Camp Circuit: the Intensity selector at the home entry portal + the clear notification ----
+func _my_max_intensity() -> int:
+	return maxi(1, int(_state.get("self", {}).get("max_intensity", 1)))
+
+func _camp_portal() -> Variant:                  # find the Camp ENTRY portal (only in home) by its label —
+	if str(_state.get("map", "")) != "home":     # match "Circuit" so the instance's "◀ Leave Camp" exit never counts
+		return null
+	for p in (_state.get("portals", []) as Array):
+		if str(p.get("label", "")).findn("circuit") >= 0:
+			return p
+	return null
+
+func _build_camp() -> void:
+	_camp_panel = CenterContainer.new()
+	_camp_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_camp_panel.visible = false
+	_hud.add_child(_camp_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(560, 0)
+	_camp_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "⚔ Camp Circuit — Select Intensity   (C to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_camp_status = Label.new()
+	_camp_status.add_theme_font_size_override("font_size", 16)
+	_camp_status.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+	vb.add_child(_camp_status)
+	var hint := Label.new()
+	hint.text = "Higher Intensity = tougher mobs but better loot (ilvl / rarity / drops) + more XP & credits. Clear the gatekeeper at your top tier to unlock the next."
+	hint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(hint)
+	_camp_rows = VBoxContainer.new()
+	_camp_rows.add_theme_constant_override("separation", 6)
+	vb.add_child(_camp_rows)
+
+func _toggle_camp() -> void:
+	if _camp_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_camp_panel.visible = not _camp_panel.visible
+	if _camp_panel.visible:
+		_render_camp()
+
+func _render_camp() -> void:
+	if _camp_panel == null or not _camp_panel.visible or _camp_rows == null:
+		return
+	var mx := _my_max_intensity()
+	_camp_status.text = "Highest unlocked:  Intensity %d" % mx
+	for c in _camp_rows.get_children():
+		c.queue_free()
+	for tier in range(1, mx + 1):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var lbl := Label.new()
+		var top := tier == mx
+		lbl.text = "Intensity %d%s" % [tier, "   ◈ NEW — clear to advance" if top else ""]
+		if top: lbl.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		lbl.custom_minimum_size = Vector2(360, 0)
+		row.add_child(lbl)
+		var btn := Button.new()
+		btn.text = "Enter  I%d" % tier
+		btn.pressed.connect(_on_enter_camp.bind(tier))
+		row.add_child(btn)
+		_camp_rows.add_child(row)
+
+func _on_enter_camp(tier: int) -> void:
+	if net != null:
+		net.enter_camp.rpc_id(1, tier)
+	if _camp_panel != null:
+		_camp_panel.visible = false
+
+# server → client: a Circuit run completed (bonus loot already granted server-side; announce + unlock)
+func recv_circuit_clear(intensity: int, max_intensity: int) -> void:
+	_quest_toast("[color=#ffd24d]⚔ Circuit Cleared — Intensity %d![/color]  Bonus loot awarded." % intensity)
+	if max_intensity > intensity:
+		_quest_toast("[color=#9fe8a0]★ Intensity %d unlocked![/color]" % max_intensity)
+
+func _update_camp_proximity() -> void:
+	if _camp_hint == null:
+		_camp_hint = Label.new()
+		_camp_hint.add_theme_font_size_override("font_size", 18)
+		_camp_hint.modulate = Color(1.0, 0.82, 0.3)
+		_camp_hint.visible = false
+		_hud.add_child(_camp_hint)
+	var portal = _camp_portal()
+	var pf = _find_fighter(_player_id)
+	_near_camp = false
+	if portal != null and pf != null:
+		var d := Vector2(float(pf["x"]) - float(portal["x"]), float(pf["y"]) - float(portal["y"])).length()
+		_near_camp = d <= World.PORTAL_RADIUS + 24.0
+	if _near_camp and (_camp_panel == null or not _camp_panel.visible):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_camp_hint.text = "Press [C] to run the Camp Circuit"
+		_camp_hint.position = Vector2(vp.x / 2.0 - 130.0, vp.y - 200.0)
+		_camp_hint.visible = true
+	else:
+		_camp_hint.visible = false
+	if not _near_camp and _camp_panel != null and _camp_panel.visible:
+		_camp_panel.visible = false                # walked away → close the selector
+
 # human-readable description of a proc at a given tier (P6) — from GameData.PROC_CATALOG
 func _proc_desc(proc_id: String, tier: int) -> String:
 	var p: Dictionary = GameData.PROC_CATALOG.get(proc_id, {})
@@ -2492,6 +2608,7 @@ func _process(delta: float) -> void:
 	_update_questgiver_proximity()
 	_render_vendor_pad()
 	_update_vendor_proximity()
+	_update_camp_proximity()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -2622,6 +2739,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_vendor_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _camp_panel != null and _camp_panel.visible:
+				_camp_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _invite_prompt != null or _invite_popup != null:
 				_close_invite_prompt()
 				if _invite_popup != null:
@@ -2674,6 +2795,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_V and not _chatting and (_near_vendor or (_vendor_panel != null and _vendor_panel.visible)):
 			_toggle_vendor()                # the Practice Vendor while near it (reward loop)
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_C and not _chatting and (_near_camp or (_camp_panel != null and _camp_panel.visible)):
+			_toggle_camp()                  # the Camp Circuit Intensity selector while at the entry portal
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_O and not _chatting:
@@ -2732,4 +2857,5 @@ func _zone_name(map: String) -> String:
 		"glitchyard_4": return "Glitchyard · Target Court"
 		"glitchyard_5": return "Glitchyard · Command Tower"
 		"arena": return "Arena"
+		"camp": return "Camp Circuit"
 		_: return map.capitalize() if map != "" else "—"

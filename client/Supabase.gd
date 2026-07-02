@@ -226,6 +226,28 @@ func mats_add_as(char_id: String, delta: int) -> Dictionary:
 	var ok: bool = r["code"] >= 200 and r["code"] < 300 and val != null
 	return {"ok": ok, "total": int(val) if ok else 0, "code": r["code"]}
 
+# --- progression (endgame P1): Intensity ladder + Playbook Pages. Server-only writes; client READS own. ---
+# READ on the player's token (RLS-scoped). No row yet → defaults (max_intensity 1, pages 0).
+func get_progression_as(token: String) -> Dictionary:
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/progression?select=max_intensity,playbook_pages&limit=1", "", PackedStringArray(), token)
+	if r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0:
+		return {"ok": true, "max_intensity": int(r["data"][0].get("max_intensity", 1)), "pages": int(r["data"][0].get("playbook_pages", 0))}
+	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0}
+
+# atomic Intensity unlock via the progression_unlock rpc (ensures the row + bumps only from the cleared tier).
+# Returns the resulting max_intensity. Service-role only (clients can't self-unlock).
+func progression_unlock_as(char_id: String, tier: int) -> int:
+	if service_key == "":
+		return 0
+	var body := JSON.stringify({"p_char": char_id, "p_tier": tier})
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_unlock", body, PackedStringArray(), service_key)
+	var val = r["data"]
+	if val is Array and (val as Array).size() > 0:
+		val = val[0]
+	if r["code"] >= 200 and r["code"] < 300 and val != null:
+		return int(val)
+	return 0
+
 # READ on the player's token (RLS-scoped). No row yet → scrap 0.
 func get_mats_as(token: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/materials?select=scrap&limit=1", "", PackedStringArray(), token)
