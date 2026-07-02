@@ -231,11 +231,14 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)):
-		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy owns its OWN terminal
+	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)):
+		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy owns its OWN terminal
 		                                         # its OWN terminal save; saving here too would race that credit
 		                                         # write (a stale absolute write could clobber it). Skip it.
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
+	for tk in _party_invites.keys():             # sweep invites this peer SENT (keyed by target) so a stale
+		if int((_party_invites[tk] as Dictionary).get("from", -1)) == pid:   # entry can't block the target's re-invites for 30s
+			_party_invites.erase(tk)
 	_remove_fighter(s["fid"])
 	_peers.erase(pid)
 	_session.erase(pid)
@@ -278,14 +281,17 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		multiplayer.multiplayer_peer.disconnect_peer(pid)
 		return
 	var ch = res["character"]
-	var lvl := int(ch.get("level", 1))
+	# defensive clamps: characters is server-authoritative for economy/progression, but clamp on load so a
+	# malformed/tampered DB row can never grant god-mode HP (huge level) or negative currency. (See the
+	# characters_guard_progression migration — the DB pins these columns against non-service-role writes.)
+	var lvl := clampi(int(ch.get("level", 1)), 1, 99)
 	var fid := _spawn_player(ch, lvl)
 	var pf = _find(fid)
 	_peers.append(pid)
 	_session[pid] = {"fid": fid, "access": access, "char_id": str(ch["id"]),
-		"name": str(ch.get("name", "?")), "xp": int(ch.get("xp", 0)), "level": lvl,
-		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": int(ch.get("credits", 0)),
-		"scrap": 0, "tokens": int(ch.get("practice_tokens", 0)), "quests": {}}
+		"name": str(ch.get("name", "?")), "xp": maxi(0, int(ch.get("xp", 0))), "level": lvl,
+		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": maxi(0, int(ch.get("credits", 0))),
+		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {}}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -307,7 +313,16 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	print("[zone] %s (%s, lvl %d) joined as %s in '%s' — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _session[pid]["map"], _peers.size()])
 
 func reauth(pid: int, access: String) -> void:
-	if _session.has(pid) and access != "":
+	if not _session.has(pid) or access == "":
+		return
+	# re-validate the incoming token belongs to THIS session's character before trusting it — else a client
+	# could reauth with another account's token and make token-scoped reads (get_inventory_as / _apply_equipment)
+	# operate on that account's data. reauth runs ~every 25 min, so the extra round-trip is negligible.
+	var res = await supa.get_character_as(access)
+	if not _session.has(pid):
+		return
+	var ch = res.get("character")
+	if res.get("ok") and ch != null and str((ch as Dictionary).get("id", "")) == str(_session[pid]["char_id"]):
 		_session[pid]["access"] = access
 
 # zone-wide chat relay (sanitized; named by the sender's character)
@@ -1526,10 +1541,12 @@ func equip(pid: int, item_id: String, _slot: String) -> void:
 		var islot: String = str(item["slot"])
 		var cap_n := int(SLOT_CAP.get(islot, 1))     # most slots hold 1; rings hold 2
 		var ok: bool
+		# char-scope the write (every other item write is; guards against a reauth-swapped token touching a foreign row)
+		var own_filter := "id=eq.%s&character_id=eq.%s" % [item_id, s["char_id"]]
 		if bool(item["equipped"]):                   # toggle OFF: unequip this item
-			ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, false)).get("ok"))
+			ok = bool((await supa.inv_set_equipped_as(s["access"], own_filter, false)).get("ok"))
 		else:                                        # toggle ON: equip it FIRST, then trim the slot to capacity
-			ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + item_id, true)).get("ok"))
+			ok = bool((await supa.inv_set_equipped_as(s["access"], own_filter, true)).get("ok"))
 			var trim_ok := true                      # a failed trim could strand >cap equipped in the DB
 			if ok and cap_n <= 1:                    # 1-per-slot: clear every other item in this slot
 				trim_ok = bool((await supa.inv_set_equipped_as(s["access"], "character_id=eq.%s&slot=eq.%s&id=neq.%s" % [s["char_id"], islot, item_id], false)).get("ok"))
@@ -1540,7 +1557,7 @@ func equip(pid: int, item_id: String, _slot: String) -> void:
 						others.append(it2)
 				others.sort_custom(func(a, b): return str(a.get("created_at", "")) > str(b.get("created_at", "")))  # newest first
 				for i in range(cap_n - 1, others.size()):
-					trim_ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq." + str(others[i]["id"]), false)).get("ok")) and trim_ok
+					trim_ok = bool((await supa.inv_set_equipped_as(s["access"], "id=eq.%s&character_id=eq.%s" % [str(others[i]["id"]), s["char_id"]], false)).get("ok")) and trim_ok
 			if ok and not trim_ok:                   # equip stuck but a trim write failed → DB may hold >cap equipped
 				print("[zone] equip slot-trim failed for %s (%s) — equipped set may exceed capacity until the next toggle" % [s["name"], islot])
 		if not ok:                                   # surface the failure (e.g. SUPABASE_SERVICE_KEY unset → 403)
@@ -1619,17 +1636,22 @@ func _apply_equipment(pid: int) -> void:
 	for st in bonus.keys():                              # aggregate per-stat ceiling — the equipment balance bound
 		bonus[st] = min(int(bonus[st]), EQUIP_STAT_CAP)
 	# set bonuses (P5): stack ABOVE the EQUIP_STAT_CAP, capped by SET_BONUS_CAP, from EPIC+ pieces only.
+	# The cap is applied to the TOTAL set contribution PER STAT — two sets that share a signature stat (e.g.
+	# football + rookie_camp both END) must not stack past SET_BONUS_CAP, or END (→HP) blows past the bound.
 	var set_active := {}                                 # set_id -> {count, bonus} for the character sheet
+	var set_by_stat := {}                                # stat -> summed set bonus (pre-cap)
 	for sid in set_counts:
 		var sd = GameData.SET_DEFS.get(sid, null)
 		if sd == null:
 			continue
 		var cnt := int(set_counts[sid])
 		var sb := _set_bonus(sd, cnt)
+		var st := str(sd["stat"])
 		if sb > 0:
-			var st := str(sd["stat"])
-			bonus[st] = int(bonus.get(st, 0)) + sb
-		set_active[sid] = {"count": cnt, "bonus": sb, "stat": str(sd["stat"])}
+			set_by_stat[st] = int(set_by_stat.get(st, 0)) + sb
+		set_active[sid] = {"count": cnt, "bonus": sb, "stat": st}
+	for st in set_by_stat:                               # cap the aggregate set bonus per stat (cross-set)
+		bonus[st] = int(bonus.get(st, 0)) + min(int(set_by_stat[st]), SET_BONUS_CAP)
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_session[pid]["item_power"] = ip_total               # gear score for the character sheet (P3)
 	_session[pid]["set_bonus"] = set_active              # active set bonuses for the character sheet (P5)
@@ -1805,7 +1827,8 @@ func _do_quest_turnin(pid: int, qid: String) -> void:
 	if int(st["progress"]) < int(quest["objective"]["count"]):
 		return                                            # objective not finished
 	st["completed"] = true                                # set BEFORE the await; blocks re-entry this session
-	var wr = await supa.quest_save_as(s["char_id"], qid, int(st["progress"]), true, false)
+	# mark completed WITHOUT resetting rewarded (a concurrent session's turn-in must not re-open the claim)
+	var wr = await supa.quest_complete_as(s["char_id"], qid, int(st["progress"]))
 	if not _session.has(pid):
 		return                                            # completed durable → reconnect recovery grants it
 	if not wr.get("ok"):                                  # not durable → roll back, grant nothing (no dupe)
@@ -1830,12 +1853,17 @@ func _grant_quest_rewards(pid: int, qid: String) -> void:
 		return
 	var char_id := str(s["char_id"])
 	var access := str(s["access"])
-	st["rewarded"] = true
-	var wr = await supa.quest_save_as(char_id, qid, int(st["progress"]), true, true)
-	if not wr.get("ok"):                                  # not durable → let recovery retry on next login
-		if _session.has(pid):
-			st["rewarded"] = false
+	# ATOMIC exactly-once claim: only the first caller (this session, a concurrent same-character session, or
+	# reconnect recovery) flips rewarded false→true and is cleared to grant. A duplicate claim matches no row
+	# (ok=false) and grants nothing — closing the concurrent-session reward-dupe. Do NOT set st["rewarded"]
+	# optimistically before the claim: if another session won the claim, leaving our in-memory flag false lets
+	# nothing here double-pay, and a real network failure lets recovery retry on next login.
+	var wr = await supa.quest_mark_rewarded_as(char_id, qid)
+	if not _session.has(pid):
 		return
+	if not wr.get("ok"):                                  # already claimed elsewhere, or not durable → grant nothing
+		return
+	st["rewarded"] = true                                 # durable + ours to grant
 	var rw: Dictionary = quest.get("rewards", {})
 	if rw.has("item"):                                    # item first: service-role write, survives a disconnect
 		await _grant_quest_item(pid, char_id, access, rw["item"])

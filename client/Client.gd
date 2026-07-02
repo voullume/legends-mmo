@@ -1041,6 +1041,8 @@ static func _strip_hips_scale(clip: Animation) -> void:
 func _ability_type(class_id: String, key) -> String:
 	if key == null or key == "":
 		return ""
+	if not GameData.CLASSES.has(class_id):       # defensive: a stale client vs a newer server (new mob type) must not crash on cast
+		return ""
 	for ab in GameData.CLASSES[class_id]["abilities"]:
 		if ab["key"] == key:
 			return ab["type"]

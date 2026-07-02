@@ -324,6 +324,8 @@ static func sim_tick(state, dt) -> void:
 					for e in fighters:
 						if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < ab["radius"]:
 							Combat.deal_damage(state, f, e, ab["dmg"], {"melee": true, "key": ab["key"]})
+							if ab.has("stun"):                       # cast-finish meleeAoe dropped stun (e.g. the bosses' Whistle Burst never stunned); no player meleeAoe carries stun → byte-identical
+								e["stun"] = max(e["stun"], ab["stun"])
 							if ab.has("knockback") and not Combat.kb_immune(e):
 								var kd = Vector2(e["x"] - f["x"], e["y"] - f["y"]).length()
 								if kd == 0: kd = 1.0

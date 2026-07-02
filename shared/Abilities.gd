@@ -88,6 +88,8 @@ static func try_cast(state, f, ab, target) -> bool:
 				return true
 			for e in in_r:
 				Combat.deal_damage(state, f, e, ab["dmg"], {"melee": true, "key": ab["key"]})
+				if ab.has("stun"):                       # parity with the cast-finish path; no shipped player meleeAoe carries stun → byte-identical
+					e["stun"] = max(e["stun"], ab["stun"])
 				if ab.has("slow"):
 					e["slowT"] = ab["slow"]["dur"]
 					e["slowAmt"] = ab["slow"]["amt"]

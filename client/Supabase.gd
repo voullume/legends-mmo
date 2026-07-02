@@ -137,7 +137,11 @@ func get_character_as(token: String) -> Dictionary:
 	return {"ok": false, "character": null, "code": r["code"], "error": _err(r)}
 
 func save_character_as(token: String, char_id: String, fields: Dictionary) -> Dictionary:
-	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields), PackedStringArray(), token)
+	# Server writes via service_role (bypasses RLS + the client column-guard trigger) so the zone stays the sole
+	# authority over economy/progression columns (credits/level/xp/practice_tokens). Falls back to the player
+	# token only if no service key is configured (dev). See the characters_guard_progression migration.
+	var auth: String = service_key if service_key != "" else token
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields), PackedStringArray(), auth)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
 # inventory WRITES go out as service_role (bypasses RLS) when the server has the key, so clients
@@ -268,6 +272,30 @@ func quest_save_as(char_id: String, quest_id: String, progress: int, completed: 
 	var extra := PackedStringArray(["Prefer: resolution=merge-duplicates,return=minimal"])
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/character_quests?on_conflict=character_id,quest_id", JSON.stringify(body), extra, service_key)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
+
+# Turn-in: mark completed WITHOUT touching rewarded (the row already exists from accept). Deliberately not
+# a merge-upsert of the whole row — a concurrent second session's turn-in must never reset rewarded back to
+# false (which would re-open the reward claim below). Atomic: row is scoped by (character_id, quest_id).
+func quest_complete_as(char_id: String, quest_id: String, progress: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var filter := "character_id=eq.%s&quest_id=eq.%s&select=quest_id" % [char_id, quest_id]
+	var body := JSON.stringify({"completed": true, "progress": progress})
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/character_quests?" + filter, body, PackedStringArray(["Prefer: return=representation"]), service_key)
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
+	return {"ok": ok, "code": r["code"]}
+
+# Reward claim: atomically flip rewarded false→true, gated IN the filter on completed=true AND rewarded=false,
+# with return=representation — so ONLY the first caller (across concurrent same-character sessions OR reconnect
+# recovery) matches a row and is cleared to grant. A second/duplicate claim matches nothing (ok=false) → grants
+# nothing. This is the dupe-safety contract for the reward payout (mirrors sell_item_safe_as / inv_upgrade_as).
+func quest_mark_rewarded_as(char_id: String, quest_id: String) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var filter := "character_id=eq.%s&quest_id=eq.%s&completed=eq.true&rewarded=eq.false&select=quest_id" % [char_id, quest_id]
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/character_quests?" + filter, JSON.stringify({"rewarded": true}), PackedStringArray(["Prefer: return=representation"]), service_key)
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
+	return {"ok": ok, "code": r["code"]}
 
 # PATCH only the progress column (the kill path). Deliberately does NOT touch completed/rewarded, so
 # an out-of-order in-flight progress write can never clobber a turn-in's completed=true (dupe fix).
