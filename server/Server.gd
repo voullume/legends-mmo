@@ -434,6 +434,64 @@ func _do_craft_master_key(pid: int) -> void:
 		net.recv_key_crafted.rpc_id(pid, true)
 	print("[zone] %s forged the Master Key" % s["name"])
 
+# ---- cosmetics (P4): buy a dye with credits (dupe-safe) + equip it (server-authoritative ownership) ----
+var _cos_busy := {}                              # pid → a cosmetics op is in flight
+var _cos_next := {}
+
+func _cos_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_cos_busy.get(pid, false)) or now < int(_cos_next.get(pid, 0)):
+		return false
+	_cos_busy[pid] = true
+	_cos_next[pid] = now + 300
+	return true
+
+func buy_cosmetic(pid: int, dye_id: String) -> void:
+	if not _cos_lock(pid):
+		return
+	await _do_buy_cosmetic(pid, dye_id)
+	_cos_busy.erase(pid)
+
+func _do_buy_cosmetic(pid: int, dye_id: String) -> void:
+	if not _session.has(pid) or not GameData.DYE_CATALOG.has(dye_id):
+		return
+	var s = _session[pid]
+	if dye_id in (s.get("cos_owned", []) as Array):
+		return                                        # already owned
+	var price := int(GameData.DYE_CATALOG[dye_id]["price"])
+	if int(s.get("credits", 0)) < price:
+		return
+	s["credits"] = int(s["credits"]) - price          # deduct up front; refund if the grant fails
+	var ok: bool = await supa.cosmetics_grant_as(str(s["char_id"]), dye_id)
+	if not ok:                                        # already owned / write failed → refund + persist
+		s["credits"] = int(s["credits"]) + price
+		_save_one(s, _find(s["fid"]))
+		return
+	if _session.has(pid):
+		(s["cos_owned"] as Array).append(dye_id)
+	_save_one(s, _find(s["fid"]))                     # persist the credit spend (paid even if the peer left)
+	if net != null and _session.has(pid):
+		net.recv_cosmetics_changed.rpc_id(pid, (s["cos_owned"] as Array).duplicate(), str(s.get("cos_dye", "")))
+
+func equip_cosmetic(pid: int, dye_id: String) -> void:
+	if not _cos_lock(pid):
+		return
+	await _do_equip_cosmetic(pid, dye_id)
+	_cos_busy.erase(pid)
+
+func _do_equip_cosmetic(pid: int, dye_id: String) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	if dye_id != "" and (not GameData.DYE_CATALOG.has(dye_id) or not (dye_id in (s.get("cos_owned", []) as Array))):
+		return                                        # can only equip an owned dye (or "" = default)
+	var ok: bool = await supa.cosmetics_equip_as(str(s["char_id"]), dye_id)
+	if not _session.has(pid) or not ok:
+		return
+	s["cos_dye"] = dye_id
+	if net != null:
+		net.recv_cosmetics_changed.rpc_id(pid, (s["cos_owned"] as Array).duplicate(), dye_id)
+
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
 	print("[zone] peer %d connected — awaiting auth" % pid)
@@ -443,8 +501,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)):
-		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy owns its OWN terminal
+	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)):
+		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy owns its OWN terminal
 												 # its OWN terminal save; saving here too would race that credit
 												 # write (a stale absolute write could clobber it). Skip it.
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
@@ -483,6 +541,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_camp_next.erase(pid)
 	_key_busy.erase(pid)
 	_key_next.erase(pid)
+	_cos_busy.erase(pid)
+	_cos_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -509,7 +569,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"name": str(ch.get("name", "?")), "xp": maxi(0, int(ch.get("xp", 0))), "level": lvl,
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": maxi(0, int(ch.get("credits", 0))),
 		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {},
-		"max_intensity": 1, "pages": 0, "has_key": false}
+		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": ""}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -525,6 +585,10 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		_session[pid]["max_intensity"] = maxi(1, int(pr.get("max_intensity", 1)))
 		_session[pid]["pages"] = maxi(0, int(pr.get("pages", 0)))
 		_session[pid]["has_key"] = bool(pr.get("has_key", false))
+	var cos = await supa.get_cosmetics_as(access)     # load owned dyes + the equipped dye (P4 cosmetics)
+	if _session.has(pid):
+		_session[pid]["cos_owned"] = cos.get("owned", [])
+		_session[pid]["cos_dye"] = str(cos.get("equipped", ""))
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	await _load_quests(pid)                           # load + push the player's quest progress
 	# GATE RE-VALIDATION: _spawn_player restores last_map (client-writable position columns) BEFORE quests/key
@@ -2324,6 +2388,7 @@ func _broadcast() -> void:
 		var pf = _find(s["fid"])                  # include derived combat stats for skill-bar tooltips
 		pinfo[s["fid"]] = {"level": int(s["level"]), "xp": int(s["xp"]), "xpNext": _xp_to_next(int(s["level"])),
 			"name": str(s["name"]), "credits": int(s.get("credits", 0)),
+			"dye": str(GameData.DYE_CATALOG.get(str(s.get("cos_dye", "")), {}).get("color", "")),   # P4: equipped dye color → all clients tint
 			"dmgMult": float(pf["dmgMult"]) if pf != null else 1.0,
 			"crit": float(pf["crit"]) if pf != null else 0.0,
 			"critMult": float(pf["critMult"]) if pf != null else 1.5}
@@ -2345,6 +2410,7 @@ func _broadcast() -> void:
 		snap["self"] = {
 			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
 			"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
+			"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
 			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 			"procs": (s.get("procs", []) as Array).duplicate(),
 			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
@@ -2386,6 +2452,8 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				d["level"] = pi["level"]
 				d["name"] = pi["name"]
 				d["credits"] = pi["credits"]
+				if str(pi.get("dye", "")) != "":       # P4: tint this player's model with their equipped dye
+					d["dye"] = str(pi["dye"])
 				d["xp"] = pi["xp"]
 				d["xpNext"] = pi["xpNext"]
 				d["dmgMult"] = pi["dmgMult"]

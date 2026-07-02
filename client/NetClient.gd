@@ -107,6 +107,10 @@ var _camp_rows: VBoxContainer = null
 var _camp_status: Label = null
 var _camp_hint: Label = null
 var _near_camp := false
+# Wardrobe (P4 cosmetics): a key-toggled dye panel (buy with credits + equip)
+var _wardrobe_panel: Control = null
+var _wardrobe_rows: VBoxContainer = null
+var _wardrobe_status: Label = null
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
@@ -144,6 +148,7 @@ func _enter_mode() -> void:
 	_build_shop()
 	_build_vendor()
 	_build_camp()
+	_build_wardrobe()
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
@@ -1464,6 +1469,116 @@ func recv_key_crafted(ok: bool) -> void:
 		_quest_toast("[color=#ffd24d]🔑 Master Key forged![/color]  The Final Lesson awaits past the Head Coach Arena.")
 	if _camp_panel != null and _camp_panel.visible:
 		_render_camp()
+
+# ---- Wardrobe (P4 cosmetics): buy dyes with credits + equip them ----
+func _my_cos_owned() -> Array:
+	return (_state.get("self", {}).get("cos_owned", []) as Array)
+func _my_cos_dye() -> String:
+	return str(_state.get("self", {}).get("cos_dye", ""))
+func _my_credits_val() -> int:
+	return int(_state.get("self", {}).get("credits", _my_credits()))
+
+func _build_wardrobe() -> void:
+	_wardrobe_panel = CenterContainer.new()
+	_wardrobe_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_wardrobe_panel.visible = false
+	_hud.add_child(_wardrobe_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(600, 0)
+	_wardrobe_panel.add_child(pc)
+	var m := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(m)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	m.add_child(vb)
+	var t := Label.new()
+	t.text = "🎨 Wardrobe — Dyes   (G to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	_wardrobe_status = Label.new()
+	_wardrobe_status.add_theme_font_size_override("font_size", 16)
+	_wardrobe_status.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+	vb.add_child(_wardrobe_status)
+	var hint := Label.new()
+	hint.text = "Cosmetic only — a colored wash on your character. Buy with credits (earned from kills / selling), then equip. Purely for style."
+	hint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vb.add_child(hint)
+	_wardrobe_rows = VBoxContainer.new()
+	_wardrobe_rows.add_theme_constant_override("separation", 6)
+	vb.add_child(_wardrobe_rows)
+
+func _toggle_wardrobe() -> void:
+	if _wardrobe_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_wardrobe_panel.visible = not _wardrobe_panel.visible
+	if _wardrobe_panel.visible:
+		_render_wardrobe()
+
+func _render_wardrobe() -> void:
+	if _wardrobe_panel == null or not _wardrobe_panel.visible or _wardrobe_rows == null:
+		return
+	var owned := _my_cos_owned()
+	var equipped := _my_cos_dye()
+	_wardrobe_status.text = "Credits:  ◈ %d       Equipped:  %s" % [_my_credits_val(), (str(GameData.DYE_CATALOG.get(equipped, {}).get("name", "—")) if equipped != "" else "Default")]
+	for c in _wardrobe_rows.get_children():
+		c.queue_free()
+	# a "Default (no dye)" row first
+	_wardrobe_rows.add_child(_dye_row("", "Default (no dye)", "#8a8f98", owned, equipped))
+	for id in GameData.DYE_IDS:
+		var d: Dictionary = GameData.DYE_CATALOG[id]
+		_wardrobe_rows.add_child(_dye_row(str(id), str(d["name"]), str(d["color"]), owned, equipped))
+
+func _dye_row(id: String, dye_name: String, color_hex: String, owned: Array, equipped: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var swatch := ColorRect.new()
+	swatch.color = Color(color_hex)
+	swatch.custom_minimum_size = Vector2(26, 26)
+	row.add_child(swatch)
+	var lbl := Label.new()
+	lbl.text = dye_name
+	lbl.custom_minimum_size = Vector2(300, 0)
+	row.add_child(lbl)
+	if id == equipped:
+		var eq := Label.new()
+		eq.text = "✓ Equipped"
+		eq.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		row.add_child(eq)
+	elif id == "" or id in owned:
+		var btn := Button.new()
+		btn.text = "Equip"
+		btn.pressed.connect(_on_equip_dye.bind(id))
+		row.add_child(btn)
+	else:
+		var price := int(GameData.DYE_CATALOG[id]["price"])
+		var btn := Button.new()
+		btn.text = "Buy  ◈ %d" % price
+		btn.disabled = _my_credits_val() < price
+		btn.pressed.connect(_on_buy_dye.bind(id))
+		row.add_child(btn)
+	return row
+
+func _on_buy_dye(id: String) -> void:
+	if net != null:
+		net.buy_cosmetic.rpc_id(1, id)
+
+func _on_equip_dye(id: String) -> void:
+	if net != null:
+		net.equip_cosmetic.rpc_id(1, id)
+
+func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
+	# write the authoritative pushed values into self so the panel is accurate NOW (the next snapshot also
+	# carries them, but re-rendering from the ~30 Hz-old self block would show stale ownership for a frame).
+	if _state.has("self"):
+		_state["self"]["cos_owned"] = owned
+		_state["self"]["cos_dye"] = equipped
+	if _wardrobe_panel != null and _wardrobe_panel.visible:
+		_render_wardrobe()
+	_quest_toast("[color=#8ad6ff]🎨 Wardrobe updated.[/color]")
 
 func _update_camp_proximity() -> void:
 	if _camp_hint == null:
@@ -2794,6 +2909,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_camp_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _wardrobe_panel != null and _wardrobe_panel.visible:
+				_wardrobe_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _invite_prompt != null or _invite_popup != null:
 				_close_invite_prompt()
 				if _invite_popup != null:
@@ -2850,6 +2969,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_C and not _chatting and (_near_camp or (_camp_panel != null and _camp_panel.visible)):
 			_toggle_camp()                  # the Camp Circuit Intensity selector while at the entry portal
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_G and not _chatting:
+			_toggle_wardrobe()              # the Wardrobe (cosmetic dyes) — usable anywhere
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_O and not _chatting:

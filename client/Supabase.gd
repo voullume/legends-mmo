@@ -256,6 +256,29 @@ func progression_craft_key_as(char_id: String, cost: int) -> bool:
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_craft_key", JSON.stringify({"p_char": char_id, "p_cost": cost}), PackedStringArray(), service_key)
 	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
 
+# --- cosmetics (P4): dyes. Server-only writes; client READS own row. ---
+func get_cosmetics_as(token: String) -> Dictionary:
+	# select=* (resilient) — before the migration lands the table 404s → defaults, never a hard column error
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/character_cosmetics?select=*&limit=1", "", PackedStringArray(), token)
+	if r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0:
+		var owned = r["data"][0].get("owned", [])
+		return {"ok": true, "owned": owned if owned is Array else [], "equipped": str(r["data"][0].get("equipped", "")) if r["data"][0].get("equipped") != null else ""}
+	return {"ok": r["code"] == 200, "owned": [], "equipped": ""}
+
+# atomic dye grant (add-if-not-owned). Returns true iff newly granted. Service-role only.
+func cosmetics_grant_as(char_id: String, dye: String) -> bool:
+	if service_key == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/cosmetics_grant", JSON.stringify({"p_char": char_id, "p_dye": dye}), PackedStringArray(), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
+
+# equip a dye (ownership enforced in the write; "" clears to default). Returns true on success. Service-role only.
+func cosmetics_equip_as(char_id: String, dye: String) -> bool:
+	if service_key == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/cosmetics_equip", JSON.stringify({"p_char": char_id, "p_dye": dye}), PackedStringArray(), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
+
 # atomic Intensity unlock via the progression_unlock rpc (ensures the row + bumps only from the cleared tier).
 # Returns the resulting max_intensity. Service-role only (clients can't self-unlock).
 func progression_unlock_as(char_id: String, tier: int) -> int:

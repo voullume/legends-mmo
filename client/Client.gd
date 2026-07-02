@@ -1307,6 +1307,34 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 			label.modulate = Color(1.0, 0.55, 0.2)
 	if n.get("aura") != null:                     # P3: show the boss's core-shield aura while a core lives
 		n["aura"].visible = bool(f.get("shielded", false))
+	var dye := str(f.get("dye", ""))              # P4: cosmetic dye — re-tint the model only when it changes
+	if dye != str(n.get("dye_applied", "")):
+		n["dye_applied"] = dye
+		_apply_dye(n.get("model"), dye)
+
+# P4: tint a character model with a cosmetic dye via a flat translucent material OVERLAY (keeps the base
+# texture, reversible with "" → null). Recurses the model's MeshInstance3D surfaces.
+func _apply_dye(model, hexcolor: String) -> void:
+	if model == null:
+		return
+	var overlay: Material = null
+	if hexcolor != "":
+		var m := StandardMaterial3D.new()
+		var c := Color(hexcolor)
+		c.a = 0.45                                # partial wash — dyed but the model still reads
+		m.albedo_color = c
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		overlay = m
+	_set_overlay_recursive(model, overlay)
+
+func _set_overlay_recursive(node: Node, overlay: Material) -> void:
+	if node is BoneAttachment3D:
+		return                                    # don't dye the held class prop (the Batter's bat, etc.)
+	if node is MeshInstance3D:
+		(node as MeshInstance3D).material_overlay = overlay
+	for ch in node.get_children():
+		_set_overlay_recursive(ch, overlay)
 
 # ============================================================ FX
 # amt floater. `taken` = the local player got hit (red), `dealt` = the local player landed it

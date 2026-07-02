@@ -185,6 +185,22 @@ func recv_key_crafted(ok: bool) -> void:
 	if client != null:
 		client.recv_key_crafted(ok)
 
+# ---- cosmetics (P4): buy/equip a dye; server re-validates credits/ownership + notifies ----
+@rpc("any_peer", "call_remote", "reliable")
+func buy_cosmetic(dye_id: String) -> void:
+	if server != null:
+		server.buy_cosmetic(multiplayer.get_remote_sender_id(), dye_id)
+
+@rpc("any_peer", "call_remote", "reliable")
+func equip_cosmetic(dye_id: String) -> void:
+	if server != null:
+		server.equip_cosmetic(multiplayer.get_remote_sender_id(), dye_id)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
+	if client != null:
+		client.recv_cosmetics_changed(owned, equipped)
+
 # ---- quests (client → server: accept/turn-in; server → client: state + progress) ----
 @rpc("any_peer", "call_remote", "reliable")
 func quest_action(action: String, quest_id: String) -> void:

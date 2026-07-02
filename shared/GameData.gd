@@ -373,6 +373,20 @@ const UNIQUE_DEFS := {
 }
 const UNIQUE_IDS := ["embermaw", "skullcleaver", "sanguine_band"]
 
+# --- Cosmetic dyes (P4): pure-prestige character tints, bought with credits (a sink). Content only — the sim
+# never reads this, so it's determinism-neutral. Client renders the color as a material overlay on the model.
+const DYE_CATALOG := {
+	"crimson":  {"name": "Crimson Wash",  "price": 1200, "color": "#c0392b"},
+	"azure":    {"name": "Azure Wash",    "price": 1200, "color": "#2980d9"},
+	"emerald":  {"name": "Emerald Wash",  "price": 1600, "color": "#27ae60"},
+	"violet":   {"name": "Violet Wash",   "price": 1600, "color": "#8e44ad"},
+	"coral":    {"name": "Coral Wash",    "price": 2200, "color": "#ff6f61"},
+	"ivory":    {"name": "Ivory Wash",    "price": 2200, "color": "#e8e2d0"},
+	"gold":     {"name": "Gilded",        "price": 3600, "color": "#e2b23a"},
+	"obsidian": {"name": "Obsidian",      "price": 3600, "color": "#23262c"},
+}
+const DYE_IDS := ["crimson", "azure", "emerald", "violet", "coral", "ivory", "gold", "obsidian"]
+
 # Player-selectable classes only (CLASSES now also holds non-playable mob defs flagged mob:true).
 # Use this anywhere a player picks/cycles a class and for the AI-duel balance harness — never CLASSES.keys().
 static func playable_ids() -> Array:
