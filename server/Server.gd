@@ -2379,6 +2379,8 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 			}
 			if str(f.get("party", "")) != "":         # party key → client mirrors party-aware hostility
 				d["party"] = str(f["party"])
+			if float(f.get("wobble", 0.0)) > 0.0:     # P3: Wobble stacks → client draws a pip meter (was invisible)
+				d["wobble"] = float(f["wobble"])
 			if pinfo.has(f["id"]):
 				var pi = pinfo[f["id"]]
 				d["level"] = pi["level"]
@@ -2401,6 +2403,12 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 					var cst = f.get("casting", null)       # Full Camp Reset telegraph countdown (scoreboard + screen tint)
 					if cst != null and str((cst.get("ab", {}) as Dictionary).get("type", "")) == "campreset":   # match the ult TYPE (Boss2's key is "totalreset")
 						d["ultCast"] = maxf(0.0, float(cst["total"]) - float(cst["t"]))
+					# P3: core-shield state — the boss takes coreShield% less damage while a team core lives (was invisible)
+					if float(GameData.CLASSES.get(str(f["classId"]), {}).get("coreShield", 0.0)) > 0.0:
+						for e in w["fighters"]:
+							if e["alive"] and e.get("isCore", false) and int(e["team"]) == int(f["team"]):
+								d["shielded"] = true
+								break
 			fs.append(d)
 	var ps := []
 	for p in w["projectiles"]:

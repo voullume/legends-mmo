@@ -616,9 +616,29 @@ func _spawn(f: Dictionary) -> void:
 	label.position.y = BAR_H + 0.32
 	ui.add_child(label)
 
+	var aura = null                               # P3: a core-shielded boss gets a toggleable protective aura
+	if float(udef.get("coreShield", 0.0)) > 0.0:
+		aura = MeshInstance3D.new()
+		var sph := SphereMesh.new()
+		var ar := float(udef.get("h", 4.0)) * 0.6
+		sph.radius = ar
+		sph.height = ar * 2.0
+		aura.mesh = sph
+		var amat := StandardMaterial3D.new()
+		amat.albedo_color = Color(0.3, 0.75, 1.0, 0.16)
+		amat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		amat.emission_enabled = true
+		amat.emission = Color(0.35, 0.8, 1.0)
+		amat.emission_energy_multiplier = 1.3
+		amat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		aura.material_override = amat
+		aura.position.y = ar * 0.9
+		aura.visible = false
+		aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		holder.add_child(aura)
 	_nodes[f["id"]] = {
 		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"], "mscale": msc,
-		"ui": ui, "fill": fill, "label": label, "last": holder.position, "vel": Vector2.ZERO,
+		"ui": ui, "fill": fill, "label": label, "aura": aura, "last": holder.position, "vel": Vector2.ZERO,
 		"pcds": {}, "busy": "", "atk_clip": "", "atk_speed": 1.0, "died": false, "hit_cd": 0.0, "pflash": 0.0,
 	}
 	if kit.has("mob"):     # static-GLB mob → procedural-animator state (skeletal clip path is unused, ap == null)
@@ -1252,6 +1272,11 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 			if uc > 0.0:
 				label.text = "⚠  FULL CAMP RESET  %d  ⚠\nBREAK LINE OF SIGHT!" % int(ceil(uc))
 				label.modulate = Color(1.0, 0.2, 0.2)
+			elif f.get("shielded", false):
+				# P3: core-shield cue — the boss is taking heavy DR while a power core lives (was invisible)
+				var pn2 := ["EVALUATION", "CONDITIONING", "CONTACT", "RUN IT AGAIN"]
+				label.text = "Lv %d  ☠ HEAD COACH\nQ%d · %s\n🛡 SHIELDED — DESTROY THE CORES" % [lvl, ph + 1, pn2[clampi(ph, 0, 3)]]
+				label.modulate = Color(0.4, 0.82, 1.0)
 			else:
 				var pn := ["EVALUATION", "CONDITIONING", "CONTACT", "RUN IT AGAIN"]
 				var pcol := [Color(1.0, 0.6, 0.42), Color(1.0, 0.48, 0.32), Color(1.0, 0.34, 0.26), Color(1.0, 0.22, 0.22)]
@@ -1270,6 +1295,18 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 		label.modulate = Color(1.0, 0.45, 0.45) if hostile else Color(0.6, 0.85, 1.0)
 	elif label.text != "":
 		label.text = ""
+	# P3: Wobble stacks (0..4 = Sim.WOBBLE_MAX) as pips → the stumble no longer "just happens" without warning.
+	var wob := float(f.get("wobble", 0.0))
+	if wob > 0.0 and label.text != "":
+		var lit := clampi(int(ceil(wob)), 0, 4)
+		var pips := ""
+		for i in 4:
+			pips += "◆" if i < lit else "◇"
+		label.text += "\n⟳ %s" % pips
+		if lit >= 3:                              # near the stumble threshold → flash the whole plate amber-red
+			label.modulate = Color(1.0, 0.55, 0.2)
+	if n.get("aura") != null:                     # P3: show the boss's core-shield aura while a core lives
+		n["aura"].visible = bool(f.get("shielded", false))
 
 # ============================================================ FX
 # amt floater. `taken` = the local player got hit (red), `dealt` = the local player landed it
