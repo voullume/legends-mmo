@@ -10,7 +10,9 @@ alter table public.progression enable row level security;
 drop policy if exists "progression_select_own" on public.progression;
 create policy "progression_select_own" on public.progression for select
   using (exists (select 1 from public.characters c where c.id = progression.character_id and c.user_id = auth.uid()));
--- no client insert/update/delete policies → only the zone server (service_role) writes progression.
+-- no client write policies (RLS default-denies) AND revoke the base grants — only the zone server
+-- (service_role) writes progression. Matches the character_quests lockdown.
+revoke insert, update, delete on public.progression from authenticated, anon;
 
 -- Atomic Intensity unlock: ensure the row exists, then bump max_intensity to p_tier+1 ONLY when the current
 -- max equals p_tier (i.e. the player cleared at their ceiling). Race-safe: two concurrent clears at the same
