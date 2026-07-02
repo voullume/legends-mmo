@@ -8,6 +8,8 @@ extends "res://client/Client.gd"
 ##   HOST   — the player who is also hosting: talks to the in-process Server directly.
 
 const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
+const MOVE_SEND_INTERVAL := 1.0 / 30.0   # cap input sends at the server tick (30 Hz); 60 Hz floods the UDP buffer
+var _move_send_t := 0.0
 const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
 const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff", "legendary": "#ff8c1a", "mythic": "#ff4d6d"}
 const RARITY_ORDER := ["common", "uncommon", "rare", "epic", "legendary", "mythic"]   # low → high tier
@@ -2284,9 +2286,12 @@ func _physics_process(_delta: float) -> void:
 			_auto_equip()
 	else:
 		_player.poll(_yaw)
-	_send_movement()                                 # unreliable, latest-wins
+	_move_send_t += _delta                           # rate-limit movement to ~30 Hz (server tick) — sending every
+	if _move_send_t >= MOVE_SEND_INTERVAL:           # 60 Hz physics frame doubled the packet rate + overflowed
+		_move_send_t = 0.0                           # the UDP send buffer ("Buffer full, dropping packets")
+		_send_movement()                             # unreliable, latest-wins
 	if not _chatting and _player.intent["ability"] != "":
-		_send_ability(_player.intent["ability"])     # reliable, de-duplicated
+		_send_ability(_player.intent["ability"])     # reliable, de-duplicated (event-driven — NOT rate-limited)
 		_player.intent["ability"] = ""
 
 func _send_movement() -> void:
