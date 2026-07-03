@@ -263,6 +263,49 @@ var _residents := {}                             # resident fighter id → its r
 var _res_dir := {}                               # resident fighter id → director state {route_idx, next_move_t}
 var _res_t := 0.0                                # director cadence accumulator (~2 Hz is plenty)
 var _res_party := {}                             # RP2: resident fid → leader pid (a partied resident follows this player)
+var _res_chat_next := {}                         # RP3: resident fid → earliest ms it may speak again
+var _res_chat_i := 0                             # RP3: rotating line index (server-side only — never the sim RNG)
+const RES_CHAT_COOLDOWN_MS := 30000              # a resident speaks at most this often (kill/join/ambient share it)
+# persona flavor lines by context. Vulture ("rude") is antagonistic throughout; the mechanical selfishness
+# (hogging its solo kills) already lives in RP0's resPolite. Purely presentational — no sim/determinism impact.
+const RESIDENT_LINES := {
+	"grinder": {
+		"join": ["Alright, let's clear some camps.", "Good — I could use a partner. Let's grind."],
+		"kill": ["Camp's thinning out.", "Next one.", "Keep the pace up."],
+		"ambient": ["Grind never stops.", "This camp respawns quick — stay sharp.", "XP's XP. Keep moving."],
+		"dismiss": ["Good runs. Later.", "Back to the grind, then."],
+	},
+	"support": {
+		"join": ["I've got your back — shout if you're hurt.", "Stick close, I'll keep you standing."],
+		"kill": ["Nice one — you're clear.", "Got you covered.", "Clean work."],
+		"ambient": ["Yell if anyone needs a top-off.", "Keeping an eye on everyone's health.", "Don't be a hero — I can heal."],
+		"dismiss": ["Stay safe out there.", "Call me if you need patching up."],
+	},
+	"raider": {
+		"join": ["Point me at the big one.", "Let's go bag something huge."],
+		"kill": ["Down it goes.", "Too easy — where's the real fight?", "That all you've got?"],
+		"ambient": ["Where's the boss at?", "I live for the big pulls.", "Small fry. I want the coach."],
+		"dismiss": ["Find me a real fight next time.", "I'm off to hunt something bigger."],
+	},
+	"fighter": {
+		"join": ["Stay behind me.", "I'll take the front."],
+		"kill": ["Dropped.", "Who's next?", "Not even close."],
+		"ambient": ["Nobody's dropped me yet.", "Come test me in the Arena.", "I fight better than I talk."],
+		"dismiss": ["Watch yourself out there.", "Good spar. Later."],
+	},
+	"wanderer": {
+		"join": ["Lead the way — I'll keep up.", "New company, new roads. Let's move."],
+		"kill": ["One more for the road.", "Onward.", "Tidy."],
+		"ambient": ["Been all over these yards.", "Always somewhere new past the next gate.", "Just passing through, same as always."],
+		"dismiss": ["Off to wander again. Be well.", "See you down the road."],
+	},
+	"rude": {
+		"join": ["Fine. Don't get in my way.", "Great, a tagalong. Keep up or don't."],
+		"kill": ["Mine.", "Told you I'd get it.", "Back off — that's my kill."],
+		"ambient": ["Ugh, amateurs everywhere.", "I don't share loot. Don't ask.", "Get your own kills."],
+		"dismiss": ["Finally.", "Waste of my time.", "Don't call me again."],
+	},
+}
 
 func _spawn_residents() -> void:
 	for r in RESIDENTS:
@@ -286,7 +329,38 @@ func _spawn_residents() -> void:
 		_residents[fid] = r
 		# RP1 director state — stagger each router's first move so they don't all travel at once
 		_res_dir[fid] = {"route_idx": 0, "next_move_t": Time.get_ticks_msec() + ROUTE_DWELL_MS + _residents.size() * 9000}
+		_res_chat_next[fid] = Time.get_ticks_msec() + _residents.size() * 4000   # RP3: stagger so they don't all speak at once
 	print("[zone] %d AI residents spawned" % _residents.size())
+
+# RP3: a resident speaks a persona line to its zone (only if a player's there to hear it; cooldown-gated so it
+# reads as flavor, not spam). force skips the cooldown for discrete player-triggered moments (recruit). Purely
+# presentational — reads only the fighter dict + server tables, never sim/RNG state, so determinism is untouched.
+func _resident_say(fid: String, context: String, force := false) -> void:
+	var now := Time.get_ticks_msec()
+	if not force and now < int(_res_chat_next.get(fid, 0)):
+		return                                       # on cooldown → bail before the O(n) _find (cheap on the hot kill path)
+	var f = _find(fid)
+	if f == null or not bool(f.get("alive", true)):
+		return
+	var rmap := str(f["map"])
+	var listeners := []                              # only speak if someone in the zone can hear it
+	for p in _peers:
+		if _session.has(p) and str(_session[p].get("map", "")) == rmap:
+			listeners.append(p)
+	if listeners.is_empty():
+		return
+	var persona := str(f.get("resPersona", "grinder"))
+	var pool: Array = (RESIDENT_LINES.get(persona, {}) as Dictionary).get(context, [])
+	if pool.is_empty():
+		return
+	var line := str(pool[_res_chat_i % pool.size()])
+	_res_chat_i += 1
+	_res_chat_next[fid] = now + RES_CHAT_COOLDOWN_MS
+	var who := str(f.get("resName", "resident"))
+	print("[chat] %s: %s" % [who, line])
+	if net != null:
+		for p in listeners:
+			net.recv_chat.rpc_id(p, who, line)
 
 # RP1: the Director — routing residents JOURNEY zone-to-zone (like a player working content); home-only
 # residents are tethered to their zone. Runs at ~2 Hz (cheap; the AI brain handles local movement/combat).
@@ -299,6 +373,7 @@ func _tick_residents(dt: float) -> void:
 	_res_t = 0.0
 	var now := Time.get_ticks_msec()
 	for fid in _residents.keys():
+		_resident_say(fid, "ambient")                 # RP3: idle chatter for every resident (cooldown-gated, zone-scoped)
 		if _res_party.has(fid):                       # bonded → the follow loop owns it; skip routing/tether
 			continue
 		var f = _find(fid)
@@ -1113,6 +1188,7 @@ func _resident_join(pid: int, res_fid: String, now: int) -> void:
 	_res_party[res_fid] = pid
 	print("[zone] %s recruited resident %s" % [str(_session[pid]["name"]), str(res_f.get("resName", "resident"))])
 	_try_follow(res_fid)                             # snap to the leader's zone immediately
+	_resident_say(res_fid, "join", true)             # RP3: greet the recruiter (force past the cooldown)
 
 # a bonded resident follows its leader BETWEEN zones (the brain handles local fight/heal). Cross-zone only —
 # the shared brain idles with no enemy, so intra-zone trailing isn't possible without editing shared/.
@@ -1145,6 +1221,7 @@ func _release_resident(res_fid: String) -> void:
 	if not _res_party.has(res_fid):
 		return
 	_res_party.erase(res_fid)
+	_resident_say(res_fid, "dismiss")                # RP3: a parting line (cooldown-gated; skipped if no one's near)
 	if _res_dir.has(res_fid):
 		(_res_dir[res_fid] as Dictionary)["next_move_t"] = Time.get_ticks_msec() + ROUTE_DWELL_MS
 
@@ -2053,6 +2130,7 @@ func _award_kills() -> void:
 			if credit_pid < 0:
 				var killer_f = _find(ev["killer"])
 				if killer_f != null and killer_f.get("resident", false):
+					_resident_say(str(ev["killer"]), "kill")   # RP3: a persona line on the killing blow (cooldown-gated)
 					var vpos := Vector2(victim["x"], victim["y"])
 					credit_pid = _nearest_player_pid(str(mapname), vpos, RESIDENT_ASSIST_RANGE, true)   # an ENGAGED player was fighting it → never robbed (polite OR rude)
 					if credit_pid < 0 and bool(killer_f.get("resPolite", true)):   # a SOLO kill (no one was fighting) → polite gifts it, the rude one hogs it
