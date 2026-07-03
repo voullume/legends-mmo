@@ -54,6 +54,20 @@ const LEVEL_HP := 60.0                # bonus max HP per player level
 const LEVEL_CAP := 30                 # endgame P1: the level ceiling (mobs scale via Intensity, not level, past here)
 const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob scaling)
 const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity to re-triggering a pad
+# --- AI residents (RP0): server-side AI "players" (team 0, driven by the AI brain — never marked `controlled`).
+# Ephemeral (no account/DB/economy). `tier` emulates gear (no inventory); `polite` residents pass their
+# killing-blow kills to a nearby engaged player (helping never robs you), the rude one hogs them. ---
+const RESIDENTS := [
+	{"id": "sarge",   "name": "Sarge",   "class": "linebacker", "persona": "grinder",  "home": "glitchyard_2",    "level": 6,  "tier": "mid",  "polite": true},
+	{"id": "mercy",   "name": "Mercy",   "class": "setter",     "persona": "support",  "home": "glitchyard_1",    "level": 6,  "tier": "mid",  "polite": true},
+	{"id": "blitz",   "name": "Blitz",   "class": "spiker",     "persona": "raider",   "home": "glitchyard_5",    "level": 10, "tier": "high", "polite": true},
+	{"id": "reaper",  "name": "Reaper",  "class": "striker",    "persona": "fighter",  "home": "glitchyard_3",    "level": 9,  "tier": "high", "polite": true},
+	{"id": "nomad",   "name": "Nomad",   "class": "goalkeeper", "persona": "wanderer", "home": "glitchyard_3",    "level": 5,  "tier": "mid",  "polite": true},
+	{"id": "vulture", "name": "Vulture", "class": "batter",     "persona": "rude",     "home": "glitchyard_4",    "level": 8,  "tier": "high", "polite": false},
+]
+const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.6, "dmg": 1.25}, "high": {"hp": 2.6, "dmg": 1.55}}
+const RESIDENT_ASSIST_RANGE := 280.0  # a resident's kill credits a player within this range of the mob
+const RESIDENT_ENGAGED_S := 6.0       # "engaged" = took a hit within this many seconds (a real participant)
 
 # --- loot ---
 # 10 item-TYPE slots. There are 11 EQUIP slots because `ring` has equip capacity 2 (see SLOT_CAP) — the
@@ -105,7 +119,7 @@ const EQUIP_STAT_CAP := 60
 const SALVAGE_YIELD := {"common": 1, "uncommon": 2, "rare": 5, "epic": 12, "legendary": 30, "mythic": 75}
 const MAX_UPGRADE := 10                       # also CHECKed in the DB (0..10)
 const UPGRADE_STEP := 2                       # each upgrade level raises an item's PER-ITEM cap by this
-                                              # (bounded by ABS_CAP per item AND EQUIP_STAT_CAP in aggregate)
+											  # (bounded by ABS_CAP per item AND EQUIP_STAT_CAP in aggregate)
 const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 5}
 const SET_MIN_RANK := 3                       # only EPIC+ pieces count toward a set bonus (gates above-cap power)
 # Set bonus STACKS ABOVE EQUIP_STAT_CAP (a set can push its signature stat past 60) — but only from EPIC+
@@ -169,7 +183,8 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 			continue
 		_worlds[mapname] = _new_world(mapname)
 	_spawn_world_actors()                        # the home dummy + every combat zone's mob camps
-	print("[zone] online on UDP %d  (%d zones, %d mobs%s)" % [port, _worlds.size(), _mob_count(), "  · DTLS" if use_dtls else ""])
+	_spawn_residents()                           # the AI residents (RP0)
+	print("[zone] online on UDP %d  (%d zones, %d mobs, %d residents%s)" % [port, _worlds.size(), _mob_count(), RESIDENTS.size(), "  · DTLS" if use_dtls else ""])
 	_check_service_key()                         # verify loot/equip will be able to save
 	return true
 
@@ -239,6 +254,39 @@ func _mob_count() -> int:
 			continue
 		n += (World.MOBS[mapname] as Array).size()
 	return n
+
+# ---- AI residents (RP0): spawn the roster as team-0 fighters driven by the AI brain ----
+var _residents := {}                             # resident fighter id → its roster def (for the director/respawn)
+
+func _spawn_residents() -> void:
+	for r in RESIDENTS:
+		var home := str(r["home"])
+		if not _worlds.has(home):                    # a bad home (unknown zone) → fall back to home base
+			home = World.HOME
+		var base := World.spawn_for(home)
+		var off := Vector2(120.0 + 40.0 * float(_residents.size()), 60.0 * (float(_residents.size() % 3) - 1.0))
+		var fid := _spawn_fighter(str(r["class"]), 0, base + off, home)   # team 0 → NOT in `controlled` → AI brain
+		var f = _find(fid)
+		if f == null:
+			continue
+		f["resident"] = true
+		f["resId"] = str(r["id"])
+		f["resName"] = str(r["name"])
+		f["resLevel"] = int(r["level"])
+		f["resTier"] = str(r["tier"])
+		f["resPersona"] = str(r["persona"])
+		f["resPolite"] = bool(r.get("polite", true))
+		_scale_resident(f)
+		_residents[fid] = r
+	print("[zone] %d AI residents spawned" % _residents.size())
+
+# emulate level + gear (residents have no inventory): flat level HP + a per-persona-tier hp/dmg multiplier.
+func _scale_resident(f) -> void:
+	var lvl := int(f.get("resLevel", 1))
+	var tier: Dictionary = RESIDENT_TIERS.get(str(f.get("resTier", "mid")), RESIDENT_TIERS["mid"])
+	f["maxHP"] = (f["maxHP"] + (lvl - 1) * LEVEL_HP) * float(tier["hp"])
+	f["hp"] = f["maxHP"]
+	f["dmgMult"] *= float(tier["dmg"])
 
 # ---- instances (endgame P0/P1): private per-party worlds spun up on demand + torn down when empty ----
 var _instances := {}                             # instance key → {template, owner, tier, created_ms, cleared}
@@ -310,8 +358,8 @@ func _maybe_teardown_instance(key: String) -> void:
 	for fr in w["fighters"]:
 		if fr["team"] == 0:                      # ANY connected player still inside (incl. a DEAD one awaiting its
 			return                               # in-place respawn) keeps the instance — disconnected players are
-			                                     # already stripped by _remove_fighter, so a corpse here = a live session
-			                                     # (checking f["alive"] would tear the world out from under a downed co-op partner)
+												 # already stripped by _remove_fighter, so a corpse here = a live session
+												 # (checking f["alive"] would tear the world out from under a downed co-op partner)
 	for fr in w["fighters"]:                     # empty of players → purge every fighter's per-id server state
 		var fid: String = fr["id"]
 		_spawn_pos.erase(fid)
@@ -1583,7 +1631,7 @@ func _health_log() -> void:
 	for mapname in _worlds:
 		var np := 0
 		for f in _worlds[mapname]["fighters"]:
-			if f["team"] == 0:
+			if f["team"] == 0 and not f.get("resident", false):   # real players only (residents aren't an upgrade signal)
 				np += 1
 		if np > 0:
 			counts.append("%s:%d" % [mapname, np])
@@ -1684,8 +1732,8 @@ func _advance_respawns(dt: float) -> void:
 		if f.get("isAdd", false):                      # summoned adds despawn — they never respawn
 			_remove_fighter(id)
 			continue
-		if f["team"] == 0 and bool(_worlds.get(str(f["map"]), {}).get("pvp", false)):
-			var s = _session_by_fid(id)               # died in a PvP zone → respawn at the home safe zone
+		if f["team"] == 0 and not f.get("resident", false) and bool(_worlds.get(str(f["map"]), {}).get("pvp", false)):
+			var s = _session_by_fid(id)               # died in a PvP zone → respawn at the home safe zone (residents respawn in place)
 			if s != null:
 				_relocate(f, s, World.HOME, World.HOME_SPAWN)
 		_revive(f)
@@ -1819,10 +1867,13 @@ func _update_mob_ai(w: Dictionary) -> void:
 		var spawn: Vector2 = _spawn_pos.get(f["id"], here)
 		var was := bool(_mob_engaged.get(f["id"], false))
 		var radius: float = LEASH_RANGE if was else AGGRO_RANGE   # hysteresis: harder to drop than to start
+		var is_boss := bool(GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false))
 		var engaged := false
 		if (here - spawn).length() <= MAX_LEASH:                 # stays tethered to its camp
 			for p in w["fighters"]:
-				if p["team"] == 0 and p["alive"] and (Vector2(p["x"], p["y"]) - here).length() < radius:
+				# a raid BOSS only stays engaged for a REAL player — an AI resident can't hold it (so it resets/heals
+				# for a fresh pull + a resident can never help solo-attrition a 5-man boss). Regular mobs: anyone.
+				if p["team"] == 0 and p["alive"] and (not is_boss or not p.get("resident", false)) and (Vector2(p["x"], p["y"]) - here).length() < radius:
 					engaged = true
 					break
 		_mob_engaged[f["id"]] = engaged
@@ -1848,17 +1899,46 @@ func _award_kills() -> void:
 			if victim.get("objective", false) and _is_instance(str(mapname)):   # the Circuit gatekeeper died → complete the run
 				_on_circuit_clear(str(mapname))                # (idempotent; instance mobs don't respawn so it fires once)
 			var gy := str(mapname).begins_with("glitchyard")   # the reward loop: Practice Tokens drop in the Glitchyard
+			# who gets credit? A real player who landed the blow — OR, when a POLITE AI resident finished a mob,
+			# the nearest engaged player (helping never robs you). The RUDE resident (+ unclaimed kills) → nobody.
+			var credit_pid := -1
 			for pid in _peers:
 				if _session[pid]["fid"] == ev["killer"]:
-					_award_credits(pid, _mob_credits(victim))   # credits before xp's save persists both
-					if gy:
-						_award_tokens(pid, _mob_tokens(victim))
-					_award_xp(pid, _mob_xp(victim))
-					_grant_loot(pid, victim)
-					_quest_on_kill(pid, victim)             # advance any matching kill-quest
-					if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
-						_award_pages(pid, BOSS_PAGES)
+					credit_pid = pid
 					break
+			if credit_pid < 0:
+				var killer_f = _find(ev["killer"])
+				if killer_f != null and killer_f.get("resident", false):
+					var vpos := Vector2(victim["x"], victim["y"])
+					credit_pid = _nearest_player_pid(str(mapname), vpos, RESIDENT_ASSIST_RANGE, true)   # an ENGAGED player was fighting it → never robbed (polite OR rude)
+					if credit_pid < 0 and bool(killer_f.get("resPolite", true)):   # a SOLO kill (no one was fighting) → polite gifts it, the rude one hogs it
+						credit_pid = _nearest_player_pid(str(mapname), vpos, RESIDENT_ASSIST_RANGE, false)
+			if credit_pid >= 0 and _session.has(credit_pid):
+				_award_credits(credit_pid, _mob_credits(victim))   # credits before xp's save persists both
+				if gy:
+					_award_tokens(credit_pid, _mob_tokens(victim))
+				_award_xp(credit_pid, _mob_xp(victim))
+				_grant_loot(credit_pid, victim)
+				_quest_on_kill(credit_pid, victim)             # advance any matching kill-quest
+				if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
+					_award_pages(credit_pid, BOSS_PAGES)
+
+func _nearest_player_pid(mapname: String, pos: Vector2, rng: float, require_engaged := false) -> int:
+	var best := -1
+	var bd := rng * rng
+	for pid in _peers:
+		if not _session.has(pid) or str(_session[pid].get("map", "")) != mapname:
+			continue
+		var pf = _find(_session[pid]["fid"])
+		if pf == null or not pf["alive"]:
+			continue
+		if require_engaged and float(pf.get("noDmgT", 999.0)) > RESIDENT_ENGAGED_S:
+			continue                                  # not recently hit → not actually in this fight (anti-AFK-farm)
+		var d2: float = (Vector2(pf["x"], pf["y"]) - pos).length_squared()
+		if d2 < bd:
+			bd = d2
+			best = pid
+	return best
 
 func _award_xp(pid: int, amt: int) -> void:
 	if not _session.has(pid):
@@ -1896,6 +1976,8 @@ func _revive(f) -> void:
 	if f.get("dummy", false):                     # training dummy: fixed HP, no scaling
 		f["maxHP"] = DUMMY_HP
 		f["hp"] = DUMMY_HP
+	elif f.get("resident", false):               # AI resident: re-apply the level+tier scaling (no session)
+		_scale_resident(f)
 	elif f["team"] == 0:                          # re-derive from base stats + level + equipped gear
 		var s = _session_by_fid(orig_id)
 		if s != null:
@@ -2586,7 +2668,7 @@ func _broadcast() -> void:
 		for mapname in _worlds:
 			var np := 0
 			for f in _worlds[mapname]["fighters"]:
-				if f["team"] == 0:
+				if f["team"] == 0 and not f.get("resident", false):   # real players only in the heartbeat
 					np += 1
 			counts.append("%s:%dp" % [mapname, np])
 		var any_t: float = _worlds[_worlds.keys()[0]]["t"]   # every world ticks in lockstep — read any
@@ -2607,6 +2689,10 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				d["party"] = str(f["party"])
 			if float(f.get("wobble", 0.0)) > 0.0:     # P3: Wobble stacks → client draws a pip meter (was invisible)
 				d["wobble"] = float(f["wobble"])
+			if f.get("resident", false):          # RP0: AI resident identity (no session → not in pinfo)
+				d["level"] = int(f.get("resLevel", 1))
+				d["name"] = str(f.get("resName", ""))
+				d["resident"] = true              # client draws a subtle marker
 			if pinfo.has(f["id"]):
 				var pi = pinfo[f["id"]]
 				d["level"] = pi["level"]

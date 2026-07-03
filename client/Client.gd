@@ -1291,7 +1291,8 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	elif f.has("level"):
 		var lpf = _find_fighter(_player_id)
 		var hostile: bool = lpf != null and _hostile_pair(lpf, f)
-		label.text = ("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))
+		var mark := "  ◆" if f.get("resident", false) else ""   # RP0: subtle AI-resident marker
+		label.text = (("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))) + mark
 		label.modulate = Color(1.0, 0.45, 0.45) if hostile else Color(0.6, 0.85, 1.0)
 	elif label.text != "":
 		label.text = ""
