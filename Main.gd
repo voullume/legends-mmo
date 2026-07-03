@@ -23,6 +23,8 @@ const SupaScript := preload("res://client/Supabase.gd")
 const SERVER_PORT := 7777
 const PUBLIC_HOST := "159.89.132.86"   # exported/distributed builds connect straight here (double-click → online, DTLS)
 
+var _client = null                     # the live online NetClient (for Log Out teardown); null when not in-game
+
 func _ready() -> void:
 	var args := OS.get_cmdline_args()
 	args.append_array(OS.get_cmdline_user_args())
@@ -102,6 +104,8 @@ func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := fal
 	add_child(client)
 	client.add_child(supa)
 	Engine.max_fps = 60
+	_client = client                              # wire logout BEFORE any transport-init early return below, so the
+	client.logout_requested.connect(_on_logout_requested)   # disconnect overlay's "Return to Login" works even then
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_client(ip, port)
 	if err != OK:
@@ -113,9 +117,44 @@ func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := fal
 			client.net_error("DTLS setup failed (%d)" % derr)
 			return
 	multiplayer.multiplayer_peer = peer
-	multiplayer.connected_to_server.connect(client._on_connected)
-	multiplayer.connection_failed.connect(func() -> void: client.net_error("Connection failed — is the zone server running? (godot -- --server)"))
-	multiplayer.server_disconnected.connect(func() -> void: client.net_error("Disconnected from the zone."))
+	# named handlers (not lambdas) so logout can DISCONNECT them cleanly before tearing the session down
+	multiplayer.connected_to_server.connect(_on_net_connected)
+	multiplayer.connection_failed.connect(_on_net_failed)
+	multiplayer.server_disconnected.connect(_on_net_dropped)
+
+# ---- transport signal handlers (routed through Main so they're disconnectable + guard a freed client) ----
+func _on_net_connected() -> void:
+	if _client != null:
+		_client._on_connected()
+
+func _on_net_failed() -> void:
+	if _client != null:
+		_client.net_error("Connection failed — is the zone server running? (godot -- --server)")
+
+func _on_net_dropped() -> void:
+	if _client != null:
+		_client.net_error("Disconnected from the zone.")
+
+func _disconnect_net_signals() -> void:
+	if multiplayer.connected_to_server.is_connected(_on_net_connected):
+		multiplayer.connected_to_server.disconnect(_on_net_connected)
+	if multiplayer.connection_failed.is_connected(_on_net_failed):
+		multiplayer.connection_failed.disconnect(_on_net_failed)
+	if multiplayer.server_disconnected.is_connected(_on_net_dropped):
+		multiplayer.server_disconnected.disconnect(_on_net_dropped)
+
+# Log Out / Return to Login: tear the online session down and re-show the login screen. Deferred so we never
+# free the scene tree from inside the button's own signal callback.
+func _on_logout_requested() -> void:
+	call_deferred("_return_to_login")
+
+func _return_to_login() -> void:
+	_disconnect_net_signals()                     # detach the transport signals (else they fire into a freed client)
+	if multiplayer.multiplayer_peer != null:
+		multiplayer.multiplayer_peer.close()      # graceful ENet leave → the server persists on peer_disconnected
+	multiplayer.multiplayer_peer = null
+	_client = null
+	get_tree().reload_current_scene()             # frees Client/Net/Supa (+ tokens), re-runs _ready → fresh login
 
 # ---- Phase 3: account → single-player local world ----
 func _on_entered_local(supa, character) -> void:

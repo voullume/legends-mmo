@@ -37,6 +37,10 @@ var _aseq := 0               # monotonic ability sequence id (server de-dupes)
 var _reauth_t := 0.0
 var _absent := {}            # fighter id → seconds out of interest range (despawn hysteresis)
 var _net_msg := ""           # connection/disconnection banner for the HUD
+
+signal logout_requested      # user chose "Log Out" (settings) or "Return to Login" (disconnect) → Main tears down + reloads
+var _dc_overlay: Control = null              # prominent full-screen "disconnected" notice (dim + banner + Return to Login)
+var _dc_msg_label: Label = null
 var _chatting := false       # typing in the chat box (suppresses movement/abilities)
 var _chat_log: RichTextLabel
 var _chat_input: LineEdit
@@ -160,6 +164,7 @@ func _enter_mode() -> void:
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
+	_build_disconnect_overlay()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -1172,6 +1177,49 @@ func _build_settings() -> void:
 	mute.button_pressed = AudioManager.muted
 	mute.toggled.connect(func(on: bool) -> void: AudioManager.set_muted(on))
 	vb.add_child(mute)
+	var sep := HSeparator.new()
+	vb.add_child(sep)
+	var logout := Button.new()                   # log out → back to the login screen (no more quit-and-relaunch)
+	logout.text = "Log Out"
+	logout.pressed.connect(func() -> void: logout_requested.emit())
+	vb.add_child(logout)
+
+# a prominent full-screen notice when the connection drops — players kept missing the tiny top-left text and
+# thought their character was just stuck. Mirrors the boss-ult overlay (dim ColorRect + centered content on _hud).
+func _build_disconnect_overlay() -> void:
+	_dc_overlay = ColorRect.new()
+	_dc_overlay.color = Color(0.02, 0.03, 0.05, 0.82)          # dim the frozen game behind the notice
+	_dc_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dc_overlay.mouse_filter = Control.MOUSE_FILTER_STOP        # swallow clicks to the dead session (only the button is live)
+	_dc_overlay.z_index = 4096                                  # above even the z-4096 hover tooltip (tie broken by front-of-tree)
+	_dc_overlay.visible = false
+	_hud.add_child(_dc_overlay)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dc_overlay.add_child(center)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 16)
+	center.add_child(vb)
+	var title := Label.new()
+	title.text = "Disconnected"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 44)
+	title.add_theme_color_override("font_color", Color(1.0, 0.45, 0.45))
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+	title.add_theme_constant_override("outline_size", 12)
+	vb.add_child(title)
+	_dc_msg_label = Label.new()
+	_dc_msg_label.text = "Lost connection to the server."
+	_dc_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_dc_msg_label.add_theme_font_size_override("font_size", 20)
+	_dc_msg_label.add_theme_color_override("font_color", Color(0.85, 0.88, 0.92))
+	vb.add_child(_dc_msg_label)
+	var btn := Button.new()
+	btn.text = "Return to Login"
+	btn.custom_minimum_size = Vector2(220, 44)
+	btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	btn.pressed.connect(func() -> void: logout_requested.emit())
+	vb.add_child(btn)
 
 func _set_vol(v: float, bus: String) -> void:
 	AudioManager.set_volume(bus, v)
@@ -3125,6 +3173,14 @@ func _unhandled_input(e: InputEvent) -> void:
 		_pitch = clampf(_pitch + e.relative.y * ORBIT_SENS, PITCH_MIN, PITCH_MAX)
 
 func _update_hud() -> void:
+	if _dc_overlay != null:                       # prominent disconnect notice (kept above every panel)
+		if _net_msg != "":
+			_dc_msg_label.text = _net_msg
+			if not _dc_overlay.visible:
+				_hud.move_child(_dc_overlay, _hud.get_child_count() - 1)
+				_dc_overlay.visible = true
+		elif _dc_overlay.visible:
+			_dc_overlay.visible = false
 	if _net_msg != "":
 		_info.text = "[b]Legends MMO — Online[/b]\n[color=#ff7a7a]%s[/color]" % _net_msg
 		_bar.text = ""
