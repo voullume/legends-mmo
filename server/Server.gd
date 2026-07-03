@@ -57,14 +57,17 @@ const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity t
 # --- AI residents (RP0): server-side AI "players" (team 0, driven by the AI brain — never marked `controlled`).
 # Ephemeral (no account/DB/economy). `tier` emulates gear (no inventory); `polite` residents pass their
 # killing-blow kills to a nearby engaged player (helping never robs you), the rude one hogs them. ---
+# `route` (RP1): a routing resident JOURNEYS through those zones (like a player working content), dwelling in
+# each; a home-only resident holds its zone. Routes never include the boss arena or the PvP arena.
 const RESIDENTS := [
-	{"id": "sarge",   "name": "Sarge",   "class": "linebacker", "persona": "grinder",  "home": "glitchyard_2",    "level": 6,  "tier": "mid",  "polite": true},
+	{"id": "sarge",   "name": "Sarge",   "class": "linebacker", "persona": "grinder",  "home": "glitchyard_2",    "level": 6,  "tier": "mid",  "polite": true,  "route": ["glitchyard_2", "glitchyard_3", "glitchyard_1"]},
 	{"id": "mercy",   "name": "Mercy",   "class": "setter",     "persona": "support",  "home": "glitchyard_1",    "level": 6,  "tier": "mid",  "polite": true},
 	{"id": "blitz",   "name": "Blitz",   "class": "spiker",     "persona": "raider",   "home": "glitchyard_5",    "level": 10, "tier": "high", "polite": true},
 	{"id": "reaper",  "name": "Reaper",  "class": "striker",    "persona": "fighter",  "home": "glitchyard_3",    "level": 9,  "tier": "high", "polite": true},
-	{"id": "nomad",   "name": "Nomad",   "class": "goalkeeper", "persona": "wanderer", "home": "glitchyard_3",    "level": 5,  "tier": "mid",  "polite": true},
+	{"id": "nomad",   "name": "Nomad",   "class": "goalkeeper", "persona": "wanderer", "home": "glitchyard_3",    "level": 5,  "tier": "mid",  "polite": true,  "route": ["glitchyard_3", "glitchyard_4", "glitchyard_5", "glitchyard_1"]},
 	{"id": "vulture", "name": "Vulture", "class": "batter",     "persona": "rude",     "home": "glitchyard_4",    "level": 8,  "tier": "high", "polite": false},
 ]
+const ROUTE_DWELL_MS := 75000         # a routing resident spends this long in each zone before moving on
 const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.6, "dmg": 1.25}, "high": {"hp": 2.6, "dmg": 1.55}}
 const RESIDENT_ASSIST_RANGE := 280.0  # a resident's kill credits a player within this range of the mob
 const RESIDENT_ENGAGED_S := 6.0       # "engaged" = took a hit within this many seconds (a real participant)
@@ -257,6 +260,8 @@ func _mob_count() -> int:
 
 # ---- AI residents (RP0): spawn the roster as team-0 fighters driven by the AI brain ----
 var _residents := {}                             # resident fighter id → its roster def (for the director/respawn)
+var _res_dir := {}                               # resident fighter id → director state {route_idx, next_move_t}
+var _res_t := 0.0                                # director cadence accumulator (~2 Hz is plenty)
 
 func _spawn_residents() -> void:
 	for r in RESIDENTS:
@@ -278,7 +283,38 @@ func _spawn_residents() -> void:
 		f["resPolite"] = bool(r.get("polite", true))
 		_scale_resident(f)
 		_residents[fid] = r
+		# RP1 director state — stagger each router's first move so they don't all travel at once
+		_res_dir[fid] = {"route_idx": 0, "next_move_t": Time.get_ticks_msec() + ROUTE_DWELL_MS + _residents.size() * 9000}
 	print("[zone] %d AI residents spawned" % _residents.size())
+
+# RP1: the Director — routing residents JOURNEY zone-to-zone (like a player working content); home-only
+# residents are tethered to their zone. Runs at ~2 Hz (cheap; the AI brain handles local movement/combat).
+func _tick_residents(dt: float) -> void:
+	_res_t += dt
+	if _res_t < 2.0:
+		return
+	_res_t = 0.0
+	var now := Time.get_ticks_msec()
+	for fid in _residents.keys():
+		var f = _find(fid)
+		if f == null or not f["alive"]:
+			continue                                  # dead → respawn handles it (in place)
+		var r: Dictionary = _residents[fid]
+		var st: Dictionary = _res_dir.get(fid, {})
+		var route = r.get("route", null)
+		if route is Array and (route as Array).size() > 1:
+			if now >= int(st.get("next_move_t", 0)):  # time to move on to the next zone in the route
+				var idx := (int(st.get("route_idx", 0)) + 1) % (route as Array).size()
+				st["route_idx"] = idx
+				st["next_move_t"] = now + ROUTE_DWELL_MS
+				var to_map := str(route[idx])
+				if _worlds.has(to_map):
+					_relocate(f, null, to_map, World.spawn_for(to_map))
+		else:
+			# home-only: if it somehow drifted out of its zone (shouldn't — no portals), pull it back
+			var home := str(r.get("home", World.HOME))
+			if str(f["map"]) != home and _worlds.has(home):
+				_relocate(f, null, home, World.spawn_for(home))
 
 # emulate level + gear (residents have no inventory): flat level HP + a per-persona-tier hp/dmg multiplier.
 func _scale_resident(f) -> void:
@@ -1607,6 +1643,7 @@ func _physics_process(delta: float) -> void:
 		steps += 1
 	if steps == 5:
 		_acc = 0.0
+	_tick_residents(delta)                        # RP1 director: resident routing/tether (real-time cadence)
 	_save_t += delta                              # save clock runs every frame, not just on sim steps
 	if _save_t >= SAVE_INTERVAL:
 		_save_t = 0.0
@@ -2580,7 +2617,8 @@ func _relocate(f, s, to_map: String, pos: Vector2) -> void:
 	f["arenaH"] = int(_worlds[to_map].get("arenaH", GameData.ARENA_H))
 	_worlds[to_map]["fighters"].append(f)
 	_spawn_pos[f["id"]] = pos
-	s["map"] = to_map
+	if s != null:                                    # residents have no session (director-driven relocate)
+		s["map"] = to_map
 	_tp_next[f["id"]] = Time.get_ticks_msec() + TP_GRACE_MS
 	_maybe_teardown_instance(from_map)               # left an instance (death/goto)? tear it down if now empty
 

@@ -63,5 +63,20 @@ func _init() -> void:
 	# --- kill-attribution helper: nearest player within range (no players → -1) ---
 	ok(srv._nearest_player_pid("glitchyard_2", Vector2(500, 280), 280.0) == -1, "no player nearby → no kill credit")
 
+	# --- RP1 director: a routing resident JOURNEYS to the next zone when its dwell elapses ---
+	var router_fid := ""
+	for fid in srv._residents:
+		if str((srv._residents[fid] as Dictionary).get("id", "")) == "sarge":
+			router_fid = str(fid)
+	ok(router_fid != "" and (srv._residents[router_fid].get("route") is Array), "sarge is a router (has a route)")
+	if router_fid != "":
+		(srv._res_dir[router_fid] as Dictionary)["next_move_t"] = 0   # force the dwell to elapse
+		var rf: Dictionary = srv._find(router_fid)
+		var before_map := str(rf["map"])
+		srv._tick_residents(3.0)                     # > 2s cadence → the director runs
+		var rf2: Dictionary = srv._find(router_fid)
+		var after_map := str(rf2["map"])
+		ok(after_map != before_map, "director advanced the router (%s → %s)" % [before_map, after_map])
+
 	print("=== residents (RP0): %d passed, %d failed ===" % [pass_n, fail_n])
 	quit(1 if fail_n > 0 else 0)
