@@ -279,6 +279,23 @@ func cosmetics_equip_as(char_id: String, dye: String) -> bool:
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/cosmetics_equip", JSON.stringify({"p_char": char_id, "p_dye": dye}), PackedStringArray(), service_key)
 	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
 
+# --- leaderboards (P5): server-authoritative. Submit keeps the personal best; the board is read server-side. ---
+func leaderboard_submit_as(category: String, char_id: String, name: String, score: int) -> void:
+	if service_key == "":
+		return
+	await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/leaderboard_submit",
+		JSON.stringify({"p_cat": category, "p_char": char_id, "p_name": name, "p_score": score}), PackedStringArray(), service_key)
+
+# top-N for a category (service_role read — clients never SELECT the table directly). Returns [{name,score}].
+func leaderboard_top_as(category: String, lim: int) -> Dictionary:
+	if service_key == "":
+		return {"entries": []}
+	var q := "?category=eq.%s&select=name,score&order=score.desc&limit=%d" % [category, lim]
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/leaderboards" + q, "", PackedStringArray(), service_key)
+	if r["code"] == 200 and r["data"] is Array:
+		return {"entries": r["data"]}
+	return {"entries": []}
+
 # atomic Intensity unlock via the progression_unlock rpc (ensures the row + bumps only from the cleared tier).
 # Returns the resulting max_intensity. Service-role only (clients can't self-unlock).
 func progression_unlock_as(char_id: String, tier: int) -> int:

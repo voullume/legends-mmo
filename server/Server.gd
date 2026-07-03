@@ -248,6 +248,10 @@ const MASTER_KEY_PAGES := 300                     # pages to forge the Master Ke
 const CIRCUIT_CLEAR_PAGES_BASE := 5              # a Circuit clear yields BASE + tier*PER_TIER pages
 const CIRCUIT_CLEAR_PAGES_PER_TIER := 3
 const BOSS_PAGES := 50                            # the Head Coach boss also drops a page chunk
+# --- Two-Minute Drill (P5): endless wave survival → leaderboard ---
+const DRILL_WAVE_GAP_MS := 2500                  # breather between waves
+const DRILL_PAGES_PER_WAVE := 2                  # end-of-run pages = max(0, wave-2) * this (wave 3+ only; anti-farm)
+const DRILL_CREDITS_PER_WAVE := 40
 
 # Intensity multipliers (P1): geometric so each tier is a real power check but the ladder is unbounded.
 # hp ×1.6 / dmg ×1.13 per tier (tuned so a geared team clears its max tier, the next is a wall to grow into).
@@ -376,6 +380,8 @@ func _grant_circuit_clear(pid: int, tier: int) -> void:
 			var nm = await supa.progression_unlock_as(str(s["char_id"]), tier)
 			if _session.has(pid) and int(nm) > 0:
 				s["max_intensity"] = int(nm)
+				_submit_score(str(s["char_id"]), str(s["name"]), "intensity", int(nm) - 1)   # P5: highest Intensity CLEARED
+
 	await _award_pages(pid, CIRCUIT_CLEAR_PAGES_BASE + tier * CIRCUIT_CLEAR_PAGES_PER_TIER)   # attunement (P2)
 	# a guaranteed Intensity-scaled bonus drop (a synthetic elite-tier roll) as the clear reward
 	if _session.has(pid):
@@ -492,6 +498,141 @@ func _do_equip_cosmetic(pid: int, dye_id: String) -> void:
 	if net != null:
 		net.recv_cosmetics_changed.rpc_id(pid, (s["cos_owned"] as Array).duplicate(), dye_id)
 
+# ---- Two-Minute Drill (P5): instanced endless wave survival → a leaderboard score ----
+# enter a fresh SOLO drill (owner = fid so scores are individual). Called from _check_portals (auto entry).
+func _enter_drill(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var f = _find(_session[pid]["fid"])
+	if f == null:
+		return
+	var key := _ensure_instance(World.DRILL, str(_session[pid]["fid"]), 1)
+	_relocate(f, _session[pid], key, World.spawn_for(World.DRILL))
+	var meta = _instances.get(key)
+	if meta != null:
+		meta["mode"] = "drill"
+		meta["wave"] = 0
+		meta["active"] = true
+		meta["next_wave_t"] = 0
+	_advance_drill_wave(key)                          # spawn wave 1
+
+func _advance_drill_wave(key: String) -> void:
+	var meta = _instances.get(key)
+	if meta == null:
+		return
+	var w = _worlds.get(key)                          # cull the cleared wave's corpses (instance mobs don't respawn
+	if w != null:                                     # + aren't removed on death) so an endless run can't grow unbounded
+		var dead := []
+		for f in w["fighters"]:
+			if f["team"] == 1 and not f["alive"]:
+				dead.append(str(f["id"]))
+		for fid in dead:
+			_remove_fighter(fid)
+	meta["wave"] = int(meta.get("wave", 0)) + 1
+	meta["next_wave_t"] = 0
+	_spawn_drill_wave(key, int(meta["wave"]))
+
+# spawn a wave: count + level + Intensity all ramp with the wave number (a mini-boss every 5th). Drill mobs are
+# tagged isDrill → no loot/xp/credits (the reward is the run score). Deterministic placement (ring, no rng).
+func _spawn_drill_wave(key: String, wave: int) -> void:
+	var w = _worlds.get(key)
+	if w == null:
+		return
+	var count := clampi(2 + wave, 2, 10)
+	var pool := ["cone_swarmer", "foam_dummy", "shooting_dummy", "tackle_brute"]
+	var lvl := clampi(1 + wave, 1, 20)
+	var cx := float(w.get("arenaW", GameData.ARENA_W)) * 0.5
+	var cy := float(w.get("arenaH", GameData.ARENA_H)) * 0.5
+	var rad := minf(cx, cy) * 0.72
+	for i in count:
+		var cls: String = pool[(wave + i) % pool.size()]
+		var ang: float = TAU * float(i) / float(count)
+		var pos := Vector2(cx + cos(ang) * rad, cy + sin(ang) * rad)
+		var fid := _spawn_fighter(cls, 1, pos, key)
+		var m = _find(fid)
+		if m == null:
+			continue
+		m["mobLevel"] = lvl
+		m["mobTier"] = "elite" if (wave % 5 == 0 and i == 0) else "minion"   # a tougher anchor every 5 waves
+		m["intensity"] = 1 + int(wave / 3)          # difficulty ramp via the Intensity multiplier
+		m["isDrill"] = true
+		_scale_mob(m)
+
+# per-frame drill driver (called after _check_portals): advance waves + detect the run's end.
+func _tick_drills() -> void:
+	var now := Time.get_ticks_msec()
+	for key in _instances.keys():
+		var meta = _instances[key]
+		if str(meta.get("mode", "")) != "drill" or not bool(meta.get("active", false)):
+			continue
+		var w = _worlds.get(key)
+		if w == null:
+			continue
+		var any_player_alive := false
+		var mobs_alive := 0
+		for f in w["fighters"]:
+			if f["team"] == 0 and f["alive"]:
+				any_player_alive = true
+			elif f["team"] == 1 and f["alive"]:
+				mobs_alive += 1
+		if not any_player_alive:                     # the player fell → end the run
+			_end_drill(key)
+			continue
+		if mobs_alive == 0:                          # wave cleared → next after a short gap
+			if int(meta.get("next_wave_t", 0)) == 0:
+				meta["next_wave_t"] = now + DRILL_WAVE_GAP_MS
+			elif now >= int(meta["next_wave_t"]):
+				_advance_drill_wave(key)
+
+func _end_drill(key: String) -> void:
+	var meta = _instances.get(key)
+	if meta == null or not bool(meta.get("active", false)):
+		return
+	meta["active"] = false
+	var wave := int(meta.get("wave", 0))
+	var w = _worlds.get(key)
+	var pid := -1
+	if w != null:
+		for f in w["fighters"]:
+			if f["team"] == 0:
+				pid = _pid_by_fid(f["id"])
+				break
+	if pid >= 0 and _session.has(pid):
+		var s = _session[pid]
+		# pages only from a REAL run (wave 3+) so a fresh char can't death-farm wave 1 faster than the Circuit chase
+		_award_pages(pid, maxi(0, wave - 2) * DRILL_PAGES_PER_WAVE)
+		_award_credits(pid, wave * DRILL_CREDITS_PER_WAVE)
+		_submit_score(str(s["char_id"]), str(s["name"]), "drill", wave)
+		if net != null:
+			net.recv_drill_end.rpc_id(pid, wave)
+		var f = _find(s["fid"])
+		if f != null:
+			_relocate(f, s, World.HOME, World.HOME_SPAWN)   # home (tears the drill down); revive on arrival
+			_respawn.erase(f["id"])
+			_revive(f)
+		_save_one(s, _find(s["fid"]))
+
+# ---- leaderboards (P5): server-authoritative scores; clients read the board via an RPC ----
+var _lb_next := {}                               # pid → earliest next fetch (rate limit)
+
+func _submit_score(char_id: String, name: String, category: String, score: int) -> void:
+	if score <= 0 or supa == null:
+		return
+	await supa.leaderboard_submit_as(category, char_id, name, score)   # keeps the personal best
+
+func fetch_leaderboard(pid: int, category: String) -> void:
+	if not _session.has(pid):
+		return
+	var now := Time.get_ticks_msec()
+	if now < int(_lb_next.get(pid, 0)):
+		return
+	_lb_next[pid] = now + 300                         # short enough that a normal tab-switch isn't dropped
+	if not ["drill", "gear", "intensity"].has(category):
+		return
+	var r = await supa.leaderboard_top_as(category, 20)
+	if net != null and _session.has(pid):
+		net.recv_leaderboard.rpc_id(pid, category, r.get("entries", []))
+
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
 	print("[zone] peer %d connected — awaiting auth" % pid)
@@ -510,8 +651,12 @@ func _on_peer_disconnected(pid: int) -> void:
 		if int((_party_invites[tk] as Dictionary).get("from", -1)) == pid:   # entry can't block the target's re-invites for 30s
 			_party_invites.erase(tk)
 	var left_map: String = str(s.get("map", ""))
+	var lmeta = _instances.get(left_map)         # rage-quit mid-Drill → still record the wave reached
+	if lmeta != null and str(lmeta.get("mode", "")) == "drill" and bool(lmeta.get("active", false)):
+		_submit_score(str(s["char_id"]), str(s["name"]), "drill", int(lmeta.get("wave", 0)))
 	_remove_fighter(s["fid"])
 	_maybe_teardown_instance(left_map)           # last player out of a private instance → tear it down
+	_lb_next.erase(pid)
 	_peers.erase(pid)
 	_session.erase(pid)
 	_move.erase(pid)
@@ -1408,6 +1553,7 @@ func _physics_process(delta: float) -> void:
 			_tick_world(_worlds[mapname], mapname)
 		_advance_respawns(SIM_DT)                 # respawn countdown runs once per tick (not per world)
 		_check_portals()                          # move players between worlds after the sims resolve
+		_tick_drills()                            # Two-Minute Drill: advance waves / end runs (P5)
 		_apply_godmode()                          # keep god-mode players invulnerable (after damage resolves)
 		_acc -= SIM_DT
 		steps += 1
@@ -1595,10 +1741,19 @@ func _check_portals() -> void:
 			continue
 		for portal in World.PORTALS.get(_template(s["map"]), []):   # portals resolve by template (instances share theirs)
 			if Vector2(f["x"] - float(portal["x"]), f["y"] - float(portal["y"])).length() <= World.PORTAL_RADIUS:
-				if portal.has("instance"):            # instance ENTRY is RPC-driven (enter_camp; the client picks an
-					continue                          # Intensity tier). Walking onto the pad only opens the client selector.
+				if portal.has("instance"):            # instance ENTRY: `auto` pads (the Drill) enter on walk; others
+					if bool(portal.get("auto", false)) and str(portal["instance"]) == World.DRILL:   # (Camp) are RPC-driven
+						_enter_drill(pid)
+						_tp_next[f["id"]] = now + TP_GRACE_MS
+						break
+					continue                          # Camp: walking onto the pad only opens the client selector.
 				if portal.has("gate") and not _portal_unlocked(pid, str(portal["gate"])):
 					continue                          # gated + locked (e.g. the secret boss) — no teleport (it's also hidden in the snapshot)
+				# leaving an active Drill via the exit → END the run (bank the score + reward), not a bare teleport
+				if str((_instances.get(s["map"], {}) as Dictionary).get("mode", "")) == "drill" and bool((_instances.get(s["map"], {}) as Dictionary).get("active", false)):
+					_end_drill(s["map"])
+					_tp_next[f["id"]] = now + TP_GRACE_MS
+					break
 				_portal_teleport(f, s, portal)
 				_tp_next[f["id"]] = now + TP_GRACE_MS
 				break
@@ -1688,7 +1843,7 @@ func _award_kills() -> void:
 			if ev.get("type") != "kill":
 				continue
 			var victim = _find(ev["victim"])
-			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false) or victim.get("isCore", false):  # mobs only; not the dummy, summoned adds, or power cores (anti-farm)
+			if victim == null or victim["team"] != 1 or victim.get("dummy", false) or victim.get("isAdd", false) or victim.get("isCore", false) or victim.get("isDrill", false):  # mobs only; not the dummy, adds, cores, or Drill-wave mobs (reward is the run score)
 				continue
 			if victim.get("objective", false) and _is_instance(str(mapname)):   # the Circuit gatekeeper died → complete the run
 				_on_circuit_clear(str(mapname))                # (idempotent; instance mobs don't respawn so it fires once)
@@ -1974,6 +2129,9 @@ func _apply_equipment(pid: int) -> void:
 		bonus[st] = int(bonus.get(st, 0)) + min(int(set_by_stat[st]), SET_BONUS_CAP)
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_session[pid]["item_power"] = ip_total               # gear score for the character sheet (P3)
+	if ip_total > int(_session[pid].get("gear_best", 0)):   # P5: submit gear score ONLY when it improves (no spam)
+		_session[pid]["gear_best"] = ip_total
+		_submit_score(str(_session[pid]["char_id"]), str(_session[pid]["name"]), "gear", ip_total)
 	_session[pid]["set_bonus"] = set_active              # active set bonuses for the character sheet (P5)
 	_session[pid]["procs"] = procs                       # P6: active procs, cached for re-apply on respawn
 	var pf2 = _find(_session[pid]["fid"])
@@ -2400,6 +2558,8 @@ func _broadcast() -> void:
 		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
 		snap["portals"] = _portals_for_player(str(s["map"]), pid)   # hide gated (secret) portals until unlocked
 		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
+		if _is_instance(str(s["map"])) and str((_instances.get(str(s["map"]), {}) as Dictionary).get("mode", "")) == "drill":
+			snap["drillWave"] = int((_instances[str(s["map"])] as Dictionary).get("wave", 0))   # Two-Minute Drill HUD counter
 		if str(s["map"]) == World.HOME:           # the shop / forge pads + quest giver only exist in the home base
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
 			snap["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}

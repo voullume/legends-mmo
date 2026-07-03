@@ -23,7 +23,8 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 # per-party copy on demand (world key "<template>#<owner>"), scales it, and tears it down when empty. The
 # template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
 const CAMP := "camp"                        # the instanced Camp Circuit run (endgame grind + Intensity ladder)
-const INSTANCE_MAPS := ["camp"]             # templates that are instance-only (skipped by static-world boot)
+const DRILL := "drill"                      # the instanced Two-Minute Drill (endless wave survival → leaderboard)
+const INSTANCE_MAPS := ["camp", "drill"]    # templates that are instance-only (skipped by static-world boot)
 
 static func is_instance_template(map: String) -> bool:
 	return INSTANCE_MAPS.has(map)
@@ -39,6 +40,7 @@ const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well
 const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of Head Coach PRIME
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
+const DRILL_SPAWN := Vector2(600, 400)       # Two-Minute Drill: spawn in the arena center (waves close in)
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
@@ -57,6 +59,8 @@ const MAPS := {
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 	# instance TEMPLATE (P0 = a single proving room; P1 expands it into the condensed multi-room Circuit)
 	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
+	# Two-Minute Drill arena (P5): no out-of-combat regen (survival), waves spawned by the server
+	DRILL: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.0,   "regen_delay": 0.0, "aggro": true,  "pvp": false, "spawn": DRILL_SPAWN},
 }
 
 const DUMMY_POS := Vector2(660, 300)         # the training dummy (home only)
@@ -81,6 +85,8 @@ const PORTALS := {
 		{"x": 660.0,  "y": 460.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
 		# INSTANCE entry: no static `to` — the server spins up (or rejoins) the player's private Camp instance.
 		{"x": 420.0,  "y": 460.0, "instance": CAMP, "label": "▶ Camp Circuit"},
+		# walk-on instance entry (`auto`) → drop straight into a fresh Two-Minute Drill (no tier selection)
+		{"x": 200.0,  "y": 460.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
 	],
 	GY1: [
 		{"x": 120.0,  "y": 425.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -124,6 +130,10 @@ const PORTALS := {
 	# Camp instance exit (resolved by TEMPLATE — every "camp#<owner>" instance shares this exit back to home).
 	CAMP: [
 		{"x": 120.0,  "y": 420.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ Leave Camp"},
+	],
+	# Drill exit (a west-corner bail — walking here ends the run; you also end by dying).
+	DRILL: [
+		{"x": 90.0,   "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ End Drill"},
 	],
 }
 

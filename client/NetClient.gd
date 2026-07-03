@@ -111,6 +111,13 @@ var _near_camp := false
 var _wardrobe_panel: Control = null
 var _wardrobe_rows: VBoxContainer = null
 var _wardrobe_status: Label = null
+# Leaderboards + Two-Minute Drill (P5)
+var _lb_panel: Control = null
+var _lb_rows: VBoxContainer = null
+var _lb_status: Label = null
+var _lb_cat := "drill"
+var _lb_entries := []
+var _drill_banner: Label = null
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Panel = null
@@ -149,6 +156,7 @@ func _enter_mode() -> void:
 	_build_vendor()
 	_build_camp()
 	_build_wardrobe()
+	_build_leaderboard()
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
@@ -1580,6 +1588,115 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 		_render_wardrobe()
 	_quest_toast("[color=#8ad6ff]🎨 Wardrobe updated.[/color]")
 
+# ---- Leaderboards (P5) ----
+const LB_CATS := [["drill", "Two-Minute Drill (wave)"], ["gear", "Gear Score"], ["intensity", "Camp Intensity"]]
+func _build_leaderboard() -> void:
+	_lb_panel = CenterContainer.new()
+	_lb_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lb_panel.visible = false
+	_hud.add_child(_lb_panel)
+	var pc := PanelContainer.new()
+	pc.custom_minimum_size = Vector2(560, 0)
+	_lb_panel.add_child(pc)
+	var mg := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		mg.add_theme_constant_override("margin_" + s, 20)
+	pc.add_child(mg)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	mg.add_child(vb)
+	var t := Label.new()
+	t.text = "🏆 Leaderboards   (L to close)"
+	t.add_theme_font_size_override("font_size", 22)
+	vb.add_child(t)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	vb.add_child(tabs)
+	for cat in LB_CATS:
+		var b := Button.new()
+		b.text = str(cat[1])
+		b.pressed.connect(_on_lb_category.bind(str(cat[0])))
+		tabs.add_child(b)
+	_lb_status = Label.new()
+	_lb_status.add_theme_font_size_override("font_size", 15)
+	_lb_status.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	vb.add_child(_lb_status)
+	_lb_rows = VBoxContainer.new()
+	_lb_rows.add_theme_constant_override("separation", 3)
+	vb.add_child(_lb_rows)
+
+func _toggle_leaderboard() -> void:
+	if _lb_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_lb_panel.visible = not _lb_panel.visible
+	if _lb_panel.visible:
+		_on_lb_category(_lb_cat)                   # fetch the current tab on open
+
+func _on_lb_category(cat: String) -> void:
+	_lb_cat = cat
+	if net != null:
+		net.fetch_leaderboard.rpc_id(1, cat)      # server returns recv_leaderboard
+	if _lb_status != null:
+		_lb_status.text = "Loading %s…" % cat
+
+func recv_leaderboard(category: String, entries: Array) -> void:
+	if category != _lb_cat:
+		return
+	_lb_entries = entries
+	_render_leaderboard()
+
+func _render_leaderboard() -> void:
+	if _lb_panel == null or not _lb_panel.visible or _lb_rows == null:
+		return
+	_lb_status.text = "Top %d — %s" % [_lb_entries.size(), _lb_cat]
+	for c in _lb_rows.get_children():
+		c.queue_free()
+	if _lb_entries.is_empty():
+		var none := Label.new()
+		none.text = "No scores yet — be the first."
+		none.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+		_lb_rows.add_child(none)
+		return
+	var rank := 0
+	for e in _lb_entries:
+		rank += 1
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var rl := Label.new()
+		rl.text = "%d." % rank
+		rl.custom_minimum_size = Vector2(40, 0)
+		if rank <= 3: rl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+		row.add_child(rl)
+		var nm := Label.new()
+		nm.text = str((e as Dictionary).get("name", "?"))
+		nm.custom_minimum_size = Vector2(340, 0)
+		row.add_child(nm)
+		var sc := Label.new()
+		sc.text = str(int((e as Dictionary).get("score", 0)))
+		sc.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		row.add_child(sc)
+		_lb_rows.add_child(row)
+
+func recv_drill_end(wave: int) -> void:
+	_quest_toast("[color=#ffd24d]⏱ Two-Minute Drill — reached WAVE %d![/color]  Score submitted to the leaderboard." % wave)
+
+# a big centered wave counter while inside the Drill (driven by the snapshot's drillWave)
+func _update_drill_banner() -> void:
+	if _drill_banner == null:
+		_drill_banner = Label.new()
+		_drill_banner.add_theme_font_size_override("font_size", 26)
+		_drill_banner.modulate = Color(1.0, 0.7, 0.25)
+		_drill_banner.visible = false
+		_hud.add_child(_drill_banner)
+	if _state.has("drillWave"):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_drill_banner.text = "⏱  TWO-MINUTE DRILL  ·  WAVE %d" % int(_state["drillWave"])
+		_drill_banner.position = Vector2(vp.x / 2.0 - 200.0, 24.0)
+		_drill_banner.visible = true
+	else:
+		_drill_banner.visible = false
+
 func _update_camp_proximity() -> void:
 	if _camp_hint == null:
 		_camp_hint = Label.new()
@@ -2775,6 +2892,7 @@ func _process(delta: float) -> void:
 	_render_vendor_pad()
 	_update_vendor_proximity()
 	_update_camp_proximity()
+	_update_drill_banner()
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -2913,6 +3031,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_wardrobe_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _lb_panel != null and _lb_panel.visible:
+				_lb_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _invite_prompt != null or _invite_popup != null:
 				_close_invite_prompt()
 				if _invite_popup != null:
@@ -2975,6 +3097,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_toggle_wardrobe()              # the Wardrobe (cosmetic dyes) — usable anywhere
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_L and not _chatting:
+			_toggle_leaderboard()           # the leaderboards — usable anywhere
+			get_viewport().set_input_as_handled()
+			return
 		elif e.keycode == KEY_O and not _chatting:
 			_toggle_settings()              # audio / options
 			get_viewport().set_input_as_handled()
@@ -3032,4 +3158,5 @@ func _zone_name(map: String) -> String:
 		"glitchyard_5": return "Glitchyard · Command Tower"
 		"arena": return "Arena"
 		"camp": return "Camp Circuit"
+		"drill": return "Two-Minute Drill"
 		_: return map.capitalize() if map != "" else "—"

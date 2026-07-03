@@ -201,6 +201,22 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 	if client != null:
 		client.recv_cosmetics_changed(owned, equipped)
 
+# ---- leaderboards + Two-Minute Drill (P5) ----
+@rpc("any_peer", "call_remote", "reliable")
+func fetch_leaderboard(category: String) -> void:
+	if server != null:
+		server.fetch_leaderboard(multiplayer.get_remote_sender_id(), category)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_leaderboard(category: String, entries: Array) -> void:
+	if client != null:
+		client.recv_leaderboard(category, entries)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_drill_end(wave: int) -> void:
+	if client != null:
+		client.recv_drill_end(wave)
+
 # ---- quests (client → server: accept/turn-in; server → client: state + progress) ----
 @rpc("any_peer", "call_remote", "reliable")
 func quest_action(action: String, quest_id: String) -> void:
