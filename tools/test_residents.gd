@@ -78,5 +78,31 @@ func _init() -> void:
 		var after_map := str(rf2["map"])
 		ok(after_map != before_map, "director advanced the router (%s → %s)" % [before_map, after_map])
 
+		# walk the FULL route (incl. wraparound) — route_idx must stay in lockstep with the real zone
+		var route: Array = srv._residents[router_fid].get("route", [])
+		var synced := true
+		for _step in route.size():
+			(srv._res_dir[router_fid] as Dictionary)["next_move_t"] = 0
+			srv._tick_residents(3.0)
+			var idx := int((srv._res_dir[router_fid] as Dictionary).get("route_idx", -1))
+			var zone := str((srv._find(router_fid) as Dictionary)["map"])
+			if idx < 0 or idx >= route.size() or zone != str(route[idx]):
+				synced = false
+		ok(synced, "route_idx stays in lockstep with the real zone across a full wraparound")
+
+		# review finding #1 is BENIGN: a router whose dwell elapsed while dead, on revive, moves once
+		# immediately but LANDS in a valid next zone with route_idx synced — no state corruption.
+		var rf3: Dictionary = srv._find(router_fid)
+		rf3["alive"] = false                          # died with the dwell timer already due
+		(srv._res_dir[router_fid] as Dictionary)["next_move_t"] = 0
+		srv._tick_residents(3.0)                      # dead → skipped; timer NOT rescheduled
+		rf3["alive"] = true                           # revived in place (as _advance_respawns would)
+		var idx_before := int((srv._res_dir[router_fid] as Dictionary).get("route_idx", 0))
+		srv._tick_residents(3.0)                      # now moves immediately — but cleanly
+		var idx_after := int((srv._res_dir[router_fid] as Dictionary).get("route_idx", 0))
+		var zone_after := str((srv._find(router_fid) as Dictionary)["map"])
+		ok(idx_after == (idx_before + 1) % route.size() and zone_after == str(route[idx_after]),
+			"post-respawn immediate move is non-corrupting (idx+1, zone synced)")
+
 	print("=== residents (RP0): %d passed, %d failed ===" % [pass_n, fail_n])
 	quit(1 if fail_n > 0 else 0)
