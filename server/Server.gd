@@ -262,6 +262,7 @@ func _mob_count() -> int:
 var _residents := {}                             # resident fighter id → its roster def (for the director/respawn)
 var _res_dir := {}                               # resident fighter id → director state {route_idx, next_move_t}
 var _res_t := 0.0                                # director cadence accumulator (~2 Hz is plenty)
+var _res_party := {}                             # RP2: resident fid → leader pid (a partied resident follows this player)
 
 func _spawn_residents() -> void:
 	for r in RESIDENTS:
@@ -290,12 +291,16 @@ func _spawn_residents() -> void:
 # RP1: the Director — routing residents JOURNEY zone-to-zone (like a player working content); home-only
 # residents are tethered to their zone. Runs at ~2 Hz (cheap; the AI brain handles local movement/combat).
 func _tick_residents(dt: float) -> void:
+	for res_fid in _res_party.keys():            # RP2 follow: every frame so zone-follow is snappy (bonded residents only)
+		_try_follow(res_fid)
 	_res_t += dt
 	if _res_t < 2.0:
 		return
 	_res_t = 0.0
 	var now := Time.get_ticks_msec()
 	for fid in _residents.keys():
+		if _res_party.has(fid):                       # bonded → the follow loop owns it; skip routing/tether
+			continue
 		var f = _find(fid)
 		if f == null or not f["alive"]:
 			continue                                  # dead → respawn handles it (in place)
@@ -730,6 +735,7 @@ func _on_peer_disconnected(pid: int) -> void:
 		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy owns its OWN terminal
 												 # its OWN terminal save; saving here too would race that credit
 												 # write (a stale absolute write could clobber it). Skip it.
+	_release_residents_of(pid)                   # RP2: release any recruited companions back to their director
 	_party_leave(pid)                            # drop out of any party (and disband if it falls below 2)
 	for tk in _party_invites.keys():             # sweep invites this peer SENT (keyed by target) so a stale
 		if int((_party_invites[tk] as Dictionary).get("from", -1)) == pid:   # entry can't block the target's re-invites for 30s
@@ -945,11 +951,18 @@ func party_invite(pid: int, target_fid: String) -> void:
 	var now := Time.get_ticks_msec()
 	if now < int(_party_invite_next.get(pid, 0)):    # rate-limit per sender (anti-spam/DoS)
 		return
+	if _residents.has(target_fid):                   # RP2: a resident isn't a peer — auto-join it server-side
+		_resident_join(pid, target_fid, now)         # (no recv_party_invite round-trip; it has no client)
+		return
 	var tpid := _pid_by_fid(target_fid)
 	if tpid < 0 or tpid == pid:
 		return
 	var party: Array = _session[pid]["party"]
-	if tpid in party or max(party.size(), 1) >= MAX_PARTY:
+	var invitee_res := 0                             # the invitee brings its own recruited companions into the merge
+	for rfid in _res_party:
+		if int(_res_party[rfid]) == tpid:
+			invitee_res += 1
+	if tpid in party or _party_headcount(pid) + 1 + invitee_res > MAX_PARTY:   # cap counts humans + companions
 		return
 	var pend = _party_invites.get(tpid)              # don't stomp a still-fresh invite from someone else
 	if pend != null and int(pend.get("from", -1)) != pid and now - int(pend.get("t", 0)) < INVITE_TTL_MS:
@@ -976,7 +989,11 @@ func party_accept(pid: int, inviter_fid: String) -> void:
 		members = [ipid]
 	if pid not in members:
 		members.append(pid)
-	if members.size() > MAX_PARTY:
+	var res_total := 0                            # RP2: companions bonded to any prospective member count toward the cap
+	for rfid in _res_party:
+		if int(_res_party[rfid]) in members:
+			res_total += 1
+	if members.size() + res_total > MAX_PARTY:     # authoritative humans + companions cap on the merge
 		return
 	_party_set(members)
 	var names := []
@@ -989,6 +1006,7 @@ func party_decline(pid: int) -> void:
 	_party_invites.erase(pid)
 
 func party_leave(pid: int) -> void:
+	_release_residents_of(pid)                    # RP2: "Leave Party" also dismisses your recruited companions
 	_party_leave(pid)
 
 # set each member's party to the shared list (disband if < 2 left); the roster rides the snapshot
@@ -1037,14 +1055,103 @@ func _party_roster(pid: int) -> Array:
 	var out := []
 	if not _session.has(pid):
 		return out
-	for m in _session[pid]["party"]:
+	var res_fids := _residents_of_party(pid)
+	var party: Array = _session[pid]["party"]
+	if party.size() < 2 and res_fids.is_empty():
+		return out                               # truly solo, no companion → no HUD frame
+	var members: Array = party if party.size() >= 2 else [pid]   # include self when it's you + a companion
+	for m in members:
 		if not _session.has(m):
 			continue
 		var mf = _find(_session[m]["fid"])
 		out.append({"fid": str(_session[m]["fid"]), "name": str(_session[m]["name"]),
 			"hp": int(round(mf["hp"])) if mf != null else 0, "maxHP": int(mf["maxHP"]) if mf != null else 1,
 			"alive": bool(mf["alive"]) if mf != null else false, "map": str(_session[m]["map"])})
+	for rfid in res_fids:                        # RP2: fold in recruited companions (fields synth'd from the fighter dict)
+		var rf = _find(rfid)
+		out.append({"fid": rfid, "name": str((rf as Dictionary).get("resName", "resident")) if rf != null else "resident",
+			"hp": int(round(rf["hp"])) if rf != null else 0, "maxHP": int(rf["maxHP"]) if rf != null else 1,
+			"alive": bool(rf["alive"]) if rf != null else false, "map": str(rf["map"]) if rf != null else ""})
 	return out
+
+# ---- RP2: partied residents (an AI "player" you can recruit, that follows + fights/heals with you) ----
+# Residents are fid-only (no pid/_session), so they can't live in the pid-keyed party list; instead a
+# separate _res_party (fid -> leader pid) bonds a resident to its recruiter, and the roster/follow logic
+# folds it back in. All PvE-zone allyship/healing is already team-based, so no shared/ or client change.
+
+# every resident bonded to any member of pid's party (so all party-mates see + share the companion)
+func _residents_of_party(pid: int) -> Array:
+	var out := []
+	if not _session.has(pid):
+		return out
+	var party: Array = _session[pid]["party"]
+	var pids: Array = party if party.size() >= 2 else [pid]
+	for rfid in _res_party:
+		if int(_res_party[rfid]) in pids:
+			out.append(rfid)
+	return out
+
+# party headcount for the cap: human members (solo counts as 1) + bonded residents
+func _party_headcount(pid: int) -> int:
+	if not _session.has(pid):
+		return 0
+	var party: Array = _session[pid]["party"]
+	return maxi(party.size(), 1) + _residents_of_party(pid).size()
+
+# recruit a resident into pid's party (called from party_invite when the target fid is a resident)
+func _resident_join(pid: int, res_fid: String, now: int) -> void:
+	if not _session.has(pid) or not _residents.has(res_fid):
+		return
+	if _res_party.has(res_fid):                      # already bonded (to me = no-op; to another = can't steal)
+		return                                       # cheap dict reject BEFORE the O(n) _find (anti-spam hygiene)
+	if _party_headcount(pid) >= MAX_PARTY:           # party (humans + companions) is full
+		return
+	var res_f = _find(res_fid)
+	if res_f == null:
+		return
+	_party_invite_next[pid] = now + INVITE_COOLDOWN_MS   # rate-limit recruits like peer invites
+	_res_party[res_fid] = pid
+	print("[zone] %s recruited resident %s" % [str(_session[pid]["name"]), str(res_f.get("resName", "resident"))])
+	_try_follow(res_fid)                             # snap to the leader's zone immediately
+
+# a bonded resident follows its leader BETWEEN zones (the brain handles local fight/heal). Cross-zone only —
+# the shared brain idles with no enemy, so intra-zone trailing isn't possible without editing shared/.
+func _try_follow(res_fid: String) -> void:
+	var leader_pid := int(_res_party.get(res_fid, -1))
+	if leader_pid < 0 or not _session.has(leader_pid):
+		_release_resident(res_fid)                   # leader gone → release (double-guards the disconnect path)
+		return
+	var res_f = _find(res_fid)
+	if res_f == null:
+		return
+	var leader_f = _find(str(_session[leader_pid].get("fid", "")))
+	if leader_f == null:
+		return
+	var leader_map := str(leader_f["map"])
+	if _is_instance(leader_map):
+		return                                       # leader in a private Camp/Drill instance → wait it out (v1: shared worlds only)
+	var w = _worlds.get(leader_map, null)
+	if w == null or bool((w as Dictionary).get("pvp", false)):
+		return                                       # leader in the PvP arena → don't drag a companion into PvP
+	if str(res_f["map"]) == leader_map:
+		return                                       # already together
+	var aw := float((w as Dictionary).get("arenaW", GameData.ARENA_W))
+	var ah := float((w as Dictionary).get("arenaH", GameData.ARENA_H))
+	var pos := Vector2(clampf(float(leader_f["x"]) - 60.0, 40.0, aw - 40.0), clampf(float(leader_f["y"]), 40.0, ah - 40.0))
+	_relocate(res_f, null, leader_map, pos)          # reuse the RP1 null-session relocate
+
+# drop a resident's party bond; it resumes its director routing (without an instant route teleport)
+func _release_resident(res_fid: String) -> void:
+	if not _res_party.has(res_fid):
+		return
+	_res_party.erase(res_fid)
+	if _res_dir.has(res_fid):
+		(_res_dir[res_fid] as Dictionary)["next_move_t"] = Time.get_ticks_msec() + ROUTE_DWELL_MS
+
+func _release_residents_of(pid: int) -> void:
+	for rfid in _res_party.keys():                   # keys() is a snapshot → safe to erase while iterating
+		if int(_res_party[rfid]) == pid:
+			_release_resident(rfid)
 
 # ---- economy (Credits): earn from kills, spend at the home-zone shop, sell inventory back ----
 func _is_uuid(s: String) -> bool:
