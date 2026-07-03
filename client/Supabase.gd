@@ -286,6 +286,13 @@ func leaderboard_submit_as(category: String, char_id: String, name: String, scor
 	await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/leaderboard_submit",
 		JSON.stringify({"p_cat": category, "p_char": char_id, "p_name": name, "p_score": score}), PackedStringArray(), service_key)
 
+# --- RP4: append one AI-resident playtest anomaly row (service_role; clients never touch this table) ---
+func bot_report_as(resident_id: String, resident_name: String, zone: String, kind: String, detail: String, metrics: Dictionary) -> void:
+	if service_key == "":
+		return
+	await _http(HTTPClient.METHOD_POST, "/rest/v1/bot_reports",
+		JSON.stringify({"resident_id": resident_id, "resident_name": resident_name, "zone": zone, "kind": kind, "detail": detail, "metrics": metrics}), PackedStringArray(), service_key)
+
 # top-N for a category (service_role read — clients never SELECT the table directly). Returns [{name,score}].
 func leaderboard_top_as(category: String, lim: int) -> Dictionary:
 	if service_key == "":

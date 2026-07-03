@@ -265,6 +265,15 @@ var _res_t := 0.0                                # director cadence accumulator 
 var _res_party := {}                             # RP2: resident fid → leader pid (a partied resident follows this player)
 var _res_chat_next := {}                         # RP3: resident fid → earliest ms it may speak again
 var _res_chat_i := 0                             # RP3: rotating line index (server-side only — never the sim RNG)
+var _res_prog := {}                              # RP4: resident fid → {last_dmg, stall_t} (no-combat-progress tracking)
+var _res_deaths := {}                            # RP4: resident fid → {zone: death count} (repeated-death signal)
+var _res_report_next := {}                       # RP4: resident fid → {kind: next-report ms} (anti-spam per kind)
+var _rep_t := 0.0                                # RP4: report-scan cadence accumulator
+const REPORT_TICK_S := 2.0                       # how often the report scan runs
+const REPORT_STALL_S := 60.0                     # disengaged in a mob-full aggro zone this long → report it
+												 # (MUST stay < ROUTE_DWELL_MS/1000 so a router can reach it within one zone dwell)
+const REPORT_DEATH_THRESHOLD := 3                # this many deaths in one zone → report (then reset that zone's counter)
+const REPORT_COOLDOWN_MS := 300000               # don't re-report the same (resident, kind) anomaly for 5 min
 const RES_CHAT_COOLDOWN_MS := 30000              # a resident speaks at most this often (kill/join/ambient share it)
 # persona flavor lines by context. Vulture ("rude") is antagonistic throughout; the mechanical selfishness
 # (hogging its solo kills) already lives in RP0's resPolite. Purely presentational — no sim/determinism impact.
@@ -330,6 +339,8 @@ func _spawn_residents() -> void:
 		# RP1 director state — stagger each router's first move so they don't all travel at once
 		_res_dir[fid] = {"route_idx": 0, "next_move_t": Time.get_ticks_msec() + ROUTE_DWELL_MS + _residents.size() * 9000}
 		_res_chat_next[fid] = Time.get_ticks_msec() + _residents.size() * 4000   # RP3: stagger so they don't all speak at once
+		_res_prog[fid] = {"last_dmg": 0.0, "stall_t": 0.0, "zone": ""}   # RP4: per-zone no-progress tracking
+		_res_deaths[fid] = {}                                 # RP4: per-zone death counts
 	print("[zone] %d AI residents spawned" % _residents.size())
 
 # RP3: a resident speaks a persona line to its zone (only if a player's there to hear it; cooldown-gated so it
@@ -361,6 +372,86 @@ func _resident_say(fid: String, context: String, force := false) -> void:
 	if net != null:
 		for p in listeners:
 			net.recv_chat.rpc_id(p, who, line)
+
+# RP4: automated-playtest reports. Residents play the game 24/7, so anomalies THEY hit — can't make combat
+# progress in a zone full of mobs; dying over and over in one zone — are a cheap health signal for the dev.
+# Detection is server-side + READ-ONLY over fighter dicts (no sim/RNG/shared change). Rows land in the
+# bot_reports table (service_role) + a [report] log line; threshold + cooldown gated so a persistent problem
+# reports periodically, not every tick.
+func _tick_reports(dt: float) -> void:
+	_rep_t += dt
+	if _rep_t < REPORT_TICK_S:
+		return
+	var step := _rep_t
+	_rep_t = 0.0
+	for fid in _residents.keys():
+		var f = _find(fid)
+		if f == null or not f["alive"]:
+			continue
+		var zone := str(f["map"])
+		var w = _worlds.get(zone, null)
+		if w == null:
+			continue
+		var prog: Dictionary = _res_prog.get(fid, {"last_dmg": 0.0, "stall_t": 0.0, "zone": ""})
+		var cur_dmg := float(f.get("dmgDealt", 0.0))
+		if str(prog.get("zone", "")) != zone:         # the stall clock is PER-ZONE — a relocate (router/follow) starts
+			prog["zone"] = zone                       # a fresh clock so a report always names the zone it accrued in
+			prog["stall_t"] = 0.0
+			prog["last_dmg"] = cur_dmg
+		# "engaged" = dealing OR recently taking damage. dmgDealt is cumulative but RESETS to 0 on respawn, so any
+		# change (up = dealt damage, down = respawned) counts; noDmgT<ENGAGED means it's in a fight (a support that
+		# heals-and-tanks, or a resident trading blows). Only NEITHER for the whole window while mobs are present
+		# is a real anomaly (stuck/unreachable) — this keeps the signal clean of legitimately-busy residents.
+		var engaged: bool = cur_dmg != float(prog.get("last_dmg", 0.0)) or float(f.get("noDmgT", 999.0)) < RESIDENT_ENGAGED_S
+		var combat: bool = bool(w.get("aggro", true)) and _zone_has_live_mobs(w)
+		if not combat or engaged:
+			prog["stall_t"] = 0.0
+		else:
+			prog["stall_t"] = float(prog.get("stall_t", 0.0)) + step
+			if float(prog["stall_t"]) >= REPORT_STALL_S and _report_ok(fid, "no_progress"):
+				var hpf := snappedf(float(f["hp"]) / maxf(float(f["maxHP"]), 1.0), 0.01)
+				_emit_report(f, "no_progress", "stuck in %s for %ds (mobs present; neither dealing nor taking damage)" % [zone, int(prog["stall_t"])],
+					{"zone": zone, "stall_s": int(prog["stall_t"]), "hp_frac": hpf})
+				prog["stall_t"] = 0.0                 # reported → reset; re-reports only if it stays stuck another full window
+		prog["last_dmg"] = cur_dmg
+		_res_prog[fid] = prog
+
+# tallied at the death edge in _tick_world; N deaths in one zone → a "this zone is punishing" report
+func _on_resident_death(f) -> void:
+	var fid := str(f["id"])
+	var zone := str(f["map"])
+	var byz: Dictionary = _res_deaths.get(fid, {})
+	byz[zone] = int(byz.get(zone, 0)) + 1
+	if int(byz[zone]) >= REPORT_DEATH_THRESHOLD:
+		_emit_report(f, "repeated_death", "died %d times in %s" % [int(byz[zone]), zone], {"zone": zone, "deaths": int(byz[zone])})
+		byz[zone] = 0                                 # reset so it re-reports only after another N deaths there
+	_res_deaths[fid] = byz
+
+# a live combat mob present in the zone — mirror the _award_kills exclusion set (not the dummy/adds/cores/Drill mobs)
+func _zone_has_live_mobs(w: Dictionary) -> bool:
+	for m in w["fighters"]:
+		if int(m.get("team", 0)) == 1 and bool(m.get("alive", false)) and not m.get("dummy", false) and not m.get("isAdd", false) and not m.get("isCore", false) and not m.get("isDrill", false):
+			return true
+	return false
+
+# per (resident, kind) cooldown so a persistent anomaly reports periodically, not every scan
+func _report_ok(fid: String, kind: String) -> bool:
+	var now := Time.get_ticks_msec()
+	var byk: Dictionary = _res_report_next.get(fid, {})
+	if now < int(byk.get(kind, 0)):
+		return false
+	byk[kind] = now + REPORT_COOLDOWN_MS
+	_res_report_next[fid] = byk
+	return true
+
+# write one anomaly row (bot_reports via service_role) + a log line; fire-and-forget (never blocks the tick).
+# All reads of f happen before the first await, so a later respawn/relocate can't corrupt the row.
+func _emit_report(f, kind: String, detail: String, metrics: Dictionary) -> void:
+	var rname := str(f.get("resName", "resident"))
+	var zone := str(f["map"])
+	print("[report] %s (%s) @%s — %s" % [rname, kind, zone, detail])
+	if supa != null:
+		await supa.bot_report_as(str(f.get("resId", "")), rname, zone, kind, detail, metrics)
 
 # RP1: the Director — routing residents JOURNEY zone-to-zone (like a player working content); home-only
 # residents are tethered to their zone. Runs at ~2 Hz (cheap; the AI brain handles local movement/combat).
@@ -1828,6 +1919,7 @@ func _physics_process(delta: float) -> void:
 	if steps == 5:
 		_acc = 0.0
 	_tick_residents(delta)                        # RP1 director: resident routing/tether (real-time cadence)
+	_tick_reports(delta)                          # RP4: automated-playtest anomaly detection (real-time cadence)
 	_save_t += delta                              # save clock runs every frame, not just on sim steps
 	if _save_t >= SAVE_INTERVAL:
 		_save_t = 0.0
@@ -1924,6 +2016,8 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 				_respawn[f["id"]] = BOSS_RESPAWN_DELAY if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false) else MOB_RESPAWN_DELAY
 			else:
 				_respawn[f["id"]] = RESPAWN_DELAY
+				if f.get("resident", false):          # RP4: a resident died → tally it for the playtest report (fires once per death)
+					_on_resident_death(f)
 
 # heal living players toward max HP; fast on safe maps, slow + delayed-after-damage on combat maps.
 # Gate on the engine's noDmgT (seconds since the last hit) — it resets on ANY hit, even one fully
