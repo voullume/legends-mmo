@@ -356,7 +356,7 @@ const RECIPES := [
 #   chance:  probability the trigger actually fires (default 1.0). Rolled with Combat._proc_roll — a
 #            deterministic hash, NOT a state.rng draw, so the main stream stays byte-identical.
 const PROC_CATALOG := {
-	"searing":  {"name": "Searing",  "effect": "DOT",       "trigger": "on_hit",  "amt": 5.0,  "dur": 3.0, "icd": 4.0, "chance": 0.18},
+	"searing":  {"name": "Searing",  "effect": "DOT",       "trigger": "on_hit",  "amt": 5.0,  "dur": 3.0, "icd": 4.0, "chance": 0.4},
 	"crushing": {"name": "Crushing", "effect": "FLAT",      "trigger": "on_crit", "amt": 4.0,  "icd": 1.5},
 	"vampiric": {"name": "Vampiric", "effect": "LIFESTEAL", "trigger": "on_hit",  "amt": 0.04, "icd": 1.0},
 }

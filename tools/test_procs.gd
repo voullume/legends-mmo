@@ -30,8 +30,9 @@ func _test_chance_rate() -> void:
 	var state = Sim.create_match(["batter"], ["setter"], 42, "stadium")
 	var a = state["fighters"][0]
 	var b = state["fighters"][1]
+	var live_ch: float = float(GameData.PROC_CATALOG["searing"].get("chance", 1.0))   # test the SHIPPED value
 	a["procs"] = [{"id": "searing", "effect": "DOT", "trigger": "on_hit", "amt": 5.0,
-		"icd": 0.0, "dur": 3.0, "chance": 0.18}]
+		"icd": 0.0, "dur": 3.0, "chance": live_ch}]
 	var fired := 0
 	var trials := 4000
 	for i in trials:
@@ -41,7 +42,7 @@ func _test_chance_rate() -> void:
 		if (b["dots"] as Array).size() > 0:
 			fired += 1
 	var rate := float(fired) / float(trials)
-	check("chance rate ~0.18 (got %.3f)" % rate, rate > 0.14 and rate < 0.22, "outside [0.14, 0.22]")
+	check("chance rate ~%.2f (got %.3f)" % [live_ch, rate], absf(rate - live_ch) < 0.04, "off by > 0.04")
 	# same-tick hits on DIFFERENT targets must roll independently (an AoE procs per hit, not per swing)
 	var st2 = Sim.create_match(["batter"], ["setter", "spiker"], 43, "stadium")
 	var a2 = st2["fighters"][0]
