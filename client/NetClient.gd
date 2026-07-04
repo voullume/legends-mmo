@@ -1177,6 +1177,12 @@ func _build_settings() -> void:
 	mute.button_pressed = AudioManager.muted
 	mute.toggled.connect(func(on: bool) -> void: AudioManager.set_muted(on))
 	vb.add_child(mute)
+	var rfx := CheckBox.new()                    # accessibility: shake/hitstop/FOV-punch are motion-sickness triggers
+	rfx.text = "Reduce screen effects"
+	rfx.tooltip_text = "Softens camera shake and turns off the hit camera-kick, zoom-punch and hitstop"
+	rfx.button_pressed = reduce_fx
+	rfx.toggled.connect(func(on: bool) -> void: set_reduce_fx(on))
+	vb.add_child(rfx)
 	var sep := HSeparator.new()
 	vb.add_child(sep)
 	var logout := Button.new()                   # log out → back to the login screen (no more quit-and-relaunch)
@@ -2849,36 +2855,29 @@ func _close_invite_prompt() -> void:
 		_invite_prompt = null
 
 func _send_ability(key: String) -> void:
-	_play_cast_sound(key)
+	if _can_press(key):              # off-cd + alive as far as the client knows → show the predicted tell
+		_play_cast_sound(key)
+		_predict_cast(key)           # instant swing + hotbar depress + predicted cooldown (self-correcting)
 	_aseq += 1
 	if server != null:
 		server.submit_ability_local(1, key, _aseq)
 	elif net != null and _connected:
 		net.submit_ability.rpc_id(1, key, _aseq)
 
-# a cast sound for the local player's ability, mapped from its type (only if it's off cooldown,
-# so spamming a key on cooldown doesn't machine-gun the sound).
+var _cast_sound_t := {}          # ability key → last press-sound tick (msec)
+
+# the local player's cast sound on the exact press frame (class-signature sound, role fallback).
+# _can_press gates presses on cooldown; the per-key throttle keeps a mash inside the confirm window
+# (server cds not yet visible) from machine-gunning, while any deliberate re-press still sounds.
 func _play_cast_sound(key: String) -> void:
 	var pf = _find_fighter(_player_id)
 	if pf == null:
 		return
-	if float((pf.get("cds", {}) as Dictionary).get(key, 0.0)) > 0.0:
+	var now := Time.get_ticks_msec()
+	if now - int(_cast_sound_t.get(key, -10000)) < 250:
 		return
-	var c = GameData.CLASSES.get(pf["classId"])
-	if c == null:
-		return
-	for ab in c["abilities"]:
-		if ab["key"] == key:
-			var nm := "cast_ability"
-			if ab.get("ult", false):
-				nm = "cast_ult"
-			else:
-				match ab["type"]:
-					"melee", "meleeAoe", "dashAttack", "leapAttack": nm = "cast_melee"
-					"projectile", "barrage": nm = "cast_ranged"
-					"allybuff", "allyheal", "teamheal": nm = "cast_support"
-			AudioManager.play_sfx(nm, _world(pf))
-			return
+	_cast_sound_t[key] = now
+	AudioManager.play_sfx(_cast_sfx_name(str(pf["classId"]), key), _world(pf))
 
 # render only — the server owns the sim
 var _ult_tint: ColorRect = null
@@ -2992,11 +2991,16 @@ func _sync_nodes_to_state() -> void:
 	var present := {}
 	for f in _state["fighters"]:
 		present[f["id"]] = true
+		var was_absent: bool = _absent.has(f["id"])
 		_absent.erase(f["id"])                  # back in interest range
 		if not _nodes.has(f["id"]):
 			_spawn(f)
 		else:
 			var n = _nodes[f["id"]]
+			if was_absent:                      # cooldowns used while out of interest range are not
+				n["pcds"] = f["cds"].duplicate()    # fresh casts — re-prime so they don't phantom-burst
+				if n.has("mobanim"):
+					n["mobanim"]["pcds"] = f["cds"].duplicate()
 			n["holder"].visible = true          # unhide if it was hidden during the despawn grace
 			if f["alive"] and n["died"]:        # server respawned it → reset the death pose
 				n["died"] = false

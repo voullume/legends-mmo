@@ -17,6 +17,9 @@ const SFX_VOICES := 12
 const SFX_NAMES := [
 	"hit", "crit", "death", "respawn",
 	"cast_melee", "cast_ranged", "cast_ability", "cast_support", "cast_ult",
+	# per-class signature cast sounds (sports foley); call sites fall back to the role sounds above
+	"cast_pitcher", "cast_batter", "cast_quarterback", "cast_linebacker",
+	"cast_setter", "cast_spiker", "cast_striker", "cast_goalkeeper",
 	"level_up", "loot", "quest", "ui_click", "portal",
 ]
 
@@ -24,6 +27,7 @@ var _sfx := {}                       # name -> AudioStream (or null = silent)
 var _voices: Array = []              # pooled AudioStreamPlayer3D
 var _vi := 0
 var _ui: AudioStreamPlayer
+var _punch: AudioStreamPlayer                # the local player's own dealt-hit voice (flat, dry, never voice-stolen)
 var _music_a: AudioStreamPlayer
 var _music_b: AudioStreamPlayer
 var _music_on_a := true
@@ -49,6 +53,7 @@ func _ready() -> void:
 		add_child(p)
 		_voices.append(p)
 	_ui = _mk_player("SFX")
+	_punch = _mk_player("SFX")
 	_music_a = _mk_player("Music")
 	_music_b = _mk_player("Music")
 	_load_settings()
@@ -75,8 +80,12 @@ func _try_load(base: String) -> Variant:
 			return load(base + ext)
 	return null
 
+# is a stream actually loaded for this slot? (lets call sites pick a signature sound or fall back)
+func has_sfx(name: String) -> bool:
+	return _sfx.get(name) != null
+
 # play a sound effect. pos = a Vector3 for positional 3D (combat); null for a flat UI sound.
-func play_sfx(name: String, pos = null, pitch := 1.0) -> void:
+func play_sfx(name: String, pos = null, pitch := 1.0, vol_db := 0.0) -> void:
 	if not _ready_done:
 		return
 	var s = _sfx.get(name)
@@ -85,6 +94,7 @@ func play_sfx(name: String, pos = null, pitch := 1.0) -> void:
 	if pos == null:
 		_ui.stream = s
 		_ui.pitch_scale = pitch
+		_ui.volume_db = vol_db
 		_ui.play()
 	else:
 		var v: AudioStreamPlayer3D = _voices[_vi]
@@ -92,7 +102,21 @@ func play_sfx(name: String, pos = null, pitch := 1.0) -> void:
 		v.stream = s
 		v.global_position = pos
 		v.pitch_scale = pitch
+		v.volume_db = vol_db
 		v.play()
+
+# the local player's own landed hit: a dedicated flat voice so the punch lands close + dry, can't be
+# voice-stolen by distant 3D hits, and never cuts off a UI jingle (loot/level-up) on the shared _ui voice.
+func play_punch(name: String, pitch := 1.0, vol_db := 0.0) -> void:
+	if not _ready_done:
+		return
+	var s = _sfx.get(name)
+	if s == null:
+		return
+	_punch.stream = s
+	_punch.pitch_scale = pitch
+	_punch.volume_db = vol_db
+	_punch.play()
 
 # crossfade to a zone's music track (res://audio/music/<name>.{ogg,..}). Loops; no-op if absent.
 func play_music(name: String) -> void:

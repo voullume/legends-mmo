@@ -34,6 +34,21 @@ const DMG_NUM_Y := 4.4
 const HIT_Y := 1.7
 const SHAKE_MAX := 1.1                      # camera screen-shake cap (world units of jitter)
 const SHAKE_DECAY := 5.0                     # how fast a shake settles
+# --- combat-feel (Tier 1) — client-side presentation only; "reduce screen effects" damps/disables ---
+const FLASH_DUR := 0.12                     # hit-flash fade (additive overlay on the struck body)
+const FLASH_ALPHA := 0.85                   # flash starting intensity
+const KICK_AMT := 0.30                      # directional camera kick on a dealt hit, world units (dmg-scaled)
+const KICK_MAX := 0.55                      # cap the accumulated kick so multi-target AoE can't get seasick
+const KICK_DECAY := 11.0                    # exponential settle rate for the kick
+const FOV_KICK_CRIT := 2.2                  # crit punch-zoom, degrees
+const FOV_KICK_KILL := 4.0                  # kill punch-zoom, degrees
+const FOV_KICK_MAX := 5.0
+const FOV_KICK_DECAY := 34.0                # degrees/sec → any punch settles in ≲0.15 s
+const HITSTOP_HIT := 0.045                  # render-only hold on a hit you're part of (~3 frames @60)
+const HITSTOP_CRIT := 0.075
+const HITSTOP_KILL := 0.11
+const PRED_CD_WINDOW := 0.7                 # secs a predicted cooldown sweep may run unconfirmed (≳ RTT + a snapshot)
+const REDUCED_SHAKE := 0.35                 # shake multiplier when "reduce screen effects" is on
 const RESPAWN_DELAY := 3.0
 const MAP_ID := "stadium"                 # open field; obstacle rendering supports any venue
 
@@ -101,6 +116,11 @@ var _arena_sig := ""
 var _proj_pool := []
 var _fx_active := []                       # {node, t, life, vel}
 var _shake := 0.0                          # current camera screen-shake magnitude (decays each frame)
+var _cam_kick := Vector3.ZERO              # directional impulse when YOU land a hit (decays fast)
+var _fov_kick := 0.0                       # crit/kill punch-zoom in degrees (decays fast)
+var _flashing := {}                        # fighter id → true while its hit-flash overlay is fading
+var _pred_cds := {}                        # ability key → {t, total, window}: predicted cooldown sweeps
+var reduce_fx := false                     # accessibility: damp shake, disable kick/FOV-punch/hitstop
 var _num_pool := []
 var _pop_pool := []
 
@@ -124,11 +144,25 @@ var _tooltip: PanelContainer
 var _tt_label: RichTextLabel
 
 func _ready() -> void:
+	_load_fx_settings()
 	_load_meshy()
 	_load_rigged_mobs()
 	_build_world()
 	_build_hud()
 	_enter_mode()
+
+# "reduce screen effects" persists next to the audio settings in user://settings.cfg
+func _load_fx_settings() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(AudioManager.SETTINGS_PATH) == OK:
+		reduce_fx = bool(cfg.get_value("fx", "reduce", false))
+
+func set_reduce_fx(on: bool) -> void:
+	reduce_fx = on
+	var cfg := ConfigFile.new()
+	cfg.load(AudioManager.SETTINGS_PATH)      # keep the audio section
+	cfg.set_value("fx", "reduce", on)
+	cfg.save(AudioManager.SETTINGS_PATH)
 
 # Phase-1 LOCAL sandbox. NetClient (Phase 2) overrides this to connect to a server instead,
 # reusing every rendering helper below.
@@ -505,10 +539,38 @@ func _update_cam() -> void:
 	_cam.position = _focus + dir * _dist
 	if _shake > 0.001:                       # screen shake: jitter the camera, still aimed at the focus
 		_cam.position += Vector3(randf() - 0.5, randf() - 0.5, randf() - 0.5) * (_shake * 2.0)
+	_cam.position += _cam_kick               # directional dealt-hit kick (ZERO when idle)
 	_cam.look_at(_focus, Vector3.UP)
+	_cam.fov = FOV - _fov_kick               # crit/kill punch-zoom (0 when idle)
 
 func _add_shake(amt: float) -> void:
+	if reduce_fx:
+		amt *= REDUCED_SHAKE
 	_shake = minf(SHAKE_MAX, _shake + amt)
+
+# nudge the camera INTO a hit you landed — the missing "you hit it" kinetics. Capped so AoE stacks safely.
+func _add_cam_kick(dir: Vector3, amt: float) -> void:
+	if reduce_fx or dir.length_squared() < 0.000001:
+		return
+	_cam_kick = (_cam_kick + dir.normalized() * amt).limit_length(KICK_MAX)
+
+func _add_fov_kick(deg: float) -> void:
+	if reduce_fx:
+		return
+	_fov_kick = minf(_fov_kick + deg, FOV_KICK_MAX)
+
+# render-only hitstop: hold a node's position lerp + anim advance for a beat; the server keeps ticking,
+# so the catch-up snap when the hold ends IS the impact bite. Never Engine.time_scale / pause — that
+# would stall NetClient's 60 Hz input/send loop and desync from the server.
+func _add_hitstop(id, dur: float) -> void:
+	if reduce_fx:
+		return
+	var n = _nodes.get(id)
+	if n == null:
+		return
+	n["hold"] = maxf(float(n.get("hold", 0.0)), dur)
+	if n["anim"] != null:
+		(n["anim"] as AnimationPlayer).speed_scale = 0.0
 
 # ============================================================ match setup
 func _setup_match(player_class: String) -> void:
@@ -639,13 +701,17 @@ func _spawn(f: Dictionary) -> void:
 	_nodes[f["id"]] = {
 		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"], "mscale": msc,
 		"ui": ui, "fill": fill, "label": label, "aura": aura, "last": holder.position, "vel": Vector2.ZERO,
-		"pcds": {}, "busy": "", "atk_clip": "", "atk_speed": 1.0, "died": false, "hit_cd": 0.0, "pflash": 0.0,
+		# pcds primed from the live cds: cooldowns already ticking when this fighter entered view are
+		# NOT fresh casts — an empty dict would phantom-fire every one of them as a cast tell.
+		"pcds": (f.get("cds", {}) as Dictionary).duplicate(),
+		"busy": "", "atk_clip": "", "atk_speed": 1.0, "died": false, "hit_cd": 0.0, "pflash": 0.0,
 	}
 	if kit.has("mob"):     # static-GLB mob → procedural-animator state (skeletal clip path is unused, ap == null)
 		_nodes[f["id"]]["mobanim"] = {
 			"profile": str(kit["mob"]), "target": kit.get("animTarget"),
 			"baseY": float(kit.get("baseY", 0.0)), "sizeY": float(kit.get("sizeY", 1.0)),
-			"t": 0.0, "atk": 0.0, "atkType": "", "hit": 0.0, "death": 0.0, "pcds": {},
+			"t": 0.0, "atk": 0.0, "atkType": "", "hit": 0.0, "death": 0.0,
+			"pcds": (f.get("cds", {}) as Dictionary).duplicate(),   # primed — same spawn-phantom guard
 		}
 
 # ============================================================ main loop
@@ -696,6 +762,22 @@ func _render_world(delta: float) -> void:
 			continue
 		_detect_cast(n, f)
 		n["hit_cd"] = maxf(0.0, n["hit_cd"] - delta)
+		if float(f["flash"]) > 0.0 and float(n.get("flash_prev", 0.0)) <= 0.0:   # fresh hit → flash the struck body
+			_start_flash(n)
+			_flashing[f["id"]] = true
+		n["flash_prev"] = f["flash"]
+		# render-only hitstop: hold this node's lerp + anim for a beat; the snap-forward on release is the
+		# bite. pflash is deliberately NOT consumed during a hold, so the flinch edge survives to post-hold.
+		var hold: float = float(n.get("hold", 0.0))
+		if hold > 0.0:
+			hold -= delta
+			n["hold"] = hold
+			if hold > 0.0:
+				if f["alive"]:
+					_update_ui(n, f)
+				continue
+			if n["anim"] != null:
+				(n["anim"] as AnimationPlayer).speed_scale = 1.0
 		if not f["alive"]:
 			_drive_anim(n, f, false)
 			n["pflash"] = f["flash"]
@@ -927,20 +1009,37 @@ func _handle_events() -> void:
 			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
 			_spawn_pop(tgt, crit)
 			var tf = _find_fighter(tgt)
-			if tf != null:
-				AudioManager.play_sfx("crit" if crit else "hit", _world(tf))
+			# damage-scaled audio: a bigger chunk of the target's HP sits lower + louder; slight random
+			# detune so repeats don't fatigue. My own landed hit takes the dedicated flat punch voice.
+			var tfrac: float = (float(ev["amt"]) / maxf(1.0, float(tf["maxHP"]))) if tf != null else 0.0
+			var sname := "crit" if crit else "hit"
+			if dealt:
+				AudioManager.play_punch(sname, (1.06 - tfrac * 0.22) * randf_range(0.94, 1.06), -2.0 + minf(tfrac, 0.5) * 8.0)
+			elif tf != null:
+				AudioManager.play_sfx(sname, _world(tf), randf_range(0.92, 1.08), 0.0 if taken else -5.0)
+			var pf = _find_fighter(_player_id)
 			if taken:                                       # shake when I take damage (more for a big/crit hit)
-				var pf = _find_fighter(_player_id)
 				var frac: float = (float(ev["amt"]) / maxf(1.0, float(pf["maxHP"]))) if pf != null else 0.0
 				_add_shake(clampf(0.15 + frac * 2.4 + (0.12 if crit else 0.0), 0.0, SHAKE_MAX))
+			if dealt and tf != null and pf != null:         # kick the camera INTO the hit you landed
+				_add_cam_kick(_world(tf) - _world(pf), KICK_AMT * clampf(0.35 + tfrac * 2.0 + (0.4 if crit else 0.0), 0.0, 1.0))
+				if crit:
+					_add_fov_kick(FOV_KICK_CRIT)
+			if dealt or taken:                              # render-only hitstop, scoped to impacts I'm part of
+				var hs := HITSTOP_CRIT if crit else HITSTOP_HIT
+				_add_hitstop(tgt, hs)
+				_add_hitstop(str(ev.get("src", "")), hs)
 		elif t == "kill":
 			var victim := str(ev["victim"])
 			var vf = _find_fighter(victim)
 			_spawn_death(victim)
 			if vf != null:
-				AudioManager.play_sfx("death", _world(vf))
+				AudioManager.play_sfx("death", _world(vf), randf_range(0.96, 1.04))
 			if str(ev.get("killer", "")) == _player_id:
 				_add_shake(0.35)                            # a satisfying thump on your kill
+				_add_fov_kick(FOV_KICK_KILL)
+				_add_hitstop(victim, HITSTOP_KILL)          # the heaviest beat: freeze both parties a moment
+				_add_hitstop(_player_id, HITSTOP_KILL)
 			elif victim == _player_id:
 				_add_shake(SHAKE_MAX)                       # you died — full shake
 	_state["events"].clear()
@@ -1068,30 +1167,137 @@ func _ability_type(class_id: String, key) -> String:
 			return ab["type"]
 	return ""
 
+# ability → the render clip for this rig (shared by _detect_cast and the predicted-press path)
+func _clip_for_ability(class_id: String, key, anims: Dictionary) -> String:
+	if ANIM_OVERRIDE.has(class_id) and ANIM_OVERRIDE[class_id].has(key):
+		return str(ANIM_OVERRIDE[class_id][key])
+	var t := _ability_type(class_id, key)
+	if t == "projectile" or t == "barrage":
+		return str(anims.get("ranged", ""))
+	elif t == "melee" or t == "meleeAoe" or t == "dashAttack" or t == "leapAttack":
+		return str(anims.get("melee", ""))
+	elif t == "selfbuff" or t == "allybuff" or t == "allyheal" or t == "teamheal" or t == "zone" or t == "barrier" or t == "summon":
+		return str(anims.get("cast", ""))
+	return ""
+
+func _ability_def(class_id: String, key) -> Dictionary:
+	if GameData.CLASSES.has(class_id):
+		for ab in GameData.CLASSES[class_id]["abilities"]:
+			if ab["key"] == key:
+				return ab
+	return {}
+
+# The cast-sound slot for an ability: ults keep the big cast_ult, support casts stay gentle, and
+# everything else takes the class's signature sport sound (cast_<classId>) when that file exists —
+# falling back to the generic role sound so mobs / new classes never regress to silence.
+func _cast_sfx_name(class_id: String, key) -> String:
+	var ab := _ability_def(class_id, key)
+	if ab.get("ult", false):
+		return "cast_ult"
+	var role := "cast_ability"
+	match str(ab.get("type", "")):
+		"melee", "meleeAoe", "dashAttack", "leapAttack": role = "cast_melee"
+		"projectile", "barrage": role = "cast_ranged"
+		"allybuff", "allyheal", "teamheal": return "cast_support"
+	var sig := "cast_" + class_id
+	return sig if AudioManager.has_sfx(sig) else role
+
 # Detect a fresh cast by a cooldown rising, then queue the right one-shot clip.
 func _detect_cast(n: Dictionary, f: Dictionary) -> void:
+	if float(n.get("hold", 0.0)) > 0.0:
+		return    # hitstop: defer edge processing — the swing/sound fires the frame the hold releases
+	var pred: Dictionary = n.get("pred_cast", {})    # ability key → remaining confirm window (local player only)
+	if not pred.is_empty():
+		for pk in pred.keys():
+			pred[pk] = float(pred[pk]) - get_process_delta_time()
+			if float(pred[pk]) <= 0.0:
+				pred.erase(pk)
 	var atk := ""
 	var spd := 1.0
-	for k in f["cds"]:
-		# derive the clip from the specific ability whose cooldown rose this frame (not the
-		# global lastCastKey, which can mismatch when two casts land in one render frame).
+	var risen := []                       # every cooldown that rose this frame (several can pile up
+	for k in f["cds"]:                    # in one frame after a hitstop hold deferred detection)
 		if f["cds"][k] > float(n["pcds"].get(k, 0.0)) + 0.05:
-			var t := _ability_type(f["classId"], k)
-			var am: Dictionary = n["anims"]
-			if ANIM_OVERRIDE.has(f["classId"]) and ANIM_OVERRIDE[f["classId"]].has(k):
-				atk = ANIM_OVERRIDE[f["classId"]][k]
-			elif t == "projectile" or t == "barrage":
-				atk = am.get("ranged", "")
-			elif t == "melee" or t == "meleeAoe" or t == "dashAttack" or t == "leapAttack":
-				atk = am.get("melee", "")
-			elif t == "selfbuff" or t == "allybuff" or t == "allyheal" or t == "teamheal" or t == "zone" or t == "barrier" or t == "summon":
-				atk = am.get("cast", "")
+			risen.append(k)
+	# handle ONE edge per frame (a node can only start one clip anyway); the rest keep their stale
+	# pcds entry below so they re-detect next frame instead of being silently swallowed.
+	if not risen.is_empty():
+		var k = risen[0]
+		if pred.has(k):
+			pred.erase(k)     # this cast was fully told (sound + swing) on the keypress — just consume
+		else:
+			# audible anticipation: a visible fighter's cast plays its (class-signature) sound
+			# positionally. Others' BASICS stay silent — their landed hits already sound, and a
+			# camp of mobs on ~1.2s basics would drone the 12-voice pool dry.
+			var own: bool = f["id"] == _player_id
+			if own or not bool(_ability_def(str(f["classId"]), k).get("basic", false)):
+				AudioManager.play_sfx(_cast_sfx_name(str(f["classId"]), k), _world(f), randf_range(0.95, 1.05), 0.0 if own else -6.0)
+			atk = _clip_for_ability(str(f["classId"]), k, n["anims"])
 			if atk != "":
 				spd = _cast_speed(n["anim"], atk, float(f["cds"][k]))   # snap to the ability's cadence
-			break
-	n["pcds"] = f["cds"].duplicate()
+	var newp: Dictionary = f["cds"].duplicate()
+	for i in range(1, risen.size()):
+		newp[risen[i]] = n["pcds"].get(risen[i], 0.0)     # still pending — fires on the next frame
+	n["pcds"] = newp
 	n["atk_clip"] = atk
 	n["atk_speed"] = spd
+
+# Client-side "this press should be accepted" gate — everything the client can know locally (off
+# cooldown, alive, not stunned / mid-cast; stun/casting only exist in local-sim state, so networked
+# snapshots simply skip those checks). The server still validates for real; this only decides whether
+# to show the predicted tell.
+func _can_press(key: String) -> bool:
+	var pf = _find_fighter(_player_id)
+	if pf == null or not bool(pf.get("alive", true)):
+		return false
+	if float((pf.get("cds", {}) as Dictionary).get(key, 0.0)) > 0.0:
+		return false
+	if float(pf.get("stun", 0.0)) > 0.0 or pf.get("casting") != null:
+		return false
+	return true
+	# NOTE: deliberately no _pred_cds gate here — a re-press while a prediction is in flight may be the
+	# press the server actually ACCEPTS (mash-while-closing-range), and it must re-tell + re-arm the
+	# consume record. Mash spam is tamed by the per-key sound throttle + the no-restart swing guard.
+
+# Predicted press feedback — kill the input-lag feel at its source: the instant a valid press is sent,
+# play the swing on the local render node, depress the hotbar slot, and start a predicted cooldown
+# sweep. All cosmetic + self-correcting: the server resolves the real cast, _detect_cast consumes the
+# confirming cooldown edge (no double swing), and _update_hotbar snaps the sweep back if no cooldown
+# ever shows up (out-of-range / stun the client didn't model). Nothing irreversible fires here.
+func _predict_cast(key: String) -> void:
+	var pf = _find_fighter(_player_id)
+	if pf == null:
+		return
+	var cid := str(pf["classId"])
+	if not GameData.CLASSES.has(cid):
+		return
+	var ab = null
+	var slot := -1
+	var abilities: Array = GameData.CLASSES[cid]["abilities"]
+	for i in abilities.size():
+		if abilities[i]["key"] == key:
+			ab = abilities[i]
+			slot = i
+			break
+	if ab == null:
+		return
+	var window: float = PRED_CD_WINDOW + float(ab.get("cast", 0.0))
+	var n = _nodes.get(_player_id)
+	if n != null:
+		if n["anim"] != null:                             # (a) the swing, this exact frame (under a
+			var clip := _clip_for_ability(cid, key, n["anims"])   # hitstop hold it starts frozen and runs
+			var ap: AnimationPlayer = n["anim"]                   # from the release snap)
+			# a mash re-press inside the confirm window doesn't restart a swing that's already showing
+			if clip != "" and not (n["busy"] == clip and ap.is_playing() and ap.current_animation == clip):
+				n["busy"] = clip
+				_safe_play(ap, clip, _cast_speed(ap, clip, float(ab.get("cd", 0.0))))
+		var pending: Dictionary = n.get("pred_cast", {})
+		pending[key] = window          # per-key consume record: the confirm edge won't re-tell this cast
+		n["pred_cast"] = pending
+	if slot >= 0 and slot < _slots.size():                # (b) instant hotbar depress
+		_slots[slot]["press"] = 1.0
+	var total: float = float(ab.get("cd", 0.0))
+	if total > 0.0:                                       # (c) predicted cooldown sweep
+		_pred_cds[key] = {"t": 0.0, "total": total, "window": window}
 
 # Speed so an action clip plays in ~CAST_DUR_FRAC of the ability's cooldown (clamped). Only ever speeds
 # up (>=1x); cap at 6x to avoid a blur. cd = the cooldown just set by the cast (its rising-edge value).
@@ -1311,7 +1517,8 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	var dye := str(f.get("dye", ""))              # P4: cosmetic dye — re-tint the model only when it changes
 	if dye != str(n.get("dye_applied", "")):
 		n["dye_applied"] = dye
-		_apply_dye(n.get("model"), dye)
+		if not _flashing.has(f["id"]):            # mid-flash: don't stomp the overlay — the flash's
+			_apply_dye(n.get("model"), dye)       # fade-end restore applies the new dye instead
 
 # P4: tint a character model with a cosmetic dye via a flat translucent material OVERLAY (keeps the base
 # texture, reversible with "" → null). Recurses the model's MeshInstance3D surfaces.
@@ -1328,6 +1535,24 @@ func _apply_dye(model, hexcolor: String) -> void:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		overlay = m
 	_set_overlay_recursive(model, overlay)
+
+# Hit-flash: a brief unshaded additive overlay on the struck body — the universal "it connected" pop.
+# GOTCHA: material_overlay is the SAME channel the dye cosmetic uses, so the fade-out in _update_fx
+# restores the fighter's dye (n["dye_applied"]) instead of just clearing. One material per node, reused.
+func _start_flash(n: Dictionary) -> void:
+	var model = n.get("model")
+	if model == null or not is_instance_valid(model):
+		return
+	if n.get("flash_mat") == null:
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.albedo_color = Color(1.0, 0.87, 0.72, FLASH_ALPHA)   # hot white-amber impact tint
+		n["flash_mat"] = m
+	(n["flash_mat"] as StandardMaterial3D).albedo_color.a = FLASH_ALPHA
+	n["flash_t"] = FLASH_DUR
+	_set_overlay_recursive(model, n["flash_mat"])
 
 func _set_overlay_recursive(node: Node, overlay: Material) -> void:
 	if node is BoneAttachment3D:
@@ -1438,6 +1663,21 @@ func _spawn_death(tgt_id) -> void:
 
 func _update_fx(delta: float) -> void:
 	_shake = maxf(0.0, _shake - delta * SHAKE_DECAY)
+	_cam_kick = _cam_kick.lerp(Vector3.ZERO, clampf(delta * KICK_DECAY, 0.0, 1.0))
+	_fov_kick = maxf(0.0, _fov_kick - delta * FOV_KICK_DECAY)
+	# fade active hit-flashes; hand the material_overlay channel back to the dye when done
+	if not _flashing.is_empty():
+		for id in _flashing.keys():
+			var n = _nodes.get(id)
+			if n == null or n.get("flash_mat") == null or not is_instance_valid(n.get("model")):
+				_flashing.erase(id)
+				continue
+			n["flash_t"] = float(n.get("flash_t", 0.0)) - delta
+			if float(n["flash_t"]) <= 0.0:
+				_apply_dye(n["model"], str(n.get("dye_applied", "")))   # restore the dye (or clear)
+				_flashing.erase(id)
+			else:
+				(n["flash_mat"] as StandardMaterial3D).albedo_color.a = FLASH_ALPHA * float(n["flash_t"]) / FLASH_DUR
 	var keep := []
 	for fx in _fx_active:
 		fx["t"] += delta
@@ -1630,12 +1870,14 @@ func _build_hotbar(class_id: String) -> void:
 	for s in _slots:
 		s["root"].queue_free()
 	_slots.clear()
+	_pred_cds.clear()                            # stale predictions from the previous class must not leak
 	_hotbar_class = class_id
 	var abilities: Array = GameData.CLASSES[class_id]["abilities"]
 	for i in abilities.size():
 		var ab = abilities[i]
 		var slot := Control.new()
 		slot.custom_minimum_size = Vector2(60, 60)
+		slot.pivot_offset = Vector2(30, 30)      # press-depress scales around the slot center
 		var bg := ColorRect.new()
 		bg.size = Vector2(60, 60)
 		bg.color = _slot_color(ab)
@@ -1665,7 +1907,7 @@ func _build_hotbar(class_id: String) -> void:
 		slot.mouse_entered.connect(_on_slot_hover.bind(i))
 		slot.mouse_exited.connect(_on_slot_unhover)
 		_hotbar.add_child(slot)
-		_slots.append({"root": slot, "cd": cd, "cs": cs})
+		_slots.append({"root": slot, "cd": cd, "cs": cs, "bg": bg, "press": 0.0})
 
 func _slot_color(ab: Dictionary) -> Color:
 	if ab.get("ult", false): return Color(0.36, 0.30, 0.10)       # ultimate = gold-ish
@@ -1679,13 +1921,36 @@ func _update_hotbar(pf: Dictionary) -> void:
 	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
 	_hotbar.position = Vector2((vp.x - _hotbar.size.x) / 2.0, vp.y - 86.0)
 	var abilities: Array = GameData.CLASSES[str(pf["classId"])]["abilities"]
+	var dt := get_process_delta_time()
 	for i in _slots.size():
 		var ab = abilities[i]
 		var total: float = float(ab.get("cd", 0.0))
 		var rem: float = float(pf.get("cds", {}).get(ab["key"], 0.0))
+		# predicted cooldown sweep: starts on the keypress, replaced by the server's value the moment it
+		# confirms; if the server never starts the cooldown (rejected cast), it quietly snaps back to ready.
+		var pred = _pred_cds.get(ab["key"])
+		if pred != null:
+			if rem > 0.05:
+				_pred_cds.erase(ab["key"])              # confirmed — the real cooldown takes over
+			else:
+				pred["t"] = float(pred["t"]) + dt
+				if float(pred["t"]) >= float(pred["window"]):
+					_pred_cds.erase(ab["key"])          # mispredict — snap back
+					var pn = _nodes.get(_player_id)     # drop the consume record too, so a later real
+					if pn != null:                      # cast of this key isn't silently swallowed
+						(pn.get("pred_cast", {}) as Dictionary).erase(ab["key"])
+				else:
+					total = float(pred["total"])
+					rem = maxf(total - float(pred["t"]), 0.05)
 		var frac: float = clampf(rem / total, 0.0, 1.0) if total > 0.0 else 0.0
 		_slots[i]["cd"].size = Vector2(60.0, frac * 60.0)
 		_slots[i]["cs"].text = ("%d" % int(ceil(rem))) if rem > 0.05 else ""
+		var press: float = float(_slots[i].get("press", 0.0))
+		if press > 0.0:                                 # tactile press: depress + brighten, settling fast
+			press = maxf(0.0, press - dt * 6.0)
+			_slots[i]["press"] = press
+			_slots[i]["root"].scale = Vector2.ONE * (1.0 - 0.10 * press)
+			_slots[i]["bg"].color = _slot_color(ab).lightened(press * 0.55)
 
 func _on_slot_hover(i: int) -> void:
 	var pf = _find_fighter(_player_id)
