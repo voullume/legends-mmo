@@ -1006,6 +1006,11 @@ func _handle_events() -> void:
 			var crit := bool(ev["crit"])
 			var taken := tgt == _player_id                 # I got hit
 			var dealt := str(ev.get("src", "")) == _player_id   # I landed the hit
+			if bool(ev.get("proc", false)):
+				# passive proc/DOT damage (item burns, hazard ticks) — a soft accumulating number only.
+				# None of the impact stack: no sound/pop/shake/kick/hitstop, the attacker keeps swinging.
+				_spawn_num(tgt, int(ev["amt"]), false, taken, dealt, true)
+				continue
 			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
 			_spawn_pop(tgt, crit)
 			var tf = _find_fighter(tgt)
@@ -1072,6 +1077,9 @@ func _revive(f) -> void:
 	f["evade"] = 0.0
 	f["untarget"] = 0.0
 	f["flash"] = 0.0
+	f["dots"] = []
+	f["_dotAcc"] = {}
+	f["_dotEvT"] = 1.0
 	f["buffs"] = {"nextdmg": 0.0, "crit": 0.0, "critT": 0.0, "atkspd": 1.0, "atkspdT": 0.0,
 		"dr": 0.0, "drT": 0.0, "ms": 1.0, "msT": 0.0, "bypass": 0.0, "reflect": 0.0}
 	f["momentum"] = 0.0
@@ -1565,7 +1573,7 @@ func _set_overlay_recursive(node: Node, overlay: Material) -> void:
 # ============================================================ FX
 # amt floater. `taken` = the local player got hit (red), `dealt` = the local player landed it
 # (white / gold crit); anyone else's combat shows dimmer + smaller so the screen doesn't clutter.
-func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false) -> void:
+func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false, burn := false) -> void:
 	var f = _find_fighter(tgt_id)
 	if f == null:
 		return
@@ -1584,7 +1592,9 @@ func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false) ->
 		l = _num_pool.pop_back()
 	l.visible = true
 	l.text = ("%d!" % amt) if crit else str(amt)
-	if taken:
+	if burn:                                            # passive proc/DOT tick = ember orange, understated
+		l.modulate = Color(1.0, 0.55, 0.25) if taken else Color(1.0, 0.74, 0.38)
+	elif taken:
 		l.modulate = Color(1.0, 0.36, 0.3)              # damage I take = red
 	elif dealt:
 		l.modulate = Color(1.0, 0.85, 0.35) if crit else Color(1.0, 1.0, 0.95)
@@ -1594,11 +1604,14 @@ func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false) ->
 	if crit: s = 1.85
 	if taken: s *= 1.15
 	if not (taken or dealt): s *= 0.7
+	if burn: s *= 0.8
 	l.scale = Vector3.ONE * s
 	var pos := _world(f)
 	pos.y = DMG_NUM_Y
 	l.position = pos
-	_fx_active.append({"node": l, "t": 0.0, "life": (1.0 if crit else 0.82), "vel": (3.2 if crit else 2.6), "kind": "num"})
+	# burn ticks drift slowly (a smolder, not a pop); crits ride higher and live longer
+	_fx_active.append({"node": l, "t": 0.0, "life": (0.9 if burn else (1.0 if crit else 0.82)),
+		"vel": (1.8 if burn else (3.2 if crit else 2.6)), "kind": "num"})
 
 func _spawn_pop(tgt_id, crit := false) -> void:
 	var f = _find_fighter(tgt_id)

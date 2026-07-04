@@ -2479,7 +2479,8 @@ func _apply_equipment(pid: int) -> void:
 					break
 			if not dup:
 				procs.append({"id": procid, "effect": str(pdef["effect"]), "trigger": str(pdef["trigger"]),
-					"amt": pamt2, "icd": float(pdef.get("icd", 0.0)), "dur": float(pdef.get("dur", 3.0))})
+					"amt": pamt2, "icd": float(pdef.get("icd", 0.0)), "dur": float(pdef.get("dur", 3.0)),
+					"chance": float(pdef.get("chance", 1.0))})
 		if int(RARITY_RANK.get(str(it.get("rarity", "common")), 0)) >= SET_MIN_RANK:  # only EPIC+ count
 			var sid := str(it.get("set_id", ""))
 			if sid != "":

@@ -353,8 +353,10 @@ const RECIPES := [
 #            owner for amt × the hit's damage)
 #   trigger: "on_hit" · "on_crit" (more added later: on_kill, on_lowhp)
 #   icd:     internal cooldown (s) so a proc can't fire every hit. amt scales with proc_tier (×1 .. ×2).
+#   chance:  probability the trigger actually fires (default 1.0). Rolled with Combat._proc_roll — a
+#            deterministic hash, NOT a state.rng draw, so the main stream stays byte-identical.
 const PROC_CATALOG := {
-	"searing":  {"name": "Searing",  "effect": "DOT",       "trigger": "on_hit",  "amt": 5.0,  "dur": 3.0, "icd": 4.0},
+	"searing":  {"name": "Searing",  "effect": "DOT",       "trigger": "on_hit",  "amt": 5.0,  "dur": 3.0, "icd": 4.0, "chance": 0.18},
 	"crushing": {"name": "Crushing", "effect": "FLAT",      "trigger": "on_crit", "amt": 4.0,  "icd": 1.5},
 	"vampiric": {"name": "Vampiric", "effect": "LIFESTEAL", "trigger": "on_hit",  "amt": 0.04, "icd": 1.0},
 }
@@ -453,6 +455,8 @@ static func create_fighter(class_id: String, team: int, slot: int, rng, team_siz
 		# procs (P6): procs = this fighter's equipped-item effects; _procT = per-proc ICD; dots = active
 		# damage-over-time on this fighter; _procDmg/_procWin = the per-second proc-damage cap window.
 		"procs": [], "_procT": {}, "dots": [], "_procDmg": 0.0, "_procWin": 1.0,
+		# sub-frame DOT/hazard tick damage coalesces here (per source id) → one "burn" event/sec, not 30
+		"_dotAcc": {}, "_dotEvT": 1.0,
 		# boss (Phase 4): HP-gated phase (0 for everyone else — inert) + the per-phase threshold-summon latch.
 		# In `fresh` so Server._revive auto-resets them on respawn (a respawned boss re-runs all phases).
 		"phase": 0, "_threshSummoned": {},

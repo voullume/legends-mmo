@@ -149,7 +149,7 @@ static func sim_tick(state, dt) -> void:
 				f["slowAmt"] = maxf(f["slowAmt"] if f["slowT"] > 0.0 else 0.0, float(zslow["amt"]))   # don't weaken a stronger active slow
 				f["slowT"] = maxf(f["slowT"], float(zslow["dur"]))
 			if zdmg > 0.0 and zowner != null and zowner["alive"]:   # a corpse owner stops dealing hazard dmg
-				Combat.deal_damage(state, zowner, f, zdmg * dt, {"dot": true})
+				Combat.deal_damage(state, zowner, f, zdmg * dt, {"dot": true, "tick": true})
 	var live_zones = []
 	for z in state["zones"]:
 		if z["t"] > 0: live_zones.append(z)
@@ -206,6 +206,21 @@ static func sim_tick(state, dt) -> void:
 		if f["_procWin"] <= 0.0:
 			f["_procWin"] = 1.0
 			f["_procDmg"] = 0.0
+		# flush coalesced DOT/hazard tick damage (deal_damage opts.tick → _dotAcc) as ~1/sec "burn"
+		# events, per source. Runs for ALL fighters — a corpse still flushes the slice that killed it.
+		# Presentation only (events don't feed the sim), and a no-op unless something is burning.
+		var dacc = f.get("_dotAcc", null)
+		if dacc is Dictionary and not dacc.is_empty():
+			f["_dotEvT"] = float(f.get("_dotEvT", 1.0)) - dt
+			if f["_dotEvT"] <= 0.0 or not f["alive"]:
+				f["_dotEvT"] = 1.0
+				for sid in dacc:
+					var bamt := int(round(float(dacc[sid])))
+					if bamt > 0:
+						state["events"].append({"type": "dmg", "src": sid, "tgt": f["id"], "amt": bamt, "crit": false, "proc": true, "t": state["t"]})
+				f["_dotAcc"] = {}
+		else:
+			f["_dotEvT"] = 1.0
 		if not f["alive"]: continue
 		var c = GameData.CLASSES[f["classId"]]
 
@@ -273,7 +288,7 @@ static func sim_tick(state, dt) -> void:
 			for d in dts:
 				var sf = _find_fighter(state, d["src"])      # DOT source (may already be dead — DOT persists)
 				if sf != null:
-					Combat.deal_damage(state, sf, f, float(d["dps"]) * dt, {"proc": true})
+					Combat.deal_damage(state, sf, f, float(d["dps"]) * dt, {"proc": true, "tick": true})
 				d["remaining"] = float(d["remaining"]) - dt
 				if d["remaining"] > 0.0 and f["alive"]:
 					keep.append(d)

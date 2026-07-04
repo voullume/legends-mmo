@@ -6,6 +6,7 @@ extends RefCounted
 ## so mutations persist — same as the JS objects.
 
 const GameData := preload("res://shared/GameData.gd")
+const Rng := preload("res://shared/Rng.gd")
 
 const OT_START := 50.0
 
@@ -184,14 +185,26 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		var pbudget: float = GameData.PROC_DPS_CAP - float(src.get("_procDmg", 0.0))
 		dmg = clampf(dmg, 0.0, max(0.0, pbudget))
 		src["_procDmg"] = float(src.get("_procDmg", 0.0)) + dmg
-	# 14. apply
+	# 14. apply. opts.tick = one sub-frame slice of a DOT/hazard (30/s): it must not strobe the hit
+	# flash or emit a per-tick dmg event — the slices coalesce on the target (_dotAcc) and the sim
+	# flushes them as ONE "burn" event/sec, so clients render passive accumulation, not 30 impacts/s.
 	tgt["hp"] -= dmg
 	tgt["noDmgT"] = 0.0
-	tgt["flash"] = 0.1
 	tgt["mitigated"] += mitigated
 	src["dmgDealt"] += dmg
 	tgt["dmgTaken"] += dmg
-	if dmg > 0: state["events"].append({"type": "dmg", "src": src["id"], "tgt": tgt["id"], "amt": int(round(dmg)), "crit": is_crit, "t": state["t"]})
+	if opts.get("tick", false):
+		if dmg > 0:
+			var acc: Dictionary = tgt.get("_dotAcc", {})
+			acc[src["id"]] = float(acc.get(src["id"], 0.0)) + dmg
+			tgt["_dotAcc"] = acc
+	else:
+		tgt["flash"] = 0.1
+		if dmg > 0:
+			var ev := {"type": "dmg", "src": src["id"], "tgt": tgt["id"], "amt": int(round(dmg)), "crit": is_crit, "t": state["t"]}
+			if opts.get("proc", false):
+				ev["proc"] = true          # passive item-proc damage — clients show a soft tick, not an impact
+			state["events"].append(ev)
 	# 15. lifesteal (Batter melee)
 	if opts.get("melee", false) and sc.has("meleeLifesteal"):
 		var heal: float = dmg * sc["meleeLifesteal"]
@@ -203,6 +216,15 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 		tgt["alive"] = false
 		tgt["deathT"] = state["t"]
 		src["kills"] += 1
+		# flush any pending coalesced burn slices NOW — an instant respawn (the training dummy) would
+		# wipe _dotAcc before the sim's next-tick corpse flush could emit the final burn number.
+		var dacc: Dictionary = tgt.get("_dotAcc", {})
+		if not dacc.is_empty():
+			for sid in dacc:
+				var bamt := int(round(float(dacc[sid])))
+				if bamt > 0:
+					state["events"].append({"type": "dmg", "src": sid, "tgt": tgt["id"], "amt": bamt, "crit": false, "proc": true, "t": state["t"]})
+			tgt["_dotAcc"] = {}
 		state["events"].append({"type": "kill", "killer": src["id"], "victim": tgt["id"], "t": state["t"]})
 		# (on-kill ability effects — golden goal stealth, thunderspike reset — added with abilities phase)
 	# procs (P6): a REAL hit (not proc/DOT-sourced) resolves the source's equipped procs — deterministically.
@@ -229,9 +251,12 @@ static func _resolve_procs(state: Dictionary, src: Dictionary, tgt: Dictionary, 
 			continue
 		var pid := str(p.get("id", ""))
 		var icd := float(p.get("icd", 0.0))
+		if icd > 0.0 and float(pt.get(pid, 0.0)) > 0.0:
+			continue                                      # still on internal cooldown
+		var chance := float(p.get("chance", 1.0))
+		if chance < 1.0 and _proc_roll(state, src, tgt, pid) >= chance:
+			continue                                      # didn't proc (a failed roll doesn't consume the ICD)
 		if icd > 0.0:
-			if float(pt.get(pid, 0.0)) > 0.0:
-				continue                                  # still on internal cooldown
 			pt[pid] = icd
 		match str(p.get("effect", "")):
 			"DOT":
@@ -244,6 +269,19 @@ static func _resolve_procs(state: Dictionary, src: Dictionary, tgt: Dictionary, 
 				src["hp"] = min(src["maxHP"], src["hp"] + heal)
 				src["healing"] += heal
 	src["_procT"] = pt
+
+# One deterministic roll in [0,1) for proc chances, hashed from (sim tick, source id, TARGET id,
+# proc id) with the mulberry32 mix. The target key makes same-tick multi-hit abilities (AoE swings,
+# multi-projectile ticks) roll independently per hit instead of sharing one all-or-nothing roll.
+# Draws NOTHING from state.rng — the main stream stays byte-identical whether or not procs exist
+# (the invariant the balance harness relies on), and the same seed+timeline replays the same procs.
+static func _proc_roll(state: Dictionary, src: Dictionary, tgt: Dictionary, pid: String) -> float:
+	var a: int = Rng._i32(int(round(float(state["t"]) * 30.0)) + Rng._imul(str(src["id"]).hash(), 0x9E3779B9) + Rng._imul(str(tgt["id"]).hash(), 0x27D4EB2F) + Rng._imul(pid.hash(), 0x85EBCA6B))
+	a = Rng._i32(a + 0x6D2B79F5)
+	var t := Rng._imul(a ^ (Rng._u32(a) >> 15), 1 | a)
+	var m := Rng._imul(t ^ (Rng._u32(t) >> 7), 61 | t)
+	t = Rng._i32(t + m) ^ t
+	return float(Rng._u32(t ^ (Rng._u32(t) >> 14))) / 4294967296.0
 
 static func apply_heal(state: Dictionary, src: Dictionary, tgt: Dictionary, amt: float) -> void:
 	if not tgt["alive"]:

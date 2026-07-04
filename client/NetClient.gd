@@ -1781,6 +1781,9 @@ func _proc_desc(proc_id: String, tier: int) -> String:
 		return ""
 	var amt: float = GameData.proc_amt(proc_id, tier)
 	var trig: String = str(p.get("trigger", "")).replace("on_", "on ")
+	var ch: float = float(p.get("chance", 1.0))
+	if ch < 1.0:
+		trig = "%d%% %s" % [int(round(ch * 100.0)), trig]   # e.g. "18% on hit"
 	var nm: String = str(p.get("name", proc_id))
 	match str(p.get("effect", "")):
 		"DOT": return "%s (%s): %d dmg/s for %.0fs" % [nm, trig, int(round(amt)), float(p.get("dur", 3.0))]
