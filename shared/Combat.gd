@@ -291,6 +291,11 @@ static func apply_heal(state: Dictionary, src: Dictionary, tgt: Dictionary, amt:
 	var real: float = min(tgt["maxHP"] - tgt["hp"], boosted)
 	tgt["hp"] += real
 	src["healing"] += real
+	# presentation event only — never feeds the sim. Per-hit lifesteal + the zone regens deliberately
+	# DON'T event (they write hp directly; per-hit text would spam — coalesce like _dotAcc if ever wanted).
+	var evamt := int(round(real))
+	if evamt > 0:
+		state["events"].append({"type": "heal", "src": src["id"], "tgt": tgt["id"], "amt": evamt, "t": state["t"]})
 
 static func apply_shield(state: Dictionary, src: Dictionary, tgt: Dictionary, amt: float, dur: float) -> void:
 	var sc: Dictionary = GameData.CLASSES[src["classId"]]
@@ -298,3 +303,6 @@ static func apply_shield(state: Dictionary, src: Dictionary, tgt: Dictionary, am
 	tgt["shield"] += boosted
 	tgt["shieldT"] = max(tgt["shieldT"], dur)
 	src["healing"] += boosted * 0.5
+	var evamt := int(round(boosted))
+	if evamt > 0:
+		state["events"].append({"type": "shield", "src": src["id"], "tgt": tgt["id"], "amt": evamt, "t": state["t"]})

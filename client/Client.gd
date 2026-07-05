@@ -49,6 +49,15 @@ const HITSTOP_CRIT := 0.075
 const HITSTOP_KILL := 0.11
 const PRED_CD_WINDOW := 0.7                 # secs a predicted cooldown sweep may run unconfirmed (≳ RTT + a snapshot)
 const REDUCED_SHAKE := 0.35                 # shake multiplier when "reduce screen effects" is on
+const RECOIL_LEAN := 0.16                   # peak struck-body flinch pitch, radians (~9°) — top tips away from the hit
+const RECOIL_OFS := 0.18                    # peak model push away from the hit, world units
+const SQUASH_AMT := 0.12                    # peak vertical squash fraction on a struck body (x/z widen ~2/3 of it)
+const RECOIL_DECAY := 6.5                   # recoil settle rate, 1/s → a hit's give plays out in ~0.15 s
+const RECOIL_CRIT := 1.45                   # crit recoil scale-up
+const RECOIL_KILL := 1.9                    # killing-blow recoil scale-up (re-arms the victim's give)
+const SHARD_CAP := 24                       # hard cap on debris nodes — an AoE multi-kill recycles, never allocates
+const SHARD_LIFE := 0.55                    # seconds a shard flies before fading back to its pool
+const SHARD_G := 22.0                       # shard gravity, world units/s² (chunky arcade fall)
 const RESPAWN_DELAY := 3.0
 const MAP_ID := "stadium"                 # open field; obstacle rendering supports any venue
 
@@ -119,10 +128,13 @@ var _shake := 0.0                          # current camera screen-shake magnitu
 var _cam_kick := Vector3.ZERO              # directional impulse when YOU land a hit (decays fast)
 var _fov_kick := 0.0                       # crit/kill punch-zoom in degrees (decays fast)
 var _flashing := {}                        # fighter id → true while its hit-flash overlay is fading
+var _recoiling := {}                       # fighter id → true while a struck-body recoil pose is decaying
 var _pred_cds := {}                        # ability key → {t, total, window}: predicted cooldown sweeps
 var reduce_fx := false                     # accessibility: damp shake, disable kick/FOV-punch/hitstop
 var _num_pool := []
 var _pop_pool := []
+var _shard_pool := []                      # debris boxes (dedicated: shaded dark, not the additive pops)
+var _shard_count := 0                      # lifetime allocations, hard-stopped at SHARD_CAP
 
 var _cam: Camera3D
 var _focus := Vector3.ZERO
@@ -572,6 +584,22 @@ func _add_hitstop(id, dur: float) -> void:
 	if n["anim"] != null:
 		(n["anim"] as AnimationPlayer).speed_scale = 0.0
 
+# arm the struck-body give (Tier 2): lean/push away from the hit + a squash pulse, posed + decayed +
+# restored in _update_fx. Skeletal fighters only — mob kits' anim_node is rewritten every frame by
+# _drive_mob_anim and already recoils via its hit channel. dir = world-space src→tgt push (ZERO = squash
+# only, e.g. the source is out of interest range). A re-hit re-arms; strength keeps the strongest active.
+func _add_recoil(id, dir: Vector3, k: float) -> void:
+	var n = _nodes.get(id)
+	if n == null or n.has("mobanim"):
+		return
+	if float(n.get("recoil_t", 0.0)) > 0.0:
+		k = maxf(k, float(n.get("recoil_k", 1.0)))
+	dir.y = 0.0
+	n["recoil_t"] = 1.0
+	n["recoil_k"] = k
+	n["recoil_dir"] = dir.normalized() if dir.length_squared() > 0.000001 else Vector3.ZERO
+	_recoiling[id] = true
+
 # ============================================================ match setup
 func _setup_match(player_class: String) -> void:
 	_teardown()
@@ -607,6 +635,8 @@ func _teardown() -> void:
 			fx["node"].visible = false
 			if fx["kind"] == "num":
 				_num_pool.append(fx["node"])
+			elif fx["kind"] == "shard":        # shard boxes must NOT enter the additive pop pool — a migrated
+				_shard_pool.append(fx["node"])   # box renders pops dark AND permanently leaks the capped budget
 			else:
 				_pop_pool.append(fx["node"])   # re-pool in-flight FX so a mid-anim reset doesn't strand nodes
 	_fx_active.clear()
@@ -999,8 +1029,9 @@ func _render_portals() -> void:
 		_portal_root.add_child(lbl)
 
 func _handle_events() -> void:
-	for ev in _state["events"]:
-		var t = ev.get("type", "")
+	var gains := {}                    # "type|src|tgt" → summed amt. One floater per batch: a Setter
+	for ev in _state["events"]:        # echo (two same-tick heals) or a multi-hit stack would otherwise
+		var t = ev.get("type", "")     # superpose two lockstep numbers at the same spot — illegible
 		if t == "dmg":
 			var tgt := str(ev["tgt"])
 			var crit := bool(ev["crit"])
@@ -1009,11 +1040,15 @@ func _handle_events() -> void:
 			if bool(ev.get("proc", false)):
 				# passive proc/DOT damage (item burns, hazard ticks) — a soft accumulating number only.
 				# None of the impact stack: no sound/pop/shake/kick/hitstop, the attacker keeps swinging.
-				_spawn_num(tgt, int(ev["amt"]), false, taken, dealt, true)
+				_spawn_num(tgt, int(ev["amt"]), false, taken, dealt, "burn")
 				continue
-			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
-			_spawn_pop(tgt, crit)
 			var tf = _find_fighter(tgt)
+			var sf = _find_fighter(str(ev.get("src", "")))      # attacker (null once out of interest)
+			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
+			# hit burst in the ATTACKER's class signature color; crits stay gold so they read at a glance
+			_spawn_pop(tgt, crit, _class_vfx_color(str(sf["classId"])).lightened(0.25) if sf != null else Color(1, 0.95, 0.7))
+			if crit and tf != null:
+				_spawn_shards(tf, 3, _class_vfx_color(str(tf["classId"])))
 			# damage-scaled audio: a bigger chunk of the target's HP sits lower + louder; slight random
 			# detune so repeats don't fatigue. My own landed hit takes the dedicated flat punch voice.
 			var tfrac: float = (float(ev["amt"]) / maxf(1.0, float(tf["maxHP"]))) if tf != null else 0.0
@@ -1034,12 +1069,27 @@ func _handle_events() -> void:
 				var hs := HITSTOP_CRIT if crit else HITSTOP_HIT
 				_add_hitstop(tgt, hs)
 				_add_hitstop(str(ev.get("src", "")), hs)
+			# Tier-2 struck-body give: push away from the hit, damage/crit-scaled (a kill re-arms harder)
+			var rdir := Vector3.ZERO
+			if sf != null and tf != null:
+				rdir = _world(tf) - _world(sf)
+			_add_recoil(tgt, rdir, clampf(0.55 + tfrac * 1.8, 0.55, 1.0) * (RECOIL_CRIT if crit else 1.0))
+		elif t == "heal" or t == "shield":
+			var gk := "%s|%s|%s" % [str(t), str(ev.get("src", "")), str(ev["tgt"])]
+			gains[gk] = int(gains.get(gk, 0)) + int(ev["amt"])
 		elif t == "kill":
 			var victim := str(ev["victim"])
 			var vf = _find_fighter(victim)
 			_spawn_death(victim)
 			if vf != null:
 				AudioManager.play_sfx("death", _world(vf), randf_range(0.96, 1.04))
+			var kf = _find_fighter(str(ev.get("killer", "")))
+			var kdir := Vector3.ZERO
+			if kf != null and vf != null:
+				kdir = _world(vf) - _world(kf)
+			_add_recoil(victim, kdir, RECOIL_KILL)          # the death blow hits hardest
+			if vf != null and (str(ev.get("killer", "")) == _player_id or victim == _player_id):
+				_spawn_shards(vf, randi_range(6, 8), _class_vfx_color(str(vf["classId"])))
 			if str(ev.get("killer", "")) == _player_id:
 				_add_shake(0.35)                            # a satisfying thump on your kill
 				_add_fov_kick(FOV_KICK_KILL)
@@ -1047,6 +1097,10 @@ func _handle_events() -> void:
 				_add_hitstop(_player_id, HITSTOP_KILL)
 			elif victim == _player_id:
 				_add_shake(SHAKE_MAX)                       # you died — full shake
+	for gk in gains:
+		var gp: PackedStringArray = (gk as String).split("|")
+		# gain floaters (green heal / blue absorb) — pure info layer, never the impact stack
+		_spawn_num(gp[2], int(gains[gk]), false, gp[2] == _player_id, gp[1] == _player_id, gp[0])
 	_state["events"].clear()
 
 func _tick_respawns(dt: float) -> void:
@@ -1239,6 +1293,7 @@ func _detect_cast(n: Dictionary, f: Dictionary) -> void:
 			var own: bool = f["id"] == _player_id
 			if own or not bool(_ability_def(str(f["classId"]), k).get("basic", false)):
 				AudioManager.play_sfx(_cast_sfx_name(str(f["classId"]), k), _world(f), randf_range(0.95, 1.05), 0.0 if own else -6.0)
+				_spawn_flourish(f, str(f["classId"]))   # class-colored cast ring, same restraint as the sound
 			atk = _clip_for_ability(str(f["classId"]), k, n["anims"])
 			if atk != "":
 				spd = _cast_speed(n["anim"], atk, float(f["cds"][k]))   # snap to the ability's cadence
@@ -1299,6 +1354,8 @@ func _predict_cast(key: String) -> void:
 				n["busy"] = clip
 				_safe_play(ap, clip, _cast_speed(ap, clip, float(ab.get("cd", 0.0))))
 		var pending: Dictionary = n.get("pred_cast", {})
+		if not pending.has(key):       # fresh prediction (not a mash re-press) → the class-colored cast ring
+			_spawn_flourish(pf, cid)   # fires on the press frame; _detect_cast's consume skips the re-tell
 		pending[key] = window          # per-key consume record: the confirm edge won't re-tell this cast
 		n["pred_cast"] = pending
 	if slot >= 0 and slot < _slots.size():                # (b) instant hotbar depress
@@ -1571,9 +1628,11 @@ func _set_overlay_recursive(node: Node, overlay: Material) -> void:
 		_set_overlay_recursive(ch, overlay)
 
 # ============================================================ FX
-# amt floater. `taken` = the local player got hit (red), `dealt` = the local player landed it
-# (white / gold crit); anyone else's combat shows dimmer + smaller so the screen doesn't clutter.
-func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false, burn := false) -> void:
+# amt floater. `taken`/`dealt` = the local player is the target / the source. `style` picks the read:
+# "dmg" impacts (red taken / white-gold dealt, dim for bystanders), "burn" passive proc ticks (ember,
+# smolder-drift), "heal"/"shield" gains (green / absorb-blue, smaller than damage, gentle drift;
+# self-heals and heals between others read quieter than heals I cast or receive).
+func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false, style := "dmg") -> void:
 	var f = _find_fighter(tgt_id)
 	if f == null:
 		return
@@ -1591,51 +1650,71 @@ func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false, bu
 	else:
 		l = _num_pool.pop_back()
 	l.visible = true
-	l.text = ("%d!" % amt) if crit else str(amt)
-	if burn:                                            # passive proc/DOT tick = ember orange, understated
+	var gain := style == "heal" or style == "shield"
+	l.text = ("+%d" % amt) if gain else (("%d!" % amt) if crit else str(amt))
+	var s := 1.0
+	if style == "burn":                                 # passive proc/DOT tick = ember orange, understated
 		l.modulate = Color(1.0, 0.55, 0.25) if taken else Color(1.0, 0.74, 0.38)
+		s = 0.8 * (1.15 if taken else (1.0 if dealt else 0.7))
+	elif gain:
+		var c := Color(0.44, 0.88, 0.54) if style == "heal" else Color(0.5, 0.72, 1.0)
+		var quiet := taken == dealt                     # my self-heal, or a heal between two others
+		l.modulate = c.darkened(0.25) if quiet else c
+		s = 0.62 if quiet else 0.82                     # always smaller than damage
 	elif taken:
 		l.modulate = Color(1.0, 0.36, 0.3)              # damage I take = red
+		s = (1.85 if crit else 1.0) * 1.15
 	elif dealt:
 		l.modulate = Color(1.0, 0.85, 0.35) if crit else Color(1.0, 1.0, 0.95)
+		s = 1.85 if crit else 1.0
 	else:
 		l.modulate = Color(0.78, 0.8, 0.86)             # someone else's hit = dim
-	var s := 1.0
-	if crit: s = 1.85
-	if taken: s *= 1.15
-	if not (taken or dealt): s *= 0.7
-	if burn: s *= 0.8
+		s = (1.85 if crit else 1.0) * 0.7
 	l.scale = Vector3.ONE * s
 	var pos := _world(f)
 	pos.y = DMG_NUM_Y
+	if gain:                             # gains ride their own lane: start higher with a sideways jitter,
+		pos.y += 0.55                    # or a same-frame damage number (same spot, faster rise, bigger
+		pos.x += randf_range(-0.35, 0.35)   # glyphs) sits on top of the quiet +N for its whole life
+		pos.z += randf_range(-0.35, 0.35)
 	l.position = pos
-	# burn ticks drift slowly (a smolder, not a pop); crits ride higher and live longer
-	_fx_active.append({"node": l, "t": 0.0, "life": (0.9 if burn else (1.0 if crit else 0.82)),
-		"vel": (1.8 if burn else (3.2 if crit else 2.6)), "kind": "num"})
+	# burn ticks + gains drift slowly (a smolder, not a pop); crits ride higher and live longer
+	var slow := style == "burn" or gain
+	_fx_active.append({"node": l, "t": 0.0, "life": (0.9 if slow else (1.0 if crit else 0.82)),
+		"vel": (1.8 if slow else (3.2 if crit else 2.6)), "kind": "num"})
 
-func _spawn_pop(tgt_id, crit := false) -> void:
+# one pooled additive-unshaded sphere (shared pop/death/flourish pool) — color set per spawn
+func _pop_node() -> MeshInstance3D:
+	if not _pop_pool.is_empty():
+		return _pop_pool.pop_back()
+	var p := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.45
+	sm.height = 0.9
+	sm.radial_segments = 8
+	sm.rings = 5
+	p.mesh = sm
+	var mt := StandardMaterial3D.new()
+	mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mt.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	p.material_override = mt
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_fx_root.add_child(p)
+	return p
+
+# a class's signature VFX tint (GameData hex — all 8 classes + mobs carry one); warm default when
+# unknown (old server / owner out of interest)
+func _class_vfx_color(cid: String) -> Color:
+	return Color.from_string(str(GameData.CLASSES.get(cid, {}).get("color", "")), Color(1, 0.85, 0.4))
+
+func _spawn_pop(tgt_id, crit := false, col := Color(1, 0.95, 0.7)) -> void:
 	var f = _find_fighter(tgt_id)
 	if f == null:
 		return
-	var p: MeshInstance3D
-	if _pop_pool.is_empty():
-		p = MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.45
-		sm.height = 0.9
-		sm.radial_segments = 8
-		sm.rings = 5
-		p.mesh = sm
-		var mt := StandardMaterial3D.new()
-		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mt.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		p.material_override = mt
-		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_fx_root.add_child(p)
-	else:
-		p = _pop_pool.pop_back()
-	(p.material_override as StandardMaterial3D).albedo_color = Color(1, 0.95, 0.7)   # set per spawn (pool shared w/ death)
+	var p := _pop_node()
+	# Tier-2 identity: the burst carries the attacker's class color; crit gold overrides for legibility
+	(p.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.85, 0.35) if crit else col
 	p.visible = true
 	var pos := _world(f)
 	pos.y = HIT_Y
@@ -1643,29 +1722,71 @@ func _spawn_pop(tgt_id, crit := false) -> void:
 	p.scale = Vector3.ONE * (0.8 if crit else 0.5)
 	_fx_active.append({"node": p, "t": 0.0, "life": (0.32 if crit else 0.22), "vel": 0.0, "kind": "pop", "big": crit})
 
+# small class-colored cast flourish: a flat ring expanding at the caster's feet, from the pop pool.
+# Restraint mirrors cast AUDIO exactly: the local player always, others only on non-basics (a camp of
+# mobs on ~1.2s basics would carpet the ground in rings, same reason their basics stay silent).
+func _spawn_flourish(f: Dictionary, cid: String) -> void:
+	var p := _pop_node()
+	(p.material_override as StandardMaterial3D).albedo_color = _class_vfx_color(cid)
+	p.visible = true
+	var pos := _world(f)
+	pos.y = 0.12
+	p.position = pos
+	p.scale = Vector3(0.4, 0.06, 0.4)
+	_fx_active.append({"node": p, "t": 0.0, "life": 0.3, "vel": 0.0, "kind": "flourish"})
+
+# Tier-2 debris: tiny dark box shards tossed up-fanned from a struck body (3 on a crit, 6–8 on a kill
+# you're part of), tinted faintly with the victim's class color. Dedicated hard-capped pool: once all
+# SHARD_CAP nodes exist, a burst steals the OLDEST live shard mid-flight (_fx_active is append-ordered)
+# — an AoE multi-kill recycles, it never allocates. reduce_fx skips debris entirely.
+func _spawn_shards(f, count: int, col: Color) -> void:
+	if reduce_fx or f == null:
+		return
+	var base := _world(f)
+	base.y = 1.0
+	for i in count:
+		var p: MeshInstance3D
+		if not _shard_pool.is_empty():
+			p = _shard_pool.pop_back()
+		elif _shard_count < SHARD_CAP:
+			_shard_count += 1
+			p = MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(0.14, 0.14, 0.14)
+			p.mesh = bm
+			var mt := StandardMaterial3D.new()
+			mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			p.material_override = mt
+			p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_fx_root.add_child(p)
+		else:
+			var idx := -1
+			for j in _fx_active.size():
+				if _fx_active[j]["kind"] == "shard":
+					idx = j
+					break
+			if idx == -1:
+				return                                   # cap hit with nothing live to steal (can't happen)
+			p = _fx_active[idx]["node"]
+			_fx_active.remove_at(idx)
+		(p.material_override as StandardMaterial3D).albedo_color = Color(0.16, 0.14, 0.13).lerp(col, 0.35)
+		p.visible = true
+		p.position = base + Vector3(randf_range(-0.25, 0.25), randf_range(-0.2, 0.3), randf_range(-0.25, 0.25))
+		p.rotation = Vector3(randf() * TAU, randf() * TAU, randf() * TAU)
+		p.scale = Vector3.ONE * randf_range(0.7, 1.3)
+		var ang := randf() * TAU
+		var sp := randf_range(1.2, 2.6)
+		_fx_active.append({"node": p, "t": 0.0, "life": SHARD_LIFE, "vel": 0.0, "kind": "shard",
+			"v3": Vector3(cos(ang) * sp, randf_range(4.0, 7.0), sin(ang) * sp),
+			"spin": Vector3(randf_range(-9.0, 9.0), randf_range(-9.0, 9.0), randf_range(-9.0, 9.0))})
+
 # a bigger, redder burst when a fighter dies (driven by the kill event)
 func _spawn_death(tgt_id) -> void:
 	var f = _find_fighter(tgt_id)
 	if f == null:
 		return
-	var p: MeshInstance3D
-	if _pop_pool.is_empty():
-		p = MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.45
-		sm.height = 0.9
-		sm.radial_segments = 8
-		sm.rings = 5
-		p.mesh = sm
-		var mt := StandardMaterial3D.new()
-		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		mt.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mt.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-		p.material_override = mt
-		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_fx_root.add_child(p)
-	else:
-		p = _pop_pool.pop_back()
+	var p := _pop_node()
 	(p.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.5, 0.35)
 	p.visible = true
 	var pos := _world(f)
@@ -1691,6 +1812,40 @@ func _update_fx(delta: float) -> void:
 				_flashing.erase(id)
 			else:
 				(n["flash_mat"] as StandardMaterial3D).albedo_color.a = FLASH_ALPHA * float(n["flash_t"]) / FLASH_DUR
+	# Tier-2 struck-body give: pose + decay + EXACT restore, all here — this runs for held and dead
+	# nodes too, so a killing-blow pose still plays out and a transform can never stick mid-recoil.
+	# Ownership: model.position.x/z, model.rotation.x and model.scale are touched by nothing else
+	# post-spawn (holder.position = sim lerp, model.rotation.y = facing); mob kits never enter _recoiling.
+	if not _recoiling.is_empty():
+		for id in _recoiling.keys():
+			var n = _nodes.get(id)
+			if n == null or not is_instance_valid(n.get("model")):
+				_recoiling.erase(id)
+				continue
+			var model: Node3D = n["model"]
+			var msc: float = n["mscale"]
+			var rt: float = float(n.get("recoil_t", 0.0)) - delta * RECOIL_DECAY
+			n["recoil_t"] = rt
+			if rt <= 0.0:
+				n["recoil_t"] = 0.0
+				model.position.x = 0.0                       # restore exactly: offset→0, pitch→0, scale→mscale
+				model.position.z = 0.0
+				model.rotation.x = 0.0
+				model.scale = Vector3(msc, msc, msc)
+				_recoiling.erase(id)
+				continue
+			var e: float = rt * rt                           # snappy attack, eased settle
+			var k: float = float(n.get("recoil_k", 1.0)) * e
+			var motion: float = 0.5 if reduce_fx else 1.0    # reduce_fx halves the motion, keeps the subtle squash
+			var dir: Vector3 = n.get("recoil_dir", Vector3.ZERO)
+			model.position.x = dir.x * RECOIL_OFS * k * motion
+			model.position.z = dir.z * RECOIL_OFS * k * motion
+			# pitch about local X only: the top tips along the push (away from the attacker) — the lean
+			# fades toward zero for pure side-on hits; the positional push carries those
+			var fwd := Vector3(sin(model.rotation.y), 0.0, cos(model.rotation.y))
+			model.rotation.x = fwd.dot(dir) * RECOIL_LEAN * k * motion
+			var sq: float = SQUASH_AMT * k
+			model.scale = Vector3(msc * (1.0 + sq * 0.66), msc * (1.0 - sq), msc * (1.0 + sq * 0.66))
 	var keep := []
 	for fx in _fx_active:
 		fx["t"] += delta
@@ -1700,15 +1855,28 @@ func _update_fx(delta: float) -> void:
 			node.visible = false
 			if fx["kind"] == "num":
 				_num_pool.append(node)
+			elif fx["kind"] == "shard":
+				_shard_pool.append(node)
 			else:
 				_pop_pool.append(node)
 			continue
 		if fx["kind"] == "num":
 			node.position.y += fx["vel"] * delta
 			(node as Label3D).modulate.a = 1.0 - k
+		elif fx["kind"] == "shard":
+			var v3: Vector3 = fx["v3"]
+			v3.y -= SHARD_G * delta
+			fx["v3"] = v3
+			node.position += v3 * delta
+			node.rotation += (fx["spin"] as Vector3) * delta
+			(node.material_override as StandardMaterial3D).albedo_color.a = 1.0 - k * k   # hold, then quick fade
 		elif fx["kind"] == "death":
 			node.scale = Vector3.ONE * (0.6 + k * 6.0)       # big expanding burst
 			(node.material_override as StandardMaterial3D).albedo_color.a = 1.0 - k
+		elif fx["kind"] == "flourish":
+			var fscale: float = 0.4 + k * 2.6                # stays flat — an expanding painted cast ring
+			node.scale = Vector3(fscale, 0.06, fscale)
+			(node.material_override as StandardMaterial3D).albedo_color.a = (1.0 - k) * 0.8
 		else:
 			var s: float = (0.5 + k * 2.4) * (1.7 if fx.get("big", false) else 1.0)
 			node.scale = Vector3.ONE * s
@@ -1740,6 +1908,23 @@ func _sync_projectiles() -> void:
 			_fx_root.add_child(pm)
 			_proj_pool.append(pm)
 		pm.visible = true
+		# Tier-2 class tint: networked snapshots carry the owner's classId as "cls" (absent on an old
+		# server → classic yellow); the local sandbox's full sim dicts carry "owner" — resolve either.
+		var cid := str(p.get("cls", ""))
+		if cid == "" and p.has("owner"):
+			var owner_f = _find_fighter(p["owner"])
+			if owner_f != null:
+				cid = str(owner_f["classId"])
+		if str(pm.get_meta("cls", "")) != cid:              # material write only on a change (pool nodes shuffle)
+			pm.set_meta("cls", cid)
+			var mt2 := pm.material_override as StandardMaterial3D
+			if cid == "":
+				mt2.albedo_color = Color(1, 0.92, 0.6)
+				mt2.emission = Color(1, 0.85, 0.4)
+			else:
+				var col := _class_vfx_color(cid)
+				mt2.albedo_color = col.lightened(0.35)      # hot core, class-colored glow
+				mt2.emission = col
 		pm.position = Vector3((p["x"] - _aw() / 2.0) * SCALE, 1.4, (p["y"] - _ah() / 2.0) * SCALE)
 		shown += 1
 	for i in range(shown, _proj_pool.size()):

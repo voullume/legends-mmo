@@ -3043,9 +3043,13 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 								break
 			fs.append(d)
 	var ps := []
+	var pcls := {}                                # owner id → classId for the Tier-2 projectile tint; a full
+	for f in w["fighters"]:                       # pass (not interest-scoped: a shot can outrange its owner)
+		pcls[f["id"]] = f["classId"]
 	for p in w["projectiles"]:
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
-			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0)})
+			# "cls" is additive — old clients ignore unknown keys (same compat ride as the event types)
+			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0), "cls": pcls.get(p.get("owner", ""), "")})
 	var hz := []                                  # hazard zones only (dmg/slow) — buff zones stay invisible
 	for z in w["zones"]:
 		if float(z.get("dmg", 0.0)) <= 0.0 and z.get("slow", null) == null:
