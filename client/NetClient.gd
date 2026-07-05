@@ -433,6 +433,13 @@ func _item_tooltip_text(it: Dictionary, owned: Array) -> String:
 	var cmp = _replace_candidate(it, owned, slot)
 	if cmp != null:
 		L.append("[color=#7f93a8]vs equipped %s:[/color]" % _esc(str(cmp.get("name", "?"))))
+		var ipd: int = int(it.get("item_power", 0)) - int(cmp.get("item_power", 0))   # the at-a-glance upgrade call
+		if ipd > 0:
+			L.append("  [color=#9fe8a0]▲ +%d Item Power[/color]" % ipd)
+		elif ipd < 0:
+			L.append("  [color=#ff8a8a]▼ %d Item Power[/color]" % ipd)
+		else:
+			L.append("  [color=#7f93a8]= same Item Power[/color]")
 		var d := _stat_delta(it, cmp)
 		if d.is_empty():
 			L.append("  [color=#7f93a8](no stat change)[/color]")
@@ -539,7 +546,12 @@ func _load_inventory() -> void:
 	if items.is_empty():
 		_inv_status.text = "empty — kill mobs to find loot"
 		return
-	_inv_status.text = "%d items · click to equip · right-click to lock" % items.size()
+	var ups := 0
+	for it in items:
+		if _is_upgrade(it):
+			ups += 1
+	var uptxt: String = "   ·   ▲ %d upgrade%s" % [ups, "" if ups == 1 else "s"] if ups > 0 else ""
+	_inv_status.text = "%d items · click to equip · right-click to lock%s" % [items.size(), uptxt]
 	var view: Array = items.duplicate()           # equipped first, then rarity desc, then name
 	view.sort_custom(_inv_sort)
 	for it in view:
@@ -657,6 +669,19 @@ func _ctrl_label(text: String) -> Label:
 	l.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
 	return l
 
+# true if this (unequipped) item is a strict Item-Power upgrade over what it would replace in its slot,
+# OR fills a still-empty slot with any stats — the green ▲ tile marker + a heads-up for the player.
+func _is_upgrade(it: Dictionary) -> bool:
+	if bool(it.get("equipped", false)):
+		return false
+	var slot := str(it.get("slot", ""))
+	if slot == "":
+		return false
+	var cmp = _replace_candidate(it, _inv_items, slot)
+	if cmp == null:                             # slot has open capacity → an equippable piece with stats
+		return _equipped_count(_inv_items, slot) < (2 if slot == "ring" else 1) and int(it.get("item_power", 0)) > 0
+	return int(it.get("item_power", 0)) > int(cmp.get("item_power", 0))
+
 # one item tile: a rarity-bordered button. Left-click equips/unequips, hover shows the compare tooltip,
 # right-click opens the context menu. Full stats live in the tooltip (tiles stay compact).
 func _inv_tile(it: Dictionary) -> Button:
@@ -668,6 +693,8 @@ func _inv_tile(it: Dictionary) -> Button:
 	var prefix := ""
 	if bool(it.get("equipped", false)):
 		prefix += "★ "
+	elif _is_upgrade(it):                        # a bag item that beats what it'd replace → at-a-glance ▲
+		prefix += "▲ "
 	if bool(it.get("locked", false)):
 		prefix += "🔒 "
 	b.text = prefix + str(it.get("name", "?"))
@@ -922,7 +949,8 @@ func _render_questlog() -> void:
 			else:
 				var reason: String = ("needs lvl %d" % minl) if lvl < minl else ("requires: %s" % _esc(_prereq_name(prereq)))
 				locked.append("[color=#5a6472]🔒 %s  (%s)[/color]" % [nm, reason])
-	var out := ["[color=#7f93a8]Accept & turn in quests at the [color=#ffd24d]Quest Giver[/color] in the Home Base (press E near it).[/color]\n"]
+	var out := ["[color=#7f93a8]Accept & turn in quests at the [color=#ffd24d]Quest Giver[/color] in the Home Base (press E near it).[/color]"]
+	out.append(_secret_teaser())
 	if not active.is_empty():
 		out.append("[b][color=#8ad6ff]Active[/color][/b]")
 		out.append_array(active)
@@ -939,16 +967,33 @@ func _render_questlog() -> void:
 		out.append("[color=#7f93a8]No quests available yet.[/color]")
 	_quest_label.text = "\n".join(out)
 
+# the gated-boss unlock teaser: quest-chain progress + Master Key status, without spoiling the specifics
+# (the Camp panel already names the Final Lesson / Head Coach Arena, so this only tantalizes).
+func _secret_teaser() -> String:
+	var order: Array = Quests.order()
+	var total := order.size()
+	var ndone := 0
+	for qid in order:
+		if _quests.has(qid) and bool(_quests[qid].get("completed", false)):
+			ndone += 1
+	if total == 0:
+		return ""
+	if ndone >= total and _has_key():
+		return "\n[color=#ffd24d]✦ The Final Lesson is open — seek what waits past the Head Coach Arena.[/color]"
+	var key_txt: String = "[color=#9fe8a0]🔑 Master Key forged[/color]" if _has_key() else "[color=#7f93a8]🔑 forge the Master Key (Camp Circuit)[/color]"
+	return "\n[color=#8a7fb0]✦ A hidden challenge stirs —[/color] [color=#cdbcff]%d/%d quests done[/color] · %s" % [ndone, total, key_txt]
+
 func _reward_text(q: Dictionary) -> String:
 	var rw: Dictionary = q.get("rewards", {})
 	var parts := []
 	if int(rw.get("xp", 0)) > 0:
-		parts.append("%d xp" % int(rw["xp"]))
+		parts.append("[color=#9fe8a0]✦ %d XP[/color]" % int(rw["xp"]))
 	if int(rw.get("credits", 0)) > 0:
-		parts.append("◈%d" % int(rw["credits"]))
+		parts.append("[color=#ffd24d]◈ %d[/color]" % int(rw["credits"]))
 	if rw.has("item"):
-		parts.append("%s item" % str((rw["item"] as Dictionary).get("rarity", "")))
-	return ", ".join(parts)
+		var rar := str((rw["item"] as Dictionary).get("rarity", ""))
+		parts.append("[color=%s]◆ %s item[/color]" % [RARITY_COLORS.get(rar, "#cfd6df"), rar])
+	return "  ".join(parts)
 
 func _prereq_name(prereq: String) -> String:
 	var q = Quests.get_quest(prereq)
