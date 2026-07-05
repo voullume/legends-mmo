@@ -155,6 +155,46 @@ var _hotbar_class := ""
 var _tooltip: PanelContainer
 var _tt_label: RichTextLabel
 
+# --- vitals frame + currency tray + zone banner (UI-overhaul P1) ---
+var _hud_left: VBoxContainer               # top-left stack: vitals panel → currency tray
+var _vitals: PanelContainer
+var _vit_level: Label
+var _vit_name: Label
+var _vit_class: Label
+var _vit_hp: Dictionary                    # Widgets.bar
+var _vit_hp_text: Label
+var _vit_shield: Dictionary
+var _vit_xp: Dictionary
+var _vit_xp_row: HBoxContainer
+var _vit_xp_text: Label
+var _vit_status: Label                     # respawning / save-note / bots line
+var _tray: PanelContainer                  # ◈ credits · scrap · tokens (online only)
+var _tray_credits: Label
+var _tray_scrap: Label
+var _tray_tokens: Label
+var _zone_banner: PanelContainer
+var _zone_label: Label
+var _vit_cache := {}                       # last-set texts — skip re-shaping unchanged labels every frame
+
+# --- DPS/HPS meter (§4a, UI-overhaul P1) — pure client, rides the zone-wide event stream ---
+const METER_SLOTS := 15                    # per-second ring → a 10–15 s rolling DPS window
+const METER_WINDOW := 15.0
+const METER_GAP := 5.0                     # ≥5 s of event silence = an encounter edge
+const METER_PRUNE := 60.0                  # idle entries dropped (bounds the dict)
+const METER_MAX_ROWS := 10
+const METER_ROW_W := 292.0
+const METER_MODES := ["DPS · rolling", "DPS · encounter", "HPS", "Damage taken"]
+var _meter := {}                           # fighter id → accumulator entry (see _meter_entry)
+var _meter_panel: PanelContainer = null
+var _meter_row_pool := []                  # [{root, fill, stripe, name, num}] — updated in place at 4 Hz
+var _meter_title: Label = null
+var _meter_mode := 0
+var _meter_party_only := false             # sandbox default: whole zone (the bots ARE the encounter);
+var _meter_scope_btn: Button = null        # NetClient flips it to party-only (§4a default)
+var _meter_dragged := false                # once the player drags it, stop auto-placing on open
+var _enc_start := 0.0
+var _enc_last := -1.0e9                    # last tracked-event time; an event ≥GAP later opens a new encounter
+
 func _ready() -> void:
 	_load_fx_settings()
 	_load_meshy()
@@ -194,6 +234,26 @@ func _enter_mode() -> void:
 	else:
 		_setup_match(PLAYABLE[_player_class_idx])
 		print("[client] Phase 1 arena ready — WASD move, 1-5 abilities, C cycle class, R reset.")
+	# dev-only sandbox flags (pair with Main's --shot for hands-off UI verification)
+	var uargs := OS.get_cmdline_user_args()
+	if "--brawl" in uargs:
+		_bots_frozen = false
+		if not _state.is_empty():
+			_state["botsFrozen"] = false
+	if "--meter" in uargs:
+		_toggle_meter()
+	if "--meter-dump" in uargs:              # headless proof: print the accumulator after 12 s, then quit
+		var t := Timer.new()
+		t.wait_time = 12.0
+		t.one_shot = true
+		t.autostart = true
+		add_child(t)
+		t.timeout.connect(func() -> void:
+			for id in _meter:
+				var e: Dictionary = _meter[id]
+				print("[meter] %s '%s' dmg=%d heal=%d taken=%d enc=%.1fs" % [
+					id, e["name"], int(e["dmg"]), int(e["heal"]), int(e["taken"]), _enc_last - _enc_start])
+			get_tree().quit())
 
 # ============================================================ assets / characters
 func _load_meshy() -> void:
@@ -641,6 +701,10 @@ func _teardown() -> void:
 				_pop_pool.append(fx["node"])   # re-pool in-flight FX so a mid-anim reset doesn't strand nodes
 	_fx_active.clear()
 	_acc = 0.0
+	_meter.clear()                     # sandbox R/C reset: no leaked meter rows (same discipline as the pools)
+	_enc_last = -1.0e9
+	if _meter_panel != null:
+		_render_meter()
 
 func _spawn(f: Dictionary) -> void:
 	var holder := Node3D.new()
@@ -1032,6 +1096,7 @@ func _handle_events() -> void:
 	var gains := {}                    # "type|src|tgt" → summed amt. One floater per batch: a Setter
 	for ev in _state["events"]:        # echo (two same-tick heals) or a multi-hit stack would otherwise
 		var t = ev.get("type", "")     # superpose two lockstep numbers at the same spot — illegible
+		_meter_accum(str(t), ev)       # §4a meter: tap the RAW events (pre-coalescing, pre-clear)
 		if t == "dmg":
 			var tgt := str(ev["tgt"])
 			var crit := bool(ev["crit"])
@@ -2020,11 +2085,16 @@ func _unhandled_input(e: InputEvent) -> void:
 			_setup_match(PLAYABLE[_player_class_idx])
 			if has_start_pos:
 				_place_player_at(start_pos)
+		elif e.physical_keycode == KEY_N:
+			_toggle_meter()                         # the §4a DPS/HPS meter (sandbox: bots brawl → it fills)
 
 # ============================================================ HUD
 func _build_hud() -> void:
 	_hud = CanvasLayer.new()
 	add_child(_hud)
+	# UI-overhaul P0: ONE Theme restyles every Control. A CanvasLayer isn't a Control (no `theme`
+	# property), so the root Window carries it — it propagates to everything under _hud + popups.
+	get_window().theme = UITheme.get_theme()
 	_info = RichTextLabel.new()
 	_info.bbcode_enabled = true
 	_info.fit_content = true
@@ -2032,13 +2102,16 @@ func _build_hud() -> void:
 	_info.position = Vector2(16, 12)
 	_info.custom_minimum_size = Vector2(520, 0)
 	_hud.add_child(_info)
-	_bar = RichTextLabel.new()
+	_bar = RichTextLabel.new()                    # P1: repurposed as the dim keybind-hints line
 	_bar.bbcode_enabled = true
 	_bar.fit_content = true
 	_bar.scroll_active = false
 	_bar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_bar.position = Vector2(16, -120)
-	_bar.custom_minimum_size = Vector2(900, 0)
+	_bar.position = Vector2(16, -26)
+	_bar.custom_minimum_size = Vector2(1100, 0)
+	_bar.add_theme_font_size_override("normal_font_size", Palette.SIZE_CAPTION)
+	_bar.add_theme_font_size_override("bold_font_size", Palette.SIZE_CAPTION)
+	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud.add_child(_bar)
 	# skill bar (hotbar) + hover tooltip
 	_hotbar = HBoxContainer.new()
@@ -2062,6 +2135,418 @@ func _build_hud() -> void:
 	_tt_label.custom_minimum_size = Vector2(250, 0)
 	_tooltip.add_child(_tt_label)
 	_hud.add_child(_tooltip)
+	_build_vitals()
+	_build_meter()
+
+# --- vitals frame + tray + zone banner (P1): the dense _info text line becomes a real HUD ---
+func _build_vitals() -> void:
+	_hud_left = VBoxContainer.new()
+	_hud_left.position = Vector2(12, 10)
+	_hud_left.add_theme_constant_override("separation", 6)
+	_hud_left.visible = false                     # shown once a player fighter exists
+	_hud.add_child(_hud_left)
+	_vitals = PanelContainer.new()
+	var sb := StyleBoxFlat.new()                  # always-on HUD chrome: a touch more translucent than pop-ups
+	sb.bg_color = Color(Palette.BG_PANEL, 0.82)
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.BORDER
+	sb.set_corner_radius_all(8)
+	sb.set_content_margin_all(10)
+	_vitals.add_theme_stylebox_override("panel", sb)
+	_hud_left.add_child(_vitals)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 4)
+	_vitals.add_child(vb)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	vb.add_child(head)
+	_vit_level = Label.new()
+	_vit_level.add_theme_font_size_override("font_size", 18)
+	_vit_level.add_theme_color_override("font_color", Palette.ACCENT)
+	head.add_child(_vit_level)
+	_vit_name = Label.new()
+	_vit_name.add_theme_font_size_override("font_size", 18)
+	_vit_name.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	head.add_child(_vit_name)
+	_vit_class = Label.new()
+	_vit_class.size_flags_vertical = Control.SIZE_SHRINK_END
+	_vit_class.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	head.add_child(_vit_class)
+	_vit_hp = Widgets.bar(260, 20, Palette.HP)
+	_vit_hp_text = Label.new()                    # HP numbers centered ON the bar
+	_vit_hp_text.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_vit_hp_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_vit_hp_text.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+	_vit_hp_text.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	_vit_hp_text.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_vit_hp_text.add_theme_constant_override("outline_size", 5)
+	(_vit_hp["root"] as Control).add_child(_vit_hp_text)
+	vb.add_child(_vit_hp["root"])
+	_vit_shield = Widgets.bar(260, 5, Palette.SHIELD)   # absorb strip under the HP bar
+	(_vit_shield["root"] as Control).visible = false
+	vb.add_child(_vit_shield["root"])
+	_vit_xp_row = HBoxContainer.new()
+	_vit_xp_row.add_theme_constant_override("separation", 8)
+	vb.add_child(_vit_xp_row)
+	_vit_xp = Widgets.bar(180, 8, Palette.XP)
+	(_vit_xp["root"] as Control).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_vit_xp_row.add_child(_vit_xp["root"])
+	_vit_xp_text = Label.new()
+	_vit_xp_text.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	_vit_xp_text.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	_vit_xp_row.add_child(_vit_xp_text)
+	_vit_status = Label.new()
+	_vit_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	_vit_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	vb.add_child(_vit_status)
+	# currency tray (values live online; the sandbox hides it)
+	_tray = PanelContainer.new()
+	var tsb: StyleBoxFlat = sb.duplicate()
+	tsb.content_margin_top = 4.0
+	tsb.content_margin_bottom = 5.0
+	_tray.add_theme_stylebox_override("panel", tsb)
+	_tray.visible = false
+	_hud_left.add_child(_tray)
+	var th := HBoxContainer.new()
+	th.add_theme_constant_override("separation", 14)
+	_tray.add_child(th)
+	_tray_credits = _tray_label(th, Palette.CREDITS)
+	_tray_scrap = _tray_label(th, Palette.SCRAP)
+	_tray_tokens = _tray_label(th, Palette.TOKENS)
+	# zone banner — a top-center chip (name + PvP state)
+	var zc := CenterContainer.new()
+	zc.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	zc.offset_top = 8.0
+	zc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud.add_child(zc)
+	_zone_banner = PanelContainer.new()
+	var zsb: StyleBoxFlat = sb.duplicate()
+	zsb.content_margin_left = 16.0
+	zsb.content_margin_right = 16.0
+	zsb.content_margin_top = 3.0
+	zsb.content_margin_bottom = 4.0
+	zsb.set_corner_radius_all(11)
+	_zone_banner.add_theme_stylebox_override("panel", zsb)
+	_zone_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_banner.visible = false
+	zc.add_child(_zone_banner)
+	_zone_label = Label.new()
+	_zone_label.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
+	_zone_label.add_theme_color_override("font_color", Palette.ACCENT2)
+	_zone_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_banner.add_child(_zone_label)
+
+func _tray_label(parent: HBoxContainer, color: Color) -> Label:
+	var l := Label.new()
+	l.add_theme_font_size_override("font_size", Palette.SIZE_BODY)
+	l.add_theme_color_override("font_color", color)
+	parent.add_child(l)
+	return l
+
+# set a label's text only when it changed — vitals update every frame, re-shaping is not free
+func _vit_set(key: String, label: Label, text: String) -> void:
+	if _vit_cache.get(key) != text:
+		_vit_cache[key] = text
+		label.text = text
+
+# the shared vitals update (sandbox + online) — mode-specific lines are set by each _update_hud
+func _update_vitals(pf: Dictionary, title: String, c: Dictionary) -> void:
+	_hud_left.visible = true
+	var mhp: float = maxf(1.0, float(pf["maxHP"]))
+	var frac: float = clampf(float(pf["hp"]) / mhp, 0.0, 1.0)
+	Widgets.set_bar(_vit_hp, frac)
+	(_vit_hp["fill"] as ColorRect).color = Palette.HP_LOW if frac < 0.35 else Palette.HP
+	_vit_set("hp", _vit_hp_text, "%d / %d" % [int(round(pf["hp"])), int(mhp)])
+	var sh: float = float(pf.get("shield", 0.0))
+	(_vit_shield["root"] as Control).visible = sh > 0.0
+	if sh > 0.0:
+		Widgets.set_bar(_vit_shield, clampf(sh / mhp, 0.0, 1.0))
+	_vit_set("name", _vit_name, title)
+	if str(_vit_cache.get("cls", "")) != str(pf["classId"]):
+		_vit_cache["cls"] = str(pf["classId"])
+		_vit_class.add_theme_color_override("font_color",
+			Color.from_string(str(c.get("color", "")), Palette.TEXT_DIM).lightened(0.15))
+	_vit_set("class", _vit_class, "%s · %s" % [str(c.get("sport", "")), str(c.get("role", ""))])
+	if pf.has("level"):
+		_vit_set("lvl", _vit_level, "Lv %d" % int(pf["level"]))
+		_vit_level.visible = true
+	else:
+		_vit_level.visible = false
+	if pf.has("xp"):
+		_vit_xp_row.visible = true
+		var xp := int(pf.get("xp", 0))
+		var xpn: int = maxi(1, int(pf.get("xpNext", 100)))
+		Widgets.set_bar(_vit_xp, float(xp) / float(xpn))
+		_vit_set("xp", _vit_xp_text, "XP %d / %d" % [xp, xpn])
+	else:
+		_vit_xp_row.visible = false
+
+# ============================================================ DPS/HPS meter (§4a, UI-overhaul P1)
+# Pure client: accumulates the RAW dmg/heal/shield events inside _handle_events (before the
+# events array is cleared — NOT the render-side gains coalescing). Proc/DOT damage arrives as
+# ordinary dmg events tagged "proc" and counts (procs are real damage; the tag only gates the
+# impact stack). Known blind spots (by Tier-2 design, documented in the footer): melee lifesteal,
+# the vampiric proc and zone regens write hp directly and are event-silent → HPS under-counts them.
+func _build_meter() -> void:
+	_meter_panel = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.BG_PANEL, 0.82)   # semi-transparent — lives fine alongside combat
+	sb.set_border_width_all(1)
+	sb.border_color = Palette.BORDER
+	sb.set_corner_radius_all(8)
+	sb.set_content_margin_all(8)
+	_meter_panel.add_theme_stylebox_override("panel", sb)
+	_meter_panel.visible = false
+	_hud.add_child(_meter_panel)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 3)
+	_meter_panel.add_child(vb)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 5)
+	head.mouse_filter = Control.MOUSE_FILTER_STOP           # the drag handle
+	vb.add_child(head)
+	_meter_title = Label.new()
+	_meter_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_meter_title.custom_minimum_size = Vector2(150, 0)
+	_meter_title.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+	_meter_title.add_theme_color_override("font_color", Palette.ACCENT)
+	head.add_child(_meter_title)
+	var mode_btn := _meter_btn("mode", func() -> void:
+		_meter_mode = (_meter_mode + 1) % METER_MODES.size()
+		_render_meter())
+	head.add_child(mode_btn)
+	_meter_scope_btn = _meter_btn("", func() -> void:
+		_meter_party_only = not _meter_party_only
+		_render_meter())
+	head.add_child(_meter_scope_btn)
+	head.add_child(_meter_btn("reset", func() -> void:
+		_meter.clear()
+		_enc_last = -1.0e9
+		_render_meter()))
+	head.add_child(_meter_btn("✕", func() -> void: _toggle_meter()))
+	var drag := {"on": false}                               # drag the header to move the panel
+	head.gui_input.connect(func(ev) -> void:
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+			drag["on"] = ev.pressed
+		elif ev is InputEventMouseMotion and drag["on"]:
+			_meter_panel.position += (ev as InputEventMouseMotion).relative
+			_meter_dragged = true)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 2)
+	vb.add_child(rows)
+	for i in METER_MAX_ROWS:                                # a fixed row pool, updated in place at 4 Hz —
+		var row := Control.new()                            # zero node churn on re-render
+		row.custom_minimum_size = Vector2(METER_ROW_W, 19)
+		row.visible = false
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var fill := ColorRect.new()                         # the class-colored value bar BEHIND the text
+		fill.position = Vector2(0, 0)
+		fill.size = Vector2(0, 19)
+		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(fill)
+		var stripe := ColorRect.new()                       # solid class-color chip at the row edge
+		stripe.position = Vector2(0, 0)
+		stripe.size = Vector2(3, 19)
+		stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(stripe)
+		var nm := Label.new()
+		nm.position = Vector2(8, 0)
+		nm.size = Vector2(METER_ROW_W - 100.0, 19)
+		nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		nm.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+		nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(nm)
+		var num := Label.new()
+		num.position = Vector2(METER_ROW_W - 92.0, 0)
+		num.size = Vector2(92, 19)
+		num.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		num.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+		num.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+		num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(num)
+		rows.add_child(row)
+		_meter_row_pool.append({"root": row, "fill": fill, "stripe": stripe, "name": nm, "num": num})
+	var foot := Label.new()                                 # honesty beats mystery (§4a blind spots)
+	foot.text = "melee lifesteal + passive regens aren't counted"
+	foot.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION - 1)
+	foot.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+	vb.add_child(foot)
+	var timer := Timer.new()                                # ~4 Hz re-render — never per frame
+	timer.wait_time = 0.25
+	timer.autostart = true
+	add_child(timer)
+	timer.timeout.connect(_render_meter)
+
+func _meter_btn(text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION - 1)
+	var bsb := StyleBoxFlat.new()
+	bsb.bg_color = Color(0, 0, 0, 0.3)
+	bsb.set_corner_radius_all(4)
+	bsb.set_content_margin_all(2)
+	bsb.content_margin_left = 6.0
+	bsb.content_margin_right = 6.0
+	for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+		b.add_theme_stylebox_override(st, bsb if st == "normal" else bsb.duplicate())
+	(b.get_theme_stylebox("hover") as StyleBoxFlat).bg_color = Color(0.3, 0.36, 0.46, 0.5)
+	b.pressed.connect(on_press)
+	return b
+
+func _toggle_meter() -> void:
+	if _meter_panel == null:
+		return
+	_meter_panel.visible = not _meter_panel.visible
+	if _meter_panel.visible:
+		_render_meter()                           # fill rows/title FIRST so the placement sees the real width
+		if not _meter_dragged:
+			_meter_panel.reset_size()
+			var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+			_meter_panel.position = Vector2(vp.x - _meter_panel.size.x - 12.0, 340.0)
+
+func _meter_now() -> float:
+	return Time.get_ticks_msec() / 1000.0
+
+# one accumulator entry per fighter id; name/class resolved lazily via _find_fighter and CACHED so
+# rows survive the fighter leaving interest range. Pruned after METER_PRUNE idle.
+func _meter_entry(id: String, now: float) -> Dictionary:
+	var e = _meter.get(id)
+	if e == null:
+		var buckets := []
+		buckets.resize(METER_SLOTS)
+		buckets.fill(0.0)
+		var bsec := []
+		bsec.resize(METER_SLOTS)
+		bsec.fill(-1)
+		e = {"dmg": 0.0, "heal": 0.0, "taken": 0.0, "last_t": now, "buckets": buckets, "bsec": bsec,
+			"name": "", "color": Palette.TEXT_DIM, "mob": false}
+		_meter[id] = e
+	e["last_t"] = now
+	if str(e["name"]) == "":
+		_meter_resolve(e, id)
+	return e
+
+func _meter_resolve(e: Dictionary, id: String) -> void:
+	var f = _find_fighter(id)
+	if f == null:
+		return
+	var def: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
+	e["name"] = str(f.get("name", def.get("name", "?")))
+	e["color"] = Color.from_string(str(def.get("color", "")), Palette.TEXT_DIM)
+	e["mob"] = bool(def.get("mob", false))
+
+# called for EVERY event inside _handle_events, before _state["events"].clear()
+func _meter_accum(t: String, ev: Dictionary) -> void:
+	if t != "dmg" and t != "heal" and t != "shield":
+		return
+	var now := _meter_now()
+	if now - _enc_last >= METER_GAP:              # encounter edge: first event after silence → fresh sums
+		_enc_start = now                          # (the ring buckets are time-keyed — no reset needed)
+		for id in _meter:
+			var e0: Dictionary = _meter[id]
+			e0["dmg"] = 0.0
+			e0["heal"] = 0.0
+			e0["taken"] = 0.0
+	_enc_last = now
+	var amt := float(ev.get("amt", 0))
+	if amt <= 0.0:
+		return
+	var src := str(ev.get("src", ""))
+	if t == "dmg":
+		if src != "":
+			var e := _meter_entry(src, now)
+			e["dmg"] = float(e["dmg"]) + amt
+			var sec := int(now)                   # per-second ring slot for the rolling window
+			var slot := sec % METER_SLOTS
+			if int((e["bsec"] as Array)[slot]) != sec:
+				e["bsec"][slot] = sec
+				e["buckets"][slot] = 0.0
+			e["buckets"][slot] = float(e["buckets"][slot]) + amt
+		var tgt := str(ev.get("tgt", ""))
+		if tgt != "":                             # tgt-side sum of the same events = the "taken" mode
+			var et := _meter_entry(tgt, now)
+			et["taken"] = float(et["taken"]) + amt
+	elif src != "":                               # heal/shield amt is the post-cap APPLIED amount
+		var eh := _meter_entry(src, now)
+		eh["heal"] = float(eh["heal"]) + amt
+
+func _meter_rolling(e: Dictionary, now: float) -> float:
+	var lo := int(now - METER_WINDOW)
+	var sum := 0.0
+	for i in METER_SLOTS:
+		if int((e["bsec"] as Array)[i]) > lo:
+			sum += float((e["buckets"] as Array)[i])
+	return sum / clampf(now - _enc_start, 3.0, METER_WINDOW)
+
+# party membership for the scope filter + row highlight. NetClient overrides with the live roster.
+func _meter_is_party(id: String) -> bool:
+	return id == _player_id
+
+func _fmt_meter_num(v: float) -> String:
+	if v >= 100000.0:
+		return "%.0fk" % (v / 1000.0)
+	if v >= 10000.0:
+		return "%.1fk" % (v / 1000.0)
+	return "%d" % int(round(v))
+
+# the 4 Hz re-render (and the prune, which must run even while hidden to bound the dict)
+func _render_meter() -> void:
+	var now := _meter_now()
+	for id in _meter.keys():
+		if now - float(_meter[id]["last_t"]) > METER_PRUNE:
+			_meter.erase(id)
+	if _meter_panel == null or not _meter_panel.visible:
+		return
+	var dur: float = clampf(_enc_last - _enc_start, 1.0, 1.0e9)
+	var rows := []
+	for id in _meter:
+		var e: Dictionary = _meter[id]
+		if str(e["name"]) == "":
+			_meter_resolve(e, str(id))            # retry: the fighter may have entered interest since
+			if str(e["name"]) == "":
+				continue
+		if bool(e["mob"]):
+			continue                              # players + AI residents only — a mob camp would drown the list
+		if _meter_party_only and not _meter_is_party(str(id)):
+			continue
+		var v := 0.0
+		match _meter_mode:
+			0: v = _meter_rolling(e, now)
+			1: v = float(e["dmg"]) / dur
+			2: v = float(e["heal"]) / dur
+			3: v = float(e["taken"])
+		if v >= 0.5:
+			rows.append({"id": str(id), "e": e, "v": v})
+	rows.sort_custom(func(a, b): return float(a["v"]) > float(b["v"]))
+	var top: float = maxf(1.0, float(rows[0]["v"]) if not rows.is_empty() else 1.0)
+	for i in METER_MAX_ROWS:
+		var w: Dictionary = _meter_row_pool[i]
+		if i >= rows.size():
+			(w["root"] as Control).visible = false
+			continue
+		var r: Dictionary = rows[i]
+		var e2: Dictionary = r["e"]
+		var col: Color = e2["color"]
+		(w["root"] as Control).visible = true
+		(w["fill"] as ColorRect).color = Color(col, 0.30)
+		(w["fill"] as ColorRect).size.x = METER_ROW_W * clampf(float(r["v"]) / top, 0.0, 1.0)
+		(w["stripe"] as ColorRect).color = col
+		var nm := w["name"] as Label
+		nm.text = "%d. %s" % [i + 1, str(e2["name"])]
+		if r["id"] == _player_id:                 # self gold, party bright, others standard
+			nm.add_theme_color_override("font_color", Palette.ACCENT)
+		elif _meter_is_party(str(r["id"])):
+			nm.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+		else:
+			nm.add_theme_color_override("font_color", Palette.TEXT)
+		(w["num"] as Label).text = _fmt_meter_num(float(r["v"]))
+	if _enc_last < 0.0:                              # nothing tracked yet — no fake "0s encounter"
+		_meter_title.text = "⚔ %s" % METER_MODES[_meter_mode]
+	else:                                            # keep the LAST encounter viewable after it ends
+		var over: bool = now - _enc_last >= METER_GAP
+		_meter_title.text = "⚔ %s   %ds%s" % [METER_MODES[_meter_mode], int(dur), " · ended" if over else ""]
+	_meter_scope_btn.text = "party" if _meter_party_only else "zone"
 
 # (re)build a slot per ability when the class is known/changes
 func _build_hotbar(class_id: String) -> void:
@@ -2076,36 +2561,58 @@ func _build_hotbar(class_id: String) -> void:
 		var slot := Control.new()
 		slot.custom_minimum_size = Vector2(60, 60)
 		slot.pivot_offset = Vector2(30, 30)      # press-depress scales around the slot center
-		var bg := ColorRect.new()
+		var bg := Panel.new()                    # P1 polish: rounded, bordered slot (gold ring on the ult)
 		bg.size = Vector2(60, 60)
-		bg.color = _slot_color(ab)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var bsb := StyleBoxFlat.new()
+		bsb.bg_color = _slot_color(ab)
+		bsb.set_border_width_all(1)
+		bsb.border_color = Color(Palette.ACCENT, 0.8) if ab.get("ult", false) else Palette.BORDER
+		bsb.set_corner_radius_all(7)
+		bg.add_theme_stylebox_override("panel", bsb)
 		slot.add_child(bg)
 		var cd := ColorRect.new()                # cooldown wipe (dark, height = cd fraction)
 		cd.color = Color(0, 0, 0, 0.62)
-		cd.size = Vector2(60, 0)
+		cd.position = Vector2(1, 1)
+		cd.size = Vector2(58, 0)
+		cd.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		slot.add_child(cd)
+		var cap := PanelContainer.new()          # keycap chip, top-left
+		cap.position = Vector2(3, 3)
+		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var csb := StyleBoxFlat.new()
+		csb.bg_color = Color(0, 0, 0, 0.55)
+		csb.set_corner_radius_all(3)
+		csb.content_margin_left = 4.0
+		csb.content_margin_right = 4.0
+		cap.add_theme_stylebox_override("panel", csb)
 		var kl := Label.new()                    # keybind
 		kl.text = str(i + 1)
-		kl.position = Vector2(4, 1)
-		kl.add_theme_font_size_override("font_size", 16)
-		slot.add_child(kl)
+		kl.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+		kl.add_theme_color_override("font_color", Palette.ACCENT2)
+		cap.add_child(kl)
+		slot.add_child(cap)
 		var nl := Label.new()                    # ability name (small, wrapped)
 		nl.text = str(ab["name"])
-		nl.position = Vector2(2, 30)
-		nl.size = Vector2(56, 28)
+		nl.position = Vector2(3, 30)
+		nl.size = Vector2(54, 28)
 		nl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		nl.add_theme_font_size_override("font_size", 10)
+		nl.add_theme_color_override("font_color", Palette.TEXT)
 		slot.add_child(nl)
 		var cs := Label.new()                    # cooldown seconds (center)
 		cs.position = Vector2(0, 18)
 		cs.size = Vector2(60, 24)
 		cs.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		cs.add_theme_font_size_override("font_size", 20)
+		cs.add_theme_color_override("font_color", Palette.ACCENT)
+		cs.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		cs.add_theme_constant_override("outline_size", 5)
 		slot.add_child(cs)
 		slot.mouse_entered.connect(_on_slot_hover.bind(i))
 		slot.mouse_exited.connect(_on_slot_unhover)
 		_hotbar.add_child(slot)
-		_slots.append({"root": slot, "cd": cd, "cs": cs, "bg": bg, "press": 0.0})
+		_slots.append({"root": slot, "cd": cd, "cs": cs, "sb": bsb, "press": 0.0})
 
 func _slot_color(ab: Dictionary) -> Color:
 	if ab.get("ult", false): return Color(0.36, 0.30, 0.10)       # ultimate = gold-ish
@@ -2141,14 +2648,14 @@ func _update_hotbar(pf: Dictionary) -> void:
 					total = float(pred["total"])
 					rem = maxf(total - float(pred["t"]), 0.05)
 		var frac: float = clampf(rem / total, 0.0, 1.0) if total > 0.0 else 0.0
-		_slots[i]["cd"].size = Vector2(60.0, frac * 60.0)
+		_slots[i]["cd"].size = Vector2(58.0, frac * 58.0)
 		_slots[i]["cs"].text = ("%d" % int(ceil(rem))) if rem > 0.05 else ""
 		var press: float = float(_slots[i].get("press", 0.0))
 		if press > 0.0:                                 # tactile press: depress + brighten, settling fast
 			press = maxf(0.0, press - dt * 6.0)
 			_slots[i]["press"] = press
 			_slots[i]["root"].scale = Vector2.ONE * (1.0 - 0.10 * press)
-			_slots[i]["bg"].color = _slot_color(ab).lightened(press * 0.55)
+			(_slots[i]["sb"] as StyleBoxFlat).bg_color = _slot_color(ab).lightened(press * 0.55)
 
 func _on_slot_hover(i: int) -> void:
 	var pf = _find_fighter(_player_id)
@@ -2195,13 +2702,24 @@ func _update_hud() -> void:
 	if pf == null or _player == null:
 		return
 	var c: Dictionary = GameData.CLASSES[pf["classId"]]
-	var alive_txt := "[color=#ff6b6b](respawning…)[/color]" if not pf["alive"] else ""
-	var bots_txt := "[color=#7fd4ff][b]BOTS PAUSED[/b] — press P to engage[/color]" if _bots_frozen else "[color=#ff8a8a][b]BOTS ACTIVE[/b] — press P to pause[/color]"
 	var title: String = ("%s the %s" % [char_name, c["name"]]) if char_name != "" else c["name"]
-	var controls := "WASD move · 1-8 abilities · LMB basic · [b]Tab[/b] target · RMB-drag camera · wheel zoom · [b]P[/b] pause bots · [b]R[/b] reset"
+	_update_vitals(pf, title, c)
+	var status := ""
+	if not pf["alive"]:
+		status = "respawning…   "
+	status += "BOTS PAUSED — P engages" if _bots_frozen else "BOTS ACTIVE — P pauses"
+	if _save_note != "":
+		status += "   ·   " + _save_note
+	_vit_set("status", _vit_status, status)
+	_vit_status.add_theme_color_override("font_color",
+		Palette.DANGER_SOFT if not pf["alive"] else (Palette.ACCENT2 if _bots_frozen else Palette.TEXT_DIM))
+	_zone_banner.visible = true
+	_vit_set("zone", _zone_label, "PRACTICE ARENA")
+	var controls := "WASD move · 1-8 abilities · LMB basic · [b]Tab[/b] target · RMB-drag camera · wheel zoom · [b]N[/b] meter · [b]P[/b] pause bots · [b]R[/b] reset"
 	if not class_locked:
 		controls += " · [b]C[/b] class"
-	var save_txt := ("   [color=#7fd4ff]%s[/color]" % _save_note) if _save_note != "" else ""
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   HP %d/%d %s   %s%s\n[color=#7f93a8]%s[/color]" % [
-		title, c["sport"], c["role"], int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, bots_txt, save_txt, controls]
+	if str(_vit_cache.get("hints", "")) != controls:      # the keybind line lives bottom-left now (_bar)
+		_vit_cache["hints"] = controls
+		_bar.text = "[color=#7f93a8]%s[/color]" % controls
+	_info.text = ""
 	_update_hotbar(pf)                           # the visual skill bar replaces the old text row

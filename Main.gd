@@ -28,6 +28,11 @@ var _client = null                     # the live online NetClient (for Log Out 
 func _ready() -> void:
 	var args := OS.get_cmdline_args()
 	args.append_array(OS.get_cmdline_user_args())
+	# dev-only: --shot <path> [--shot-delay <s>] saves the rendered viewport to a PNG and quits —
+	# the UI pass's "eyeball at multiple sizes" loop without a human at the window. Windowed only.
+	var shot := _arg_value(args, "--shot", "")
+	if shot != "":
+		_capture_after(shot, float(_arg_value(args, "--shot-delay", "4")))
 	var port := int(_arg_value(args, "--port", str(SERVER_PORT)))
 	var dtls := "--dtls" in args
 	if "--server" in args:
@@ -174,6 +179,13 @@ func _on_entered_local(supa, character) -> void:
 			c.queue_free()
 	add_child(client)
 	client.add_child(supa)
+
+func _capture_after(path: String, delay: float) -> void:
+	await get_tree().create_timer(delay).timeout
+	var img := get_viewport().get_texture().get_image()
+	img.save_png(path)
+	print("[shot] saved %s (%dx%d)" % [path, img.get_width(), img.get_height()])
+	get_tree().quit()
 
 func _arg_value(args: Array, key: String, def: String) -> String:
 	var i := args.find(key)

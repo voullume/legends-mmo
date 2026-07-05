@@ -11,7 +11,7 @@ const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (
 const MOVE_SEND_INTERVAL := 1.0 / 30.0   # cap input sends at the server tick (30 Hz); 60 Hz floods the UDP buffer
 var _move_send_t := 0.0
 const DESPAWN_GRACE := 3.0        # keep an out-of-interest node hidden this long before freeing
-const RARITY_COLORS := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff", "epic": "#c77dff", "legendary": "#ff8c1a", "mythic": "#ff4d6d"}
+const RARITY_COLORS := Palette.RARITY_HEX      # P0: the rarity ramp now lives in client/ui/Palette.gd
 const RARITY_ORDER := ["common", "uncommon", "rare", "epic", "legendary", "mythic"]   # low → high tier
 const RARITY_RANK := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 5}
 const SELL_BATCH_MAX := 50                                                   # one bulk sell ≤ this (server caps too)
@@ -149,6 +149,7 @@ var _last_map := ""                          # for zone-change sound + music cro
 # Replaces the LOCAL sandbox setup: no local match — wait for the server to assign a fighter.
 func _enter_mode() -> void:
 	Engine.max_fps = 60
+	_meter_party_only = true     # §4a: online, the meter defaults to party scope (zone is the opt-in)
 	_player = PlayerCtl.new()
 	add_child(_player)
 	_player_id = ""              # set by assign_fighter()
@@ -165,6 +166,8 @@ func _enter_mode() -> void:
 	_build_qgiver_dialog()
 	_build_settings()
 	_build_disconnect_overlay()
+	if "--meter" in OS.get_cmdline_user_args():   # dev-only: open the §4a meter on boot (pairs with --shot)
+		_toggle_meter()
 	print("[netclient] ready — awaiting server fighter assignment")
 
 func _build_chat() -> void:
@@ -1335,34 +1338,15 @@ func _my_tokens() -> int:
 func recv_vendor_info(info: Dictionary) -> void:
 	_vendor_info = info
 
+# P0 pattern-proof: the first panel migrated onto the Widgets scaffold + Palette tokens.
 func _build_vendor() -> void:
-	_vendor_panel = CenterContainer.new()
-	_vendor_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_vendor_panel.visible = false
+	var p := Widgets.panel("◈ Practice Vendor — Rookie Camp Set", "V / Esc closes", 580.0)
+	_vendor_panel = p["root"]
 	_hud.add_child(_vendor_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(580, 0)
-	_vendor_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "◈ Practice Vendor — Rookie Camp Set   (V to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
-	_vendor_status = Label.new()
-	_vendor_status.add_theme_font_size_override("font_size", 16)
-	_vendor_status.add_theme_color_override("font_color", Color(0.4, 0.85, 1.0))
+	var vb: VBoxContainer = p["body"]
+	_vendor_status = Widgets.status(Palette.TOKENS)
 	vb.add_child(_vendor_status)
-	var hint := Label.new()
-	hint.text = "Earn Practice Tokens from Glitchyard kills + quest turn-ins. Equip 2 / 4 EPIC pieces for the set bonus (+END)."
-	hint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(hint)
+	vb.add_child(Widgets.hint("Earn Practice Tokens from Glitchyard kills + quest turn-ins. Equip 2 / 4 EPIC pieces for the set bonus (+END)."))
 	_vendor_rows = VBoxContainer.new()
 	_vendor_rows.add_theme_constant_override("separation", 6)
 	vb.add_child(_vendor_rows)
@@ -1384,14 +1368,24 @@ func _render_vendor() -> void:
 	for it in (_vendor_info.get("catalog", []) as Array):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		var lbl := Label.new()
-		lbl.text = "%s   [%s]   %s +%d" % [str(it.get("name", "?")), str(it.get("slot", "")), str(it.get("primary_stat", "")), int(it.get("primary_amt", 0))]
+		var lbl := RichTextLabel.new()
+		lbl.bbcode_enabled = true
+		lbl.fit_content = true
+		lbl.scroll_active = false
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		lbl.custom_minimum_size = Vector2(380, 0)
+		lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		lbl.text = "[b][color=%s]%s[/color][/b]  [color=%s]%s[/color]   [color=%s]+%d %s[/color]" % [
+			RARITY_COLORS.get("epic", "#cfd6df"), _esc(str(it.get("name", "?"))),
+			Palette.hex(Palette.TEXT_FAINT), str(it.get("slot", "")),
+			Palette.hex(Palette.XP), int(it.get("primary_amt", 0)), str(it.get("primary_stat", ""))]
 		row.add_child(lbl)
 		var price := int(it.get("price", 0))
 		var btn := Button.new()
-		btn.text = "Buy   %d ◈" % price
+		btn.text = "Buy   %d Tokens" % price
 		btn.disabled = _my_tokens() < price
+		if not btn.disabled:
+			btn.add_theme_color_override("font_color", Palette.TOKENS)
 		btn.pressed.connect(_on_vendor_buy.bind(str(it.get("slot", ""))))
 		row.add_child(btn)
 		_vendor_rows.add_child(row)
@@ -2688,7 +2682,7 @@ func _sync_party_panel() -> void:
 	if _party_panel == null:
 		_party_panel = VBoxContainer.new()
 		_party_panel.add_theme_constant_override("separation", 4)
-		_party_panel.position = Vector2(12.0, 150.0)
+		_party_panel.position = Vector2(12.0, 250.0)   # below the P1 vitals frame + currency tray
 		_hud.add_child(_party_panel)
 		_leave_btn = Button.new()
 		_leave_btn.text = "Leave Party"
@@ -2752,6 +2746,15 @@ func _make_party_frame(fid: String) -> Dictionary:
 
 func _select_friend(fid: String) -> void:
 	_friend_id = "" if _friend_id == fid else fid   # click the frame again to clear
+
+# §4a meter: party scope + row highlight read the live roster (self always counts)
+func _meter_is_party(id: String) -> bool:
+	if id == _player_id:
+		return true
+	for m in _party:
+		if str(m.get("fid", "")) == id:
+			return true
+	return false
 
 # Ctrl+Tab cycles the heal/buff target through the party (self included)
 func _cycle_friend() -> void:
@@ -3148,6 +3151,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_toggle_camp()                  # the Camp Circuit Intensity selector while at the entry portal
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_N and not _chatting:
+			_toggle_meter()                 # the §4a DPS/HPS meter — usable anywhere
+			get_viewport().set_input_as_handled()
+			return
 		elif e.keycode == KEY_G and not _chatting:
 			_toggle_wardrobe()              # the Wardrobe (cosmetic dyes) — usable anywhere
 			get_viewport().set_input_as_handled()
@@ -3188,27 +3195,40 @@ func _update_hud() -> void:
 				_dc_overlay.visible = true
 		elif _dc_overlay.visible:
 			_dc_overlay.visible = false
-	if _net_msg != "":
-		_info.text = "[b]Legends MMO — Online[/b]\n[color=#ff7a7a]%s[/color]" % _net_msg
+	if _net_msg != "" or _player_id == "" or _player == null or _state.is_empty():
+		if _hud_left != null:                     # pre-snapshot / dropped: the status banner IS the HUD
+			_hud_left.visible = false
+		if _zone_banner != null:
+			_zone_banner.visible = false
+		var det := ("[color=#ff7a7a]%s[/color]" % _net_msg) if _net_msg != "" else "[color=#7f93a8]connecting…[/color]"
+		_info.text = "[b]Legends MMO — Online[/b]\n" + det
 		_bar.text = ""
-		return
-	if _player_id == "" or _player == null or _state.is_empty():
-		_info.text = "[b]Legends MMO — Online[/b]\n[color=#7f93a8]connecting…[/color]"
-		_bar.text = ""
+		_vit_cache.erase("hints")                 # re-arm the keybind line for the next session
 		return
 	var pf = _find_fighter(_player_id)
 	if pf == null:
 		return
+	_info.text = ""
 	var c: Dictionary = GameData.CLASSES[pf["classId"]]
-	var alive_txt := "[color=#ff6b6b](respawning…)[/color]" if not pf["alive"] else ""
-	var lvl := int(pf.get("level", 1))
-	var xp := int(pf.get("xp", 0))
-	var xpn := int(pf.get("xpNext", 100))
+	_update_vitals(pf, str(pf.get("name", c["name"])), c)
+	_vit_set("status", _vit_status, ("respawning…   ·   ONLINE" if not pf["alive"] else "ONLINE"))
+	_vit_status.add_theme_color_override("font_color",
+		Palette.DANGER_SOFT if not pf["alive"] else Palette.TEXT_DIM)
+	_tray.visible = true                          # the currency tray is an online-only strip
+	_vit_set("credits", _tray_credits, "◈ %d" % int(pf.get("credits", 0)))
+	_vit_set("scrap", _tray_scrap, "%d scrap" % _my_scrap())
+	_vit_set("tokens", _tray_tokens, "%d tokens" % _my_tokens())
+	_zone_banner.visible = true
+	var pvp := bool(_state.get("pvp", false))
 	var zone := _zone_name(str(_state.get("map", "")))
-	var zone_chip := ("[color=#ff6b6b][b]⚔ %s · PvP[/b][/color]" % zone) if bool(_state.get("pvp", false)) else ("[color=#8ad6ff]◗ %s[/color]" % zone)
-	_info.text = "[b]%s[/b]  [color=#9fb4c8]%s · %s[/color]   [color=#ffd24d][b]Lvl %d[/b][/color]  HP %d/%d %s   [color=#9fe8a0]XP %d/%d[/color]   [color=#ffd24d]◈ %d[/color]   [color=#c9a36a]%d scrap[/color]   [color=#4fd4ff]%d tokens[/color]   %s   [color=#7fd4ff]ONLINE[/color]\n[color=#7f93a8]WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]K[/b] sheet · [b]J[/b] journal · [b]F[/b] forge · [b]O[/b] options[/color]" % [
-		c["name"], c["sport"], c["role"], lvl, int(round(pf["hp"])), int(pf["maxHP"]), alive_txt, xp, xpn, int(pf.get("credits", 0)), _my_scrap(), _my_tokens(), zone_chip]
-	_bar.text = ""
+	_vit_set("zone", _zone_label, ("⚔ %s · PVP" % zone.to_upper()) if pvp else zone.to_upper())
+	if bool(_vit_cache.get("zone_pvp", false)) != pvp:
+		_vit_cache["zone_pvp"] = pvp
+		_zone_label.add_theme_color_override("font_color", Palette.DANGER if pvp else Palette.ACCENT2)
+	var hints := "WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]K[/b] sheet · [b]J[/b] journal · [b]N[/b] meter · [b]G[/b] wardrobe · [b]L[/b] boards · [b]O[/b] options"
+	if str(_vit_cache.get("hints", "")) != hints:
+		_vit_cache["hints"] = hints
+		_bar.text = "[color=#7f93a8]%s[/color]" % hints
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
 
 func _zone_name(map: String) -> String:

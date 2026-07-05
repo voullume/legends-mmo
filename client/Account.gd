@@ -27,6 +27,7 @@ var _busy := false           # one in-flight async op at a time (no double-click
 var _entered_once := false   # entered() may fire only once (guards double-boot)
 
 func _ready() -> void:
+	get_window().theme = UITheme.get_theme()   # UI-overhaul P0: the login screen shares the game Theme
 	supa = Supa.new()
 	add_child(supa)
 	_build()
