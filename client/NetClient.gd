@@ -166,9 +166,29 @@ func _enter_mode() -> void:
 	_build_qgiver_dialog()
 	_build_settings()
 	_build_disconnect_overlay()
-	if "--meter" in OS.get_cmdline_user_args():   # dev-only: open the §4a meter on boot (pairs with --shot)
+	var ua := OS.get_cmdline_user_args()
+	if "--meter" in ua:                           # dev-only: open the §4a meter on boot (pairs with --shot)
 		_toggle_meter()
+	var oi := ua.find("--open")                   # dev-only: open a named panel after the first snapshot
+	if oi >= 0 and oi + 1 < ua.size():
+		_dev_open = str(ua[oi + 1])
 	print("[netclient] ready — awaiting server fighter assignment")
+
+var _dev_open := ""                               # dev-only screenshot hook: panel to open once connected
+func _dev_open_panel() -> void:
+	match _dev_open:
+		"charsheet": _toggle_charsheet()
+		"settings": _toggle_settings()
+		"wardrobe": _toggle_wardrobe()
+		"questlog": _toggle_questlog()
+		"leaderboard": _toggle_leaderboard()
+		"camp": _toggle_camp()
+		"inventory": _toggle_inventory()
+		"shop": _toggle_shop()
+		"forge": _toggle_forge()
+		"vendor": _toggle_vendor()
+		"qgiver": _toggle_qgiver()
+	_dev_open = ""
 
 func _build_chat() -> void:
 	_chat_log = RichTextLabel.new()
@@ -262,31 +282,14 @@ func _item_meta_str(it: Dictionary) -> String:
 	return "[color=#7f8a99]i%d · ✦%d[/color]" % [int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
 
 func _build_inventory() -> void:
-	_inv_panel = CenterContainer.new()
-	_inv_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_inv_panel.visible = false
+	var p := Widgets.panel("Inventory", "I / Esc", 760.0, _toggle_inventory)
+	_inv_panel = p["root"]
 	_hud.add_child(_inv_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(760, 0)
-	_inv_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 14)
-	var t := Label.new()
-	t.text = "Inventory   (I to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	head.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	_inv_status = Label.new()
-	_inv_status.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_inv_status.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
-	head.add_child(_inv_status)
-	vb.add_child(head)
+	_inv_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+	_inv_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	vb.add_child(_inv_status)
 	var body := HBoxContainer.new()
 	body.add_theme_constant_override("separation", 16)
 	vb.add_child(body)
@@ -320,24 +323,10 @@ func _build_inventory() -> void:
 
 # --- character sheet (K): computed base+gear attributes + applied combat finals + item power (P3) ---
 func _build_charsheet() -> void:
-	_sheet_panel = CenterContainer.new()
-	_sheet_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_sheet_panel.visible = false
+	var p := Widgets.panel("Character", "K / Esc", 440.0, _toggle_charsheet)
+	_sheet_panel = p["root"]
 	_hud.add_child(_sheet_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(440, 0)
-	_sheet_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "Character   (K to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	_sheet_label = RichTextLabel.new()
 	_sheet_label.bbcode_enabled = true
 	_sheet_label.scroll_active = true
@@ -874,24 +863,10 @@ func _reposition_quest_tracker() -> void:
 		_quest_tracker.position = Vector2(vp.x - 250.0, 150.0)
 
 func _build_questlog() -> void:
-	_quest_panel = CenterContainer.new()
-	_quest_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_quest_panel.visible = false
+	var p := Widgets.panel("Quest Journal", "J / Esc", 560.0, _toggle_questlog)
+	_quest_panel = p["root"]
 	_hud.add_child(_quest_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(560, 0)
-	_quest_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "Quest Journal   (J to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	_quest_label = RichTextLabel.new()
 	_quest_label.bbcode_enabled = true
 	_quest_label.scroll_active = true
@@ -988,24 +963,10 @@ func _on_quest_meta(meta) -> void:
 
 # ---- quest giver (home-base NPC: the ONLY place to accept / turn in; J is a read-only journal) ----
 func _build_qgiver_dialog() -> void:
-	_qgiver_panel = CenterContainer.new()
-	_qgiver_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_qgiver_panel.visible = false
+	var p := Widgets.panel("📜 Quest Giver", "E / Esc", 560.0, _toggle_qgiver)
+	_qgiver_panel = p["root"]
 	_hud.add_child(_qgiver_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(560, 0)
-	_qgiver_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "📜 Quest Giver   (E to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	_qgiver_label = RichTextLabel.new()
 	_qgiver_label.bbcode_enabled = true
 	_qgiver_label.scroll_active = true
@@ -1141,24 +1102,11 @@ func _update_questgiver_proximity() -> void:
 
 # ---- settings (audio volumes + mute; persisted by AudioManager to user://settings.cfg) ----
 func _build_settings() -> void:
-	_settings_panel = CenterContainer.new()
-	_settings_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_settings_panel.visible = false
+	var p := Widgets.panel("Settings", "O / Esc", 400.0, _toggle_settings)
+	_settings_panel = p["root"]
 	_hud.add_child(_settings_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(400, 0)
-	_settings_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
+	var vb: VBoxContainer = p["body"]
 	vb.add_theme_constant_override("separation", 12)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "Settings   (O to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
 	for bus in ["Master", "Music", "SFX"]:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
@@ -1243,24 +1191,10 @@ func recv_shop_info(info: Dictionary) -> void:
 	_shop_info = info
 
 func _build_shop() -> void:
-	_shop_panel = CenterContainer.new()
-	_shop_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_shop_panel.visible = false
+	var p := Widgets.panel("Shop", "B / Esc", 1010.0, _toggle_shop)
+	_shop_panel = p["root"]
 	_hud.add_child(_shop_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(1010, 0)
-	_shop_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "Shop   (B to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 20)
 	vb.add_child(hb)
@@ -1340,7 +1274,7 @@ func recv_vendor_info(info: Dictionary) -> void:
 
 # P0 pattern-proof: the first panel migrated onto the Widgets scaffold + Palette tokens.
 func _build_vendor() -> void:
-	var p := Widgets.panel("◈ Practice Vendor — Rookie Camp Set", "V / Esc closes", 580.0)
+	var p := Widgets.panel("◈ Practice Vendor — Rookie Camp Set", "V / Esc", 580.0, _toggle_vendor)
 	_vendor_panel = p["root"]
 	_hud.add_child(_vendor_panel)
 	var vb: VBoxContainer = p["body"]
@@ -1413,33 +1347,13 @@ func _camp_portal() -> Variant:                  # find the Camp ENTRY portal (o
 	return null
 
 func _build_camp() -> void:
-	_camp_panel = CenterContainer.new()
-	_camp_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_camp_panel.visible = false
+	var p := Widgets.panel("⚔ Camp Circuit — Select Intensity", "C / Esc", 560.0, _toggle_camp)
+	_camp_panel = p["root"]
 	_hud.add_child(_camp_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(560, 0)
-	_camp_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "⚔ Camp Circuit — Select Intensity   (C to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
-	_camp_status = Label.new()
-	_camp_status.add_theme_font_size_override("font_size", 16)
-	_camp_status.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+	var vb: VBoxContainer = p["body"]
+	_camp_status = Widgets.status(Palette.ACCENT)
 	vb.add_child(_camp_status)
-	var hint := Label.new()
-	hint.text = "Higher Intensity = tougher mobs but better loot (ilvl / rarity / drops) + more XP & credits. Clear the gatekeeper at your top tier to unlock the next."
-	hint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(hint)
+	vb.add_child(Widgets.hint("Higher Intensity = tougher mobs but better loot (ilvl / rarity / drops) + more XP & credits. Clear the gatekeeper at your top tier to unlock the next."))
 	_camp_rows = VBoxContainer.new()
 	_camp_rows.add_theme_constant_override("separation", 6)
 	vb.add_child(_camp_rows)
@@ -1535,33 +1449,13 @@ func _my_credits_val() -> int:
 	return int(_state.get("self", {}).get("credits", _my_credits()))
 
 func _build_wardrobe() -> void:
-	_wardrobe_panel = CenterContainer.new()
-	_wardrobe_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_wardrobe_panel.visible = false
+	var p := Widgets.panel("🎨 Wardrobe — Dyes", "G / Esc", 600.0, _toggle_wardrobe)
+	_wardrobe_panel = p["root"]
 	_hud.add_child(_wardrobe_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(600, 0)
-	_wardrobe_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "🎨 Wardrobe — Dyes   (G to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
-	_wardrobe_status = Label.new()
-	_wardrobe_status.add_theme_font_size_override("font_size", 16)
-	_wardrobe_status.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+	var vb: VBoxContainer = p["body"]
+	_wardrobe_status = Widgets.status(Palette.ACCENT)
 	vb.add_child(_wardrobe_status)
-	var hint := Label.new()
-	hint.text = "Cosmetic only — a colored wash on your character. Buy with credits (earned from kills / selling), then equip. Purely for style."
-	hint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(hint)
+	vb.add_child(Widgets.hint("Cosmetic only — a colored wash on your character. Buy with credits (earned from kills / selling), then equip. Purely for style."))
 	_wardrobe_rows = VBoxContainer.new()
 	_wardrobe_rows.add_theme_constant_override("separation", 6)
 	vb.add_child(_wardrobe_rows)
@@ -1639,24 +1533,10 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 # ---- Leaderboards (P5) ----
 const LB_CATS := [["drill", "Two-Minute Drill (wave)"], ["gear", "Gear Score"], ["intensity", "Camp Intensity"]]
 func _build_leaderboard() -> void:
-	_lb_panel = CenterContainer.new()
-	_lb_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_lb_panel.visible = false
+	var p := Widgets.panel("🏆 Leaderboards", "L / Esc", 560.0, _toggle_leaderboard)
+	_lb_panel = p["root"]
 	_hud.add_child(_lb_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(560, 0)
-	_lb_panel.add_child(pc)
-	var mg := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		mg.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(mg)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	mg.add_child(vb)
-	var t := Label.new()
-	t.text = "🏆 Leaderboards   (L to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 8)
 	vb.add_child(tabs)
@@ -1801,24 +1681,10 @@ func _reforge_scrap_cost(rarity: String, rc: int) -> int:     # MUST match Serve
 
 # --- Forge panel (F at the forge pad): spend credits + scrap to upgrade gear (P4) ---
 func _build_forge() -> void:
-	_forge_panel = CenterContainer.new()
-	_forge_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_forge_panel.visible = false
+	var p := Widgets.panel("Forge", "F / Esc", 680.0, _toggle_forge)
+	_forge_panel = p["root"]
 	_hud.add_child(_forge_panel)
-	var pc := PanelContainer.new()
-	pc.custom_minimum_size = Vector2(680, 0)
-	_forge_panel.add_child(pc)
-	var m := MarginContainer.new()
-	for s in ["left", "right", "top", "bottom"]:
-		m.add_theme_constant_override("margin_" + s, 20)
-	pc.add_child(m)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	m.add_child(vb)
-	var t := Label.new()
-	t.text = "Forge   (F to close)"
-	t.add_theme_font_size_override("font_size", 22)
-	vb.add_child(t)
+	var vb: VBoxContainer = p["body"]
 	_forge_status = Label.new()
 	_forge_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_forge_status.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
@@ -2989,6 +2855,8 @@ func receive_snapshot(snap: Dictionary) -> void:
 			AudioManager.play_sfx("level_up")
 		_last_level = lvl
 	_handle_events()             # spawn damage-number / hit FX from this snapshot's events
+	if _dev_open != "" and _player_id != "" and _find_fighter(_player_id) != null:
+		_dev_open_panel()        # dev screenshot hook: open a panel once we have a live fighter
 
 func assign_fighter(fid: String) -> void:
 	_player_id = fid

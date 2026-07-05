@@ -4,9 +4,10 @@ extends RefCounted
 ## Each _build_* migrates onto these one at a time (the Practice Vendor is the pattern-proof).
 
 # The standard pop-up scaffold: CenterContainer(full-rect, hidden) → PanelContainer → Margin →
-# VBox, with a styled header row (title + a dim right-aligned key hint) and a rule under it.
-# Returns {root, panel, body, title} — caller adds `root` to the HUD and fills `body`.
-static func panel(title: String, key_hint := "", min_width := 560.0) -> Dictionary:
+# VBox, with a styled header row (title + a dim right-aligned key hint + an optional ✕ close button)
+# and a rule under it. `on_close` (if a valid Callable) wires the ✕. Returns {root, panel, body, title}
+# — caller adds `root` to the HUD and fills `body`.
+static func panel(title: String, key_hint := "", min_width := 560.0, on_close = null) -> Dictionary:
 	var root := CenterContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.visible = false
@@ -36,6 +37,24 @@ static func panel(title: String, key_hint := "", min_width := 560.0) -> Dictiona
 		kh.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
 		kh.add_theme_color_override("font_color", Palette.TEXT_FAINT)
 		head.add_child(kh)
+	if on_close is Callable and (on_close as Callable).is_valid():
+		var x := Button.new()
+		x.text = "✕"
+		x.focus_mode = Control.FOCUS_NONE
+		x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var xsb := StyleBoxEmpty.new()
+		x.add_theme_stylebox_override("normal", xsb)
+		x.add_theme_stylebox_override("focus", xsb)
+		var xh := StyleBoxFlat.new()
+		xh.bg_color = Color(Palette.DANGER, 0.25)
+		xh.set_corner_radius_all(4)
+		xh.set_content_margin_all(2)
+		x.add_theme_stylebox_override("hover", xh)
+		x.add_theme_stylebox_override("pressed", xh)
+		x.add_theme_color_override("font_color", Palette.TEXT_DIM)
+		x.add_theme_color_override("font_hover_color", Palette.TEXT_BRIGHT)
+		x.pressed.connect(on_close)
+		head.add_child(x)
 	vb.add_child(HSeparator.new())
 	return {"root": root, "panel": pc, "body": vb, "title": t}
 
