@@ -2442,12 +2442,17 @@ func _meter_accum(t: String, ev: Dictionary) -> void:
 		return
 	var now := _meter_now()
 	if now - _enc_last >= METER_GAP:              # encounter edge: first event after silence → fresh sums
-		_enc_start = now                          # (the ring buckets are time-keyed — no reset needed)
+		_enc_start = now
 		for id in _meter:
 			var e0: Dictionary = _meter[id]
 			e0["dmg"] = 0.0
 			e0["heal"] = 0.0
 			e0["taken"] = 0.0
+			# clear the rolling ring too: METER_WINDOW (15s) > METER_GAP (5s), so the prior encounter's
+			# last ~10s of buckets would otherwise still be summed by _meter_rolling while the denominator
+			# has collapsed to _enc_start=now — a 2–4× phantom DPS spike for the first seconds of the new fight
+			(e0["buckets"] as Array).fill(0.0)
+			(e0["bsec"] as Array).fill(-1)
 	_enc_last = now
 	var amt := float(ev.get("amt", 0))
 	if amt <= 0.0:
@@ -2496,6 +2501,9 @@ func _render_meter() -> void:
 	for id in _meter.keys():
 		if now - float(_meter[id]["last_t"]) > METER_PRUNE:
 			_meter.erase(id)
+	if _meter.is_empty():                          # everything aged out → clear the encounter so the title
+		_enc_last = -1.0e9                         # doesn't linger as "Xs · ended" over an empty panel
+		_enc_start = 0.0
 	if _meter_panel == null or not _meter_panel.visible:
 		return
 	var dur: float = clampf(_enc_last - _enc_start, 1.0, 1.0e9)

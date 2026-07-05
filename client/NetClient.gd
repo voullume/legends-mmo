@@ -1742,6 +1742,8 @@ func _update_drill_banner() -> void:
 		_drill_banner.text = "⏱  TWO-MINUTE DRILL  ·  WAVE %d" % int(_state["drillWave"])
 		_drill_banner.position = Vector2(vp.x / 2.0 - 200.0, 24.0)
 		_drill_banner.visible = true
+		if _zone_banner != null:                  # the drill banner already names the zone top-center —
+			_zone_banner.visible = false          # suppress the redundant, overlapping zone chip
 	else:
 		_drill_banner.visible = false
 
