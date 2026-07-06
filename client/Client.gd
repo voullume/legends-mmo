@@ -911,9 +911,15 @@ func _render_world(delta: float) -> void:
 		var target := _world(f)
 		var tvel := Vector2(target.x - n["last"].x, target.z - n["last"].z)
 		n["last"] = target
-		n["vel"] = n["vel"].lerp(tvel, clampf(delta * 5.0, 0.0, 1.0))
+		n["vel"] = n["vel"].lerp(tvel, clampf(delta * 7.0, 0.0, 1.0))
 		holder.position = holder.position.lerp(target, clampf(delta * 14.0, 0.0, 1.0))
 		var moving: bool = n["vel"].length() > 0.0016
+		# The run clip used to linger while the body glided to a stop (server-side momentum). Cut it sooner:
+		# a higher bar for the run animation, and for the LOCAL player gate it on live input so it stops the
+		# instant WASD releases (no glide-running) — facing still uses the smoothed velocity below.
+		var anim_moving: bool = n["vel"].length() > 0.010
+		if f["id"] == _player_id and _player != null:
+			anim_moving = absf(float(_player.intent.get("mx", 0.0))) > 0.05 or absf(float(_player.intent.get("my", 0.0))) > 0.05
 		# face heading while moving, else the nearest enemy
 		var flip: float = PI if MESHY_FLIP else 0.0
 		var model: Node3D = n["model"]   # scale is constant (set at spawn) — idle stands tall, run crouches, blended
@@ -925,7 +931,7 @@ func _render_world(delta: float) -> void:
 			if ed != Vector2.ZERO:
 				tgt_yaw = atan2(ed.x, ed.y) + flip
 		model.rotation.y = lerp_angle(model.rotation.y, tgt_yaw, clampf(delta * 9.0, 0.0, 1.0))
-		_drive_anim(n, f, moving)
+		_drive_anim(n, f, anim_moving)
 		_update_ui(n, f)
 		n["pflash"] = f["flash"]
 

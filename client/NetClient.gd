@@ -57,8 +57,8 @@ var _party := []             # party roster from the snapshot (live HP)
 var _party_panel: VBoxContainer = null
 var _party_frames := []      # [{root, fid, fill, name}]
 var _leave_btn: Button = null
-var _invite_popup: Panel = null      # "Invite <name>?" after clicking a player
-var _invite_prompt: Panel = null     # an incoming invite (accept/decline)
+var _invite_popup: PanelContainer = null      # "Invite <name>?" after clicking a player
+var _invite_prompt: PanelContainer = null     # an incoming invite (accept/decline)
 var _invite_from_fid := ""
 var _inv_panel: Control
 var _sheet_panel: Control                    # character sheet (K) — computed base+gear stats + item power
@@ -423,7 +423,8 @@ var _locker_sel := {"key": "", "idx": 0}  # selected slot
 var _locker_detail: VBoxContainer = null
 var _locker_stats: HBoxContainer = null
 var _locker_stat_sig := "-"                # change-guard so the stat bar rebuilds only when values change
-var _locker_header: RichTextLabel = null
+var _locker_name: Label = null            # top-center: character name (prominent)
+var _locker_subtitle: Label = null        # top-center: class · Lv N (item power lives in the bottom OVR only)
 var _locker_loading := false
 var _locker_pending := false
 var _slot_tex_cache := {}
@@ -457,16 +458,16 @@ func _build_locker() -> void:
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 10)
 	m.add_child(root)
-	# header: title + tagline | level/name | ✕
+	# header: [LOCKER LOADOUT title]  ·  [CHARACTER NAME + class/level — top-center, prominent]  ·  [✕]
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	root.add_child(head)
-	var titv := VBoxContainer.new()
+	var titv := VBoxContainer.new()               # left: the screen title
 	titv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var tit := Label.new()
 	tit.text = "LOCKER LOADOUT"
-	tit.add_theme_font_size_override("font_size", 30)
-	tit.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	tit.add_theme_font_size_override("font_size", 24)
+	tit.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	titv.add_child(tit)
 	var tag := Label.new()
 	tag.text = "GEAR UP · SHOW UP · TAKE OVER"
@@ -474,20 +475,29 @@ func _build_locker() -> void:
 	tag.add_theme_color_override("font_color", Palette.ACCENT)
 	titv.add_child(tag)
 	head.add_child(titv)
-	_locker_header = RichTextLabel.new()
-	_locker_header.bbcode_enabled = true
-	_locker_header.fit_content = true
-	_locker_header.scroll_active = false
-	_locker_header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_locker_header.custom_minimum_size = Vector2(260, 0)
-	_locker_header.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head.add_child(_locker_header)
+	var namev := VBoxContainer.new()              # center: the character (prominent)
+	namev.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_locker_name = Label.new()
+	_locker_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_locker_name.add_theme_font_size_override("font_size", 30)
+	_locker_name.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	namev.add_child(_locker_name)
+	_locker_subtitle = Label.new()
+	_locker_subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_locker_subtitle.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
+	_locker_subtitle.add_theme_color_override("font_color", Palette.ACCENT2)
+	namev.add_child(_locker_subtitle)
+	head.add_child(namev)
+	var rightv := HBoxContainer.new()             # right: close (EXPAND balances the left title → name centers)
+	rightv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rightv.alignment = BoxContainer.ALIGNMENT_END
 	var x := Button.new()
 	x.text = "✕"
 	x.focus_mode = Control.FOCUS_NONE
 	x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	x.pressed.connect(_toggle_locker)
-	head.add_child(x)
+	rightv.add_child(x)
+	head.add_child(rightv)
 	root.add_child(HSeparator.new())
 	# body: left slots | 3D figure | right slots | detail
 	var body := HBoxContainer.new()
@@ -560,10 +570,14 @@ func _locker_slot(key: String, label: String, idx: int) -> PanelContainer:
 	nm.add_theme_font_size_override("font_size", Palette.SIZE_BODY)
 	nm.add_theme_color_override("font_color", Palette.TEXT_FAINT)
 	vb.add_child(nm)
-	var entry := {"key": key, "idx": idx, "panel": p, "sb": sb, "icon": icon, "name": nm}
+	var entry := {"key": key, "idx": idx, "panel": p, "sb": sb, "icon": icon, "name": nm, "item": null}
 	p.gui_input.connect(func(ev) -> void:
 		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 			_select_locker_slot(key, idx))
+	p.mouse_entered.connect(func() -> void:       # hover an equipped slot → the compare tooltip (vs deltas)
+		if entry.get("item") != null: _show_item_tooltip(entry["item"], _locker_items))
+	p.mouse_exited.connect(func() -> void:
+		if _tooltip != null: _tooltip.visible = false)
 	_locker_slots.append(entry)
 	return p
 
@@ -673,6 +687,7 @@ func _refresh_locker() -> void:
 		var idx: int = entry["idx"]
 		var eqs: Array = by_slot.get(sl, [])
 		var it = eqs[idx] if idx < eqs.size() else null
+		entry["item"] = it                          # for the hover compare tooltip
 		var icon: TextureRect = entry["icon"]
 		var nm: Label = entry["name"]
 		var sb: StyleBoxFlat = entry["sb"]
@@ -693,15 +708,18 @@ func _refresh_locker() -> void:
 	_update_locker_stats()
 	_render_locker_detail()
 
-# header (name / level / item power) — refreshed live from each snapshot, not just at load
+# top-center character header (name + class · level) — live from each snapshot. Item power is shown ONLY
+# in the bottom-left OVR cell of the stat bar (per the requested layout).
 func _update_locker_header() -> void:
-	if _locker_header == null:
+	if _locker_name == null:
 		return
 	var si: Dictionary = _state.get("self", {})
 	var pf2 = _find_fighter(_player_id)
+	var cls: String = str(si.get("classId", "")) if si.has("classId") else (str(pf2.get("classId", "")) if pf2 != null else "")
+	var cdef: Dictionary = GameData.CLASSES.get(cls, {})
 	var nm2: String = str(pf2.get("name", "")) if pf2 != null else ""
-	_locker_header.text = "[right][b]%s[/b]  [color=%s]Lv %d[/color]\n[color=%s]✦ Item Power %d[/color][/right]" % [
-		_esc(nm2), Palette.hex(Palette.ACCENT), int(si.get("level", 0)), Palette.hex(Palette.ACCENT2), int(si.get("item_power", 0))]
+	_locker_name.text = nm2 if nm2 != "" else str(cdef.get("name", "—"))
+	_locker_subtitle.text = "%s · %s · Lv %d" % [str(cdef.get("name", "")), str(cdef.get("role", "")), int(si.get("level", 0))]
 
 func _update_locker_stats() -> void:
 	if _locker_stats == null:
@@ -852,8 +870,12 @@ func _render_locker_detail() -> void:
 			b.text = "%s   ✦%d%s" % [str(it.get("name", "?")), int(it.get("item_power", 0)), ("  ▲" if is_up else "")]
 			var iid2 := str(it.get("id", ""))
 			var slotk2 := str(it.get("slot", ""))
+			var itc: Dictionary = it                  # per-iteration copy for the hover-tooltip closure
 			b.pressed.connect(func() -> void:
 				if net != null and _connected: net.equip.rpc_id(1, iid2, slotk2))
+			b.mouse_entered.connect(func() -> void: _show_item_tooltip(itc, _locker_items))   # vs-equipped deltas
+			b.mouse_exited.connect(func() -> void:
+				if _tooltip != null: _tooltip.visible = false)
 			lst.add_child(b)
 		_locker_detail.add_child(sc)
 
@@ -3188,26 +3210,55 @@ func _try_invite_click() -> bool:
 	_show_invite_popup(str(p["id"]), nm)
 	return true
 
+func _invite_box(accent: Color, border_w: int) -> PanelContainer:
+	var p := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.BG_PANEL, 0.98)
+	sb.set_border_width_all(border_w)
+	sb.border_color = accent
+	sb.set_corner_radius_all(9)
+	sb.set_content_margin_all(18)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
 func _show_invite_popup(fid: String, nm: String) -> void:
 	if _invite_popup != null:
 		_invite_popup.queue_free()
-	_invite_popup = Panel.new()
+	_invite_popup = _invite_box(Palette.ACCENT2, 1)
 	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
 	_invite_popup.add_child(vb)
 	var lbl := Label.new()
-	lbl.text = "Invite %s?" % nm
+	lbl.text = "Invite %s to your party?" % nm
+	lbl.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
+	lbl.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
 	vb.add_child(lbl)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	vb.add_child(row)
 	var btn := Button.new()
-	btn.text = "Invite to Party"
+	btn.text = "👥  Invite"
+	btn.custom_minimum_size = Vector2(150, 40)
+	btn.add_theme_color_override("font_color", Palette.ACCENT2)
 	btn.pressed.connect(func() -> void:
 		if net != null and _connected:
 			net.party_invite.rpc_id(1, fid)
-		_invite_popup.queue_free()
+		if _invite_popup != null: _invite_popup.queue_free()
 		_invite_popup = null)
-	vb.add_child(btn)
+	row.add_child(btn)
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.custom_minimum_size = Vector2(110, 40)
+	cancel.pressed.connect(func() -> void:
+		if _invite_popup != null: _invite_popup.queue_free()
+		_invite_popup = null)
+	row.add_child(cancel)
 	_hud.add_child(_invite_popup)
 	_invite_popup.reset_size()
-	_invite_popup.position = _hud.get_viewport().get_mouse_position() + Vector2(10.0, 10.0)
+	var mp: Vector2 = _hud.get_viewport().get_mouse_position()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_invite_popup.position = Vector2(clampf(mp.x + 12.0, 8.0, vp.x - _invite_popup.size.x - 8.0),
+		clampf(mp.y + 12.0, 8.0, vp.y - _invite_popup.size.y - 8.0))
 
 # an incoming invite → accept/decline prompt
 func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
@@ -3218,23 +3269,39 @@ func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
 	_invite_from_fid = inviter_fid
 	if _invite_prompt != null:
 		_invite_prompt.queue_free()
-	_invite_prompt = Panel.new()
+	_invite_prompt = _invite_box(Palette.ACCENT, 2)
 	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 14)
 	_invite_prompt.add_child(vb)
+	var title := Label.new()
+	title.text = "👥  PARTY INVITE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", Palette.SIZE_TITLE)
+	title.add_theme_color_override("font_color", Palette.ACCENT)
+	vb.add_child(title)
 	var lbl := Label.new()
-	lbl.text = "%s invited you to a party" % inviter_name
+	lbl.text = "%s invited you to their party" % inviter_name
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
+	lbl.add_theme_color_override("font_color", Palette.TEXT)
 	vb.add_child(lbl)
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vb.add_child(row)
 	var yes := Button.new()
-	yes.text = "Accept"
+	yes.text = "✓ Accept"
+	yes.custom_minimum_size = Vector2(150, 46)
+	yes.add_theme_color_override("font_color", Palette.XP)
 	yes.pressed.connect(func() -> void:
 		if net != null and _connected:
 			net.party_accept.rpc_id(1, _invite_from_fid)
 		_close_invite_prompt())
 	row.add_child(yes)
 	var no := Button.new()
-	no.text = "Decline"
+	no.text = "✕ Decline"
+	no.custom_minimum_size = Vector2(150, 46)
+	no.add_theme_color_override("font_color", Palette.DANGER_SOFT)
 	no.pressed.connect(func() -> void:
 		if net != null and _connected:
 			net.party_decline.rpc_id(1)
@@ -3243,7 +3310,7 @@ func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
 	_hud.add_child(_invite_prompt)
 	_invite_prompt.reset_size()
 	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-	_invite_prompt.position = Vector2((vp.x - _invite_prompt.size.x) / 2.0, 120.0)
+	_invite_prompt.position = Vector2((vp.x - _invite_prompt.size.x) / 2.0, 110.0)
 
 func _close_invite_prompt() -> void:
 	if _invite_prompt != null:
