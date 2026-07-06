@@ -765,10 +765,10 @@ func _spawn(f: Dictionary) -> void:
 	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	label.no_depth_test = true
 	label.fixed_size = true
-	label.pixel_size = 0.0016
-	label.font_size = 56
-	label.outline_size = 16
-	label.outline_modulate = Color(0, 0, 0, 0.9)
+	label.pixel_size = WorldUI.PLATE_PIXEL
+	label.font_size = WorldUI.PLATE_FONT
+	label.outline_size = WorldUI.PLATE_OUTLINE
+	label.outline_modulate = WorldUI.OUTLINE_COLOR
 	label.position.y = BAR_H + 0.32
 	ui.add_child(label)
 
@@ -1084,10 +1084,10 @@ func _render_portals() -> void:
 		lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		lbl.no_depth_test = true
 		lbl.fixed_size = true
-		lbl.pixel_size = 0.0016
-		lbl.font_size = 52
-		lbl.outline_size = 16
-		lbl.outline_modulate = Color(0, 0, 0, 0.9)
+		lbl.pixel_size = WorldUI.PAD_PIXEL
+		lbl.font_size = WorldUI.PAD_FONT
+		lbl.outline_size = WorldUI.PAD_OUTLINE
+		lbl.outline_modulate = WorldUI.OUTLINE_COLOR
 		lbl.modulate = Color(0.65, 0.92, 1.0)
 		lbl.position = pos + Vector3(0.0, 3.7, 0.0)
 		_portal_root.add_child(lbl)
@@ -1590,14 +1590,14 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	var fill: MeshInstance3D = n["fill"]
 	fill.scale.x = max(frac, 0.001)
 	fill.position.x = -BAR_W / 2.0 * (1.0 - frac)
-	(fill.material_override as StandardMaterial3D).albedo_color = (Color(0.9, 0.3, 0.3) if frac < 0.35 else Color(0.3, 0.85, 0.4))
+	(fill.material_override as StandardMaterial3D).albedo_color = WorldUI.hp_color(frac)   # 3-stop ramp
 	var label: Label3D = n["label"]
 	if f.get("dummy", false):
 		label.text = "Training Dummy"
-		label.modulate = Color(0.72, 0.74, 0.8)
+		label.modulate = WorldUI.DUMMY
 	elif f.get("isCore", false):
 		label.text = "◈ POWER CORE"
-		label.modulate = Color(0.32, 0.86, 1.0)
+		label.modulate = WorldUI.CORE
 	elif f.has("mobTier"):
 		var tier: String = str(f["mobTier"])
 		var lvl := int(f.get("mobLevel", 1))
@@ -1620,16 +1620,17 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 				label.modulate = pcol[clampi(ph, 0, 3)]
 		elif tier == "elite":
 			label.text = "Lv %d  ★ ELITE" % lvl
-			label.modulate = Color(1.0, 0.55, 0.4)
+			label.modulate = WorldUI.MOB_ELITE
 		else:
 			label.text = "Lv %d" % lvl
-			label.modulate = Color(0.92, 0.82, 0.6)
+			label.modulate = WorldUI.MOB_LEVEL
 	elif f.has("level"):
 		var lpf = _find_fighter(_player_id)
 		var hostile: bool = lpf != null and _hostile_pair(lpf, f)
 		var mark := "  ◆" if f.get("resident", false) else ""   # RP0: subtle AI-resident marker
 		label.text = (("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))) + mark
-		label.modulate = Color(1.0, 0.45, 0.45) if hostile else Color(0.6, 0.85, 1.0)
+		# hostile players stay red (a threat cue); friendly plates read in their class color for identity
+		label.modulate = WorldUI.HOSTILE if hostile else WorldUI.friendly_plate(_class_vfx_color(str(f["classId"])))
 	elif label.text != "":
 		label.text = ""
 	# P3: Wobble stacks (0..4 = Sim.WOBBLE_MAX) as pips → the stumble no longer "just happens" without warning.
@@ -2255,7 +2256,7 @@ func _update_vitals(pf: Dictionary, title: String, c: Dictionary) -> void:
 	var mhp: float = maxf(1.0, float(pf["maxHP"]))
 	var frac: float = clampf(float(pf["hp"]) / mhp, 0.0, 1.0)
 	Widgets.set_bar(_vit_hp, frac)
-	(_vit_hp["fill"] as ColorRect).color = Palette.HP_LOW if frac < 0.35 else Palette.HP
+	(_vit_hp["fill"] as ColorRect).color = WorldUI.hp_color(frac)   # shared 3-stop ramp (matches world bars)
 	_vit_set("hp", _vit_hp_text, "%d / %d" % [int(round(pf["hp"])), int(mhp)])
 	var sh: float = float(pf.get("shield", 0.0))
 	(_vit_shield["root"] as Control).visible = sh > 0.0

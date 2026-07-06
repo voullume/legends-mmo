@@ -2623,7 +2623,7 @@ func _sync_party_panel() -> void:
 		var fr = _party_frames[i]
 		var frac: float = clampf(float(m["hp"]) / max(float(m["maxHP"]), 1.0), 0.0, 1.0)
 		fr["fill"].size = Vector2(146.0 * frac, 14.0)
-		fr["fill"].color = Color(0.3, 0.8, 0.4) if bool(m["alive"]) else Color(0.5, 0.5, 0.55)
+		fr["fill"].color = WorldUI.hp_color(frac) if bool(m["alive"]) else Color(0.5, 0.5, 0.55)   # shared ramp
 		var you: String = "  [you]" if str(m["fid"]) == _player_id else ""
 		fr["name"].text = "%s  %d/%d%s" % [str(m["name"]), int(m["hp"]), int(m["maxHP"]), you]
 		fr["sel"].visible = (str(m["fid"]) == _friend_id)
