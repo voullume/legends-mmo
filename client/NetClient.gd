@@ -147,6 +147,7 @@ var _qgiver_sig := ""
 var _qgiver_hint: Label = null              # "Press E to talk" proximity prompt
 var _near_qgiver := false
 var _settings_panel: Control = null         # audio/options panel
+var _settings_reset_note: Label = null      # "UI layout reset" confirmation
 var _last_level := 0                         # for the level-up sound
 var _last_map := ""                          # for zone-change sound + music crossfade
 
@@ -1785,12 +1786,27 @@ func _build_settings() -> void:
 	rfx.button_pressed = reduce_fx
 	rfx.toggled.connect(func(on: bool) -> void: set_reduce_fx(on))
 	vb.add_child(rfx)
+	var reset_ui := Button.new()                 # recover from a window dragged/resized off-screen
+	reset_ui.text = "Reset UI Layout"
+	reset_ui.tooltip_text = "Re-center every panel and clear saved window positions/sizes"
+	reset_ui.pressed.connect(func() -> void:
+		Widgets.reset_all_windows()
+		_settings_status("UI layout reset"))
+	vb.add_child(reset_ui)
+	_settings_reset_note = Label.new()
+	_settings_reset_note.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	_settings_reset_note.add_theme_color_override("font_color", Palette.XP)
+	vb.add_child(_settings_reset_note)
 	var sep := HSeparator.new()
 	vb.add_child(sep)
 	var logout := Button.new()                   # log out → back to the login screen (no more quit-and-relaunch)
 	logout.text = "Log Out"
 	logout.pressed.connect(func() -> void: logout_requested.emit())
 	vb.add_child(logout)
+
+func _settings_status(msg: String) -> void:
+	if _settings_reset_note != null:
+		_settings_reset_note.text = msg
 
 # a prominent full-screen notice when the connection drops — players kept missing the tiny top-left text and
 # thought their character was just stuck. Mirrors the boss-ult overlay (dim ColorRect + centered content on _hud).

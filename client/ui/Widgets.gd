@@ -103,7 +103,10 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 				_save_window(title, pc)
 		elif ev is InputEventMouseMotion and rz["on"]:
 			var d: Vector2 = root.get_local_mouse_position() - rz["start"]
-			pc.custom_minimum_size = Vector2(maxf(min_width * 0.6, float(rz["base"].x) + d.x), maxf(120.0, float(rz["base"].y) + d.y))
+			var vp := root.size
+			var maxw: float = maxf(min_width * 0.6, vp.x - pc.position.x - 6.0)   # keep the bottom-right grip on-screen
+			var maxh: float = maxf(120.0, vp.y - pc.position.y - 6.0)
+			pc.custom_minimum_size = Vector2(clampf(float(rz["base"].x) + d.x, min_width * 0.6, maxw), clampf(float(rz["base"].y) + d.y, 120.0, maxh))
 			pin.call())
 	# on show: restore (first time), re-clamp, re-pin the grip; hook the viewport resize once we're in-tree
 	var placed := {"v": false, "vp": false}
@@ -120,15 +123,46 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 			if vpn != null:
 				vpn.size_changed.connect(func() -> void:
 					if root.visible:
+						_clamp_size(root, pc, min_width)
 						_place_panel(root, pc, pc.position)
 						pin.call())
+		_clamp_size(root, pc, min_width)
 		_place_panel(root, pc, pc.position)  # keep it on-screen
 		pin.call())
+	_windows.append({"root": root, "recenter": func() -> void:   # Settings "Reset UI Layout" button
+		pc.custom_minimum_size = Vector2(min_width, 0)
+		pc.reset_size()
+		pc.position = Vector2(maxf(0.0, (root.size.x - pc.size.x) * 0.5), maxf(0.0, (root.size.y - pc.size.y) * 0.5))
+		pin.call()})
 
 # clamp a panel top-left so it stays on screen
 static func _place_panel(root: Control, pc: Control, p: Vector2) -> void:
 	var vp := root.size
 	pc.position = Vector2(clampf(p.x, 0.0, maxf(0.0, vp.x - pc.size.x)), clampf(p.y, 0.0, maxf(0.0, vp.y - pc.size.y)))
+
+# cap a user-resized panel so it never exceeds the viewport (else the bottom-right grip goes off-screen)
+static func _clamp_size(root: Control, pc: PanelContainer, min_width: float) -> void:
+	if pc.custom_minimum_size.y < 1.0:
+		return
+	var vp := root.size
+	pc.custom_minimum_size = Vector2(clampf(pc.custom_minimum_size.x, min_width * 0.6, maxf(min_width * 0.6, vp.x - 12.0)),
+		clampf(pc.custom_minimum_size.y, 120.0, maxf(120.0, vp.y - 12.0)))
+
+# static registry of every window (for the reset button); freed roots pruned on reset
+static var _windows := []
+
+# Settings "Reset UI Layout": wipe saved positions/sizes + re-center every live window.
+static func reset_all_windows() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(WIN_CFG) == OK and cfg.has_section("windows"):
+		cfg.erase_section("windows")
+		cfg.save(WIN_CFG)
+	var keep := []
+	for w in _windows:
+		if is_instance_valid(w["root"]):
+			(w["recenter"] as Callable).call()
+			keep.append(w)
+	_windows = keep
 
 static func _save_window(title: String, pc: Control) -> void:
 	var cfg := ConfigFile.new()
