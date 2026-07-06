@@ -165,6 +165,7 @@ func _enter_mode() -> void:
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
+	_build_locker()
 	_build_disconnect_overlay()
 	_build_juice_online()
 	var ua := OS.get_cmdline_user_args()
@@ -181,7 +182,9 @@ var _dev_juice := false
 
 var _dev_open := ""                               # dev-only screenshot hook: panel to open once connected
 func _dev_open_panel() -> void:
-	match _dev_open:
+	var which := _dev_open
+	_dev_open = ""                                # clear FIRST so a later snapshot can't re-toggle mid-await
+	match which:
 		"charsheet": _toggle_charsheet()
 		"settings": _toggle_settings()
 		"wardrobe": _toggle_wardrobe()
@@ -193,7 +196,10 @@ func _dev_open_panel() -> void:
 		"forge": _toggle_forge()
 		"vendor": _toggle_vendor()
 		"qgiver": _toggle_qgiver()
-	_dev_open = ""
+		"locker": _toggle_locker()
+	if which == "locker" and "--sel" in OS.get_cmdline_user_args():
+		await get_tree().create_timer(1.5).timeout   # dev: select main_hand to show the detail panel
+		_select_locker_slot("main_hand", 0)
 
 func _build_chat() -> void:
 	_chat_log = RichTextLabel.new()
@@ -346,6 +352,7 @@ func _toggle_charsheet() -> void:
 	if _sheet_panel.visible:
 		if _inv_panel != null: _inv_panel.visible = false      # one full-screen modal at a time
 		if _quest_panel != null: _quest_panel.visible = false
+		if _locker_panel != null: _locker_panel.visible = false
 		_render_charsheet()
 
 # render from the server's per-player `self` block (applied, capped, post-FORMAT_MODS — never raw item amts)
@@ -402,6 +409,443 @@ func _render_charsheet() -> void:
 				"LIFESTEAL": desc = "heal %d%% of dmg" % int(round(amt * 100.0))
 			lines.append("  [color=#ffb454]✦ %s[/color] [color=#7f93a8](%s)[/color] %s" % [nm, trig, desc])
 	_sheet_label.text = "\n".join(lines)
+
+# ============================================================ Locker Loadout (paperdoll)
+# A full-screen gear + stats screen (the "Locker Loadout" design): two slot columns flanking a live 3D
+# model of the player, a right-side item-details panel, and a bottom stat bar. Slot art =
+# client/ui/icons/<slot>.png (white line-art, tinted by item rarity). Equipping happens here or in the bag.
+const LOCKER_LEFT := [["head", "Head", 0], ["chest", "Chest", 0], ["hands", "Hands", 0], ["legs", "Legs", 0], ["feet", "Feet", 0]]
+const LOCKER_RIGHT := [["neck", "Neck", 0], ["ring", "Ring 1", 0], ["ring", "Ring 2", 1], ["main_hand", "Main Hand", 0], ["off_hand", "Off Hand", 0], ["trinket", "Trinket", 0]]
+var _locker_panel: Control = null
+var _locker_slots := []                   # [{key, idx, panel, sb, icon, name}]
+var _locker_items := []                   # last-loaded inventory
+var _locker_sel := {"key": "", "idx": 0}  # selected slot
+var _locker_detail: VBoxContainer = null
+var _locker_stats: HBoxContainer = null
+var _locker_header: RichTextLabel = null
+var _locker_loading := false
+var _locker_pending := false
+var _slot_tex_cache := {}
+# center 3D figure
+var _locker_vp: SubViewport = null
+var _locker_model_holder: Node3D = null
+var _locker_model_class := ""
+var _locker_model_dye := "-"
+
+func _slot_icon(key: String) -> Texture2D:
+	if not _slot_tex_cache.has(key):
+		var p := "res://client/ui/icons/%s.png" % key
+		_slot_tex_cache[key] = load(p) if ResourceLoader.exists(p) else null
+	return _slot_tex_cache[key]
+
+func _build_locker() -> void:
+	_locker_panel = Control.new()
+	_locker_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_locker_panel.visible = false
+	_hud.add_child(_locker_panel)
+	var bg := ColorRect.new()                 # full-bleed opaque dark backdrop (modal — hides the world + eats clicks)
+	bg.color = Color(0.03, 0.04, 0.06, 1.0)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	_locker_panel.add_child(bg)
+	var m := MarginContainer.new()
+	m.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for s in ["left", "right", "top", "bottom"]:
+		m.add_theme_constant_override("margin_" + s, 22)
+	_locker_panel.add_child(m)
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	m.add_child(root)
+	# header: title + tagline | level/name | ✕
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
+	root.add_child(head)
+	var titv := VBoxContainer.new()
+	titv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var tit := Label.new()
+	tit.text = "LOCKER LOADOUT"
+	tit.add_theme_font_size_override("font_size", 30)
+	tit.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	titv.add_child(tit)
+	var tag := Label.new()
+	tag.text = "GEAR UP · SHOW UP · TAKE OVER"
+	tag.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	tag.add_theme_color_override("font_color", Palette.ACCENT)
+	titv.add_child(tag)
+	head.add_child(titv)
+	_locker_header = RichTextLabel.new()
+	_locker_header.bbcode_enabled = true
+	_locker_header.fit_content = true
+	_locker_header.scroll_active = false
+	_locker_header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_locker_header.custom_minimum_size = Vector2(260, 0)
+	_locker_header.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(_locker_header)
+	var x := Button.new()
+	x.text = "✕"
+	x.focus_mode = Control.FOCUS_NONE
+	x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	x.pressed.connect(_toggle_locker)
+	head.add_child(x)
+	root.add_child(HSeparator.new())
+	# body: left slots | 3D figure | right slots | detail
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 16)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+	var leftcol := VBoxContainer.new()
+	leftcol.add_theme_constant_override("separation", 8)
+	for e in LOCKER_LEFT:
+		leftcol.add_child(_locker_slot(str(e[0]), str(e[1]), int(e[2])))
+	body.add_child(leftcol)
+	body.add_child(_build_locker_viewport())
+	var rightcol := VBoxContainer.new()
+	rightcol.add_theme_constant_override("separation", 8)
+	for e in LOCKER_RIGHT:
+		rightcol.add_child(_locker_slot(str(e[0]), str(e[1]), int(e[2])))
+	body.add_child(rightcol)
+	var detailpc := PanelContainer.new()
+	detailpc.custom_minimum_size = Vector2(320, 0)
+	var dm := MarginContainer.new()
+	for s in ["left", "right", "top", "bottom"]:
+		dm.add_theme_constant_override("margin_" + s, 12)
+	detailpc.add_child(dm)
+	_locker_detail = VBoxContainer.new()
+	_locker_detail.add_theme_constant_override("separation", 6)
+	dm.add_child(_locker_detail)
+	body.add_child(detailpc)
+	# bottom stat bar
+	root.add_child(HSeparator.new())
+	_locker_stats = HBoxContainer.new()
+	_locker_stats.add_theme_constant_override("separation", 14)
+	root.add_child(_locker_stats)
+
+# one equipment slot cell: rarity-framed icon + label + equipped name. Click selects it into the detail.
+func _locker_slot(key: String, label: String, idx: int) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.custom_minimum_size = Vector2(210, 62)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.BG_INSET)
+	sb.set_border_width_all(2)
+	sb.border_color = Palette.BORDER
+	sb.set_corner_radius_all(7)
+	sb.set_content_margin_all(6)
+	p.add_theme_stylebox_override("panel", sb)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 8)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(hb)
+	var icon := TextureRect.new()
+	icon.texture = _slot_icon(key)
+	icon.custom_minimum_size = Vector2(46, 46)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.modulate = Color(Palette.TEXT_FAINT, 0.5)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(icon)
+	var vb := VBoxContainer.new()
+	vb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(vb)
+	var ll := Label.new()
+	ll.text = label.to_upper()
+	ll.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	ll.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	vb.add_child(ll)
+	var nm := Label.new()
+	nm.text = "— empty —"
+	nm.clip_text = true
+	nm.custom_minimum_size = Vector2(130, 0)
+	nm.add_theme_font_size_override("font_size", Palette.SIZE_BODY)
+	nm.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+	vb.add_child(nm)
+	var entry := {"key": key, "idx": idx, "panel": p, "sb": sb, "icon": icon, "name": nm}
+	p.gui_input.connect(func(ev) -> void:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			_select_locker_slot(key, idx))
+	_locker_slots.append(entry)
+	return p
+
+# the center live 3D figure — the player's own character model, rotating, in its own SubViewport world.
+func _build_locker_viewport() -> Control:
+	var vpc := SubViewportContainer.new()
+	vpc.stretch = true
+	vpc.custom_minimum_size = Vector2(300, 470)
+	vpc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vpc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_locker_vp = SubViewport.new()
+	_locker_vp.own_world_3d = true
+	_locker_vp.transparent_bg = true
+	_locker_vp.msaa_3d = Viewport.MSAA_2X
+	vpc.add_child(_locker_vp)
+	var cam := Camera3D.new()
+	cam.position = Vector3(0, 1.9, 6.4)
+	cam.rotation_degrees = Vector3(-3, 0, 0)
+	cam.fov = 36
+	_locker_vp.add_child(cam)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-34, -38, 0)
+	key.light_energy = 1.35
+	_locker_vp.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(-16, 140, 0)
+	fill.light_energy = 0.55
+	_locker_vp.add_child(fill)
+	_locker_model_holder = Node3D.new()
+	_locker_vp.add_child(_locker_model_holder)
+	return vpc
+
+# (re)build the 3D figure when the class or dye changes; otherwise it just keeps rotating.
+func _update_locker_model() -> void:
+	if _locker_model_holder == null:
+		return
+	var si: Dictionary = _state.get("self", {})
+	var pf = _find_fighter(_player_id)
+	var cls: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
+	var dye: String = str(si.get("cos_dye", ""))
+	if cls == "" or not GameData.CLASSES.has(cls):
+		return
+	if cls == _locker_model_class and dye == _locker_model_dye:
+		return
+	_locker_model_class = cls
+	_locker_model_dye = dye
+	for c in _locker_model_holder.get_children():
+		c.queue_free()
+	var kit := _make_character({"classId": cls, "id": "locker", "team": 0})
+	var model = kit["model"]
+	var msc: float = kit["scale"]
+	model.scale = Vector3(msc, msc, msc)
+	model.position.y = CHAR_Y + float(kit.get("yoff", 0.0))
+	_locker_model_holder.add_child(model)
+	var ap = kit["anim"]
+	if ap != null:
+		ap.playback_default_blend_time = 0.12
+		_safe_play(ap, kit["anims"].get("idle", "idle"))
+	if dye != "":
+		_apply_dye(model, dye)
+
+func _toggle_locker() -> void:
+	if _locker_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_locker_panel.visible = not _locker_panel.visible
+	if _locker_panel.visible:                 # full-screen opaque modal → close every other panel under it
+		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _lb_panel, _qgiver_panel, _settings_panel]:
+			if pnl != null: pnl.visible = false
+		_update_locker_model()
+		_load_locker()
+
+func _load_locker() -> void:
+	if supa == null or _locker_panel == null:
+		return
+	if _locker_loading:
+		_locker_pending = true
+		return
+	_locker_loading = true
+	var r = await supa.get_inventory()
+	_locker_loading = false
+	if _locker_pending:
+		_locker_pending = false
+		_load_locker()
+		return
+	if _locker_panel == null:
+		return
+	_locker_items = r.get("items", []) if r.get("ok") else []
+	_refresh_locker()
+
+# rebuild slot art/names + the stat bar + the detail panel from the current inventory + self block.
+func _refresh_locker() -> void:
+	if _locker_panel == null:
+		return
+	var equipped := {}                         # "key|idx" → item (idx picks between the two rings)
+	var by_slot := {}
+	for it in _locker_items:
+		if bool(it.get("equipped", false)):
+			var sl := str(it.get("slot", ""))
+			if not by_slot.has(sl): by_slot[sl] = []
+			by_slot[sl].append(it)
+	for entry in _locker_slots:
+		var sl: String = entry["key"]
+		var idx: int = entry["idx"]
+		var eqs: Array = by_slot.get(sl, [])
+		var it = eqs[idx] if idx < eqs.size() else null
+		var icon: TextureRect = entry["icon"]
+		var nm: Label = entry["name"]
+		var sb: StyleBoxFlat = entry["sb"]
+		if it != null:
+			var col := _item_color(it)
+			icon.modulate = col
+			nm.text = str(it.get("name", "?"))
+			nm.add_theme_color_override("font_color", col)
+			sb.border_color = col
+			sb.bg_color = Color(col, 0.10)
+		else:
+			icon.modulate = Color(Palette.TEXT_FAINT, 0.5)
+			nm.text = "— empty —"
+			nm.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+			sb.border_color = Palette.BORDER
+			sb.bg_color = Color(Palette.BG_INSET)
+	_update_locker_header()
+	_update_locker_stats()
+	_render_locker_detail()
+
+# header (name / level / item power) — refreshed live from each snapshot, not just at load
+func _update_locker_header() -> void:
+	if _locker_header == null:
+		return
+	var si: Dictionary = _state.get("self", {})
+	var pf2 = _find_fighter(_player_id)
+	var nm2: String = str(pf2.get("name", "")) if pf2 != null else ""
+	_locker_header.text = "[right][b]%s[/b]  [color=%s]Lv %d[/color]\n[color=%s]✦ Item Power %d[/color][/right]" % [
+		_esc(nm2), Palette.hex(Palette.ACCENT), int(si.get("level", 0)), Palette.hex(Palette.ACCENT2), int(si.get("item_power", 0))]
+
+func _update_locker_stats() -> void:
+	if _locker_stats == null:
+		return
+	for c in _locker_stats.get_children():
+		c.queue_free()
+	var si: Dictionary = _state.get("self", {})
+	var pf = _find_fighter(_player_id)
+	var cls: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
+	# OVR = item power
+	var ovr := VBoxContainer.new()
+	ovr.custom_minimum_size = Vector2(78, 0)
+	var ol := Label.new(); ol.text = "OVR"; ol.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION); ol.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	ovr.add_child(ol)
+	var ov := Label.new(); ov.text = str(int(si.get("item_power", 0))); ov.add_theme_font_size_override("font_size", 26); ov.add_theme_color_override("font_color", Palette.ACCENT)
+	ovr.add_child(ov)
+	_locker_stats.add_child(ovr)
+	if cls == "" or not GameData.CLASSES.has(cls):
+		return
+	var base: Dictionary = GameData.CLASSES[cls]["stats"]
+	var bonus: Dictionary = si.get("equip_bonus", {})
+	for st in STAT_KEYS:
+		var val: int = int(base.get(st, 0)) + int(bonus.get(st, 0))
+		var g: int = int(bonus.get(st, 0))
+		_locker_stats.add_child(_locker_stat_cell(str(STAT_NAMES.get(st, st)), val, g))
+
+func _locker_stat_cell(name: String, value: int, gear: int) -> Control:
+	var vb := VBoxContainer.new()
+	vb.custom_minimum_size = Vector2(96, 0)
+	var n := Label.new()
+	n.text = name.to_upper()
+	n.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	n.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	vb.add_child(n)
+	var vrow := HBoxContainer.new()
+	vrow.add_theme_constant_override("separation", 5)
+	var v := Label.new()
+	v.text = str(value)
+	v.add_theme_font_size_override("font_size", 20)
+	v.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	vrow.add_child(v)
+	if gear > 0:
+		var gl := Label.new()
+		gl.text = "+%d" % gear
+		gl.size_flags_vertical = Control.SIZE_SHRINK_END
+		gl.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+		gl.add_theme_color_override("font_color", Palette.XP)
+		vrow.add_child(gl)
+	vb.add_child(vrow)
+	var bar := Widgets.bar(84, 5, Palette.ACCENT if gear > 0 else Palette.BORDER_BRIGHT)
+	Widgets.set_bar(bar, clampf(float(value) / 130.0, 0.04, 1.0))
+	vb.add_child(bar["root"])
+	return vb
+
+func _select_locker_slot(key: String, idx: int) -> void:
+	_locker_sel = {"key": key, "idx": idx}
+	for entry in _locker_slots:              # highlight the selected slot
+		var sb: StyleBoxFlat = entry["sb"]
+		sb.set_border_width_all(3 if (entry["key"] == key and entry["idx"] == idx) else 2)
+	_render_locker_detail()
+
+# the item-details panel: the selected slot's equipped item (art, rarity, stats, power) + Unequip, plus a
+# compact "equip from bag" list of the alternatives you own for that slot.
+func _render_locker_detail() -> void:
+	if _locker_detail == null:
+		return
+	for c in _locker_detail.get_children():
+		c.queue_free()
+	var key: String = str(_locker_sel.get("key", ""))
+	if key == "":
+		_locker_detail.add_child(Widgets.section("ITEM DETAILS"))
+		_locker_detail.add_child(Widgets.hint("Select an equipment slot to see the piece + swap gear you own for it."))
+		return
+	var idx: int = int(_locker_sel.get("idx", 0))
+	var slot_items := []                       # everything you own in this slot
+	var equipped = null
+	var eq_count := 0
+	for it in _locker_items:
+		if str(it.get("slot", "")) == key:
+			slot_items.append(it)
+			if bool(it.get("equipped", false)):
+				if eq_count == idx: equipped = it
+				eq_count += 1
+	_locker_detail.add_child(Widgets.section("ITEM DETAILS"))
+	var big := TextureRect.new()               # the big rarity-tinted slot icon
+	big.texture = _slot_icon(key)
+	big.custom_minimum_size = Vector2(96, 96)
+	big.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	big.modulate = _item_color(equipped) if equipped != null else Color(Palette.TEXT_FAINT, 0.5)
+	_locker_detail.add_child(big)
+	var info := RichTextLabel.new()
+	info.bbcode_enabled = true
+	info.fit_content = true
+	info.scroll_active = false
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.custom_minimum_size = Vector2(290, 0)
+	if equipped != null:
+		var stats := _item_stats_str(equipped)
+		info.text = "[b][color=%s]%s[/color][/b]  [color=%s]★ EQUIPPED[/color]\n[color=%s]%s · %s · i%d · ✦%d[/color]%s" % [
+			_item_color_hex(equipped), _esc(str(equipped.get("name", "?"))), Palette.hex(Palette.XP),
+			Palette.hex(Palette.TEXT_FAINT), str(equipped.get("rarity", "")), key, int(equipped.get("ilvl", 1)),
+			int(equipped.get("item_power", 0)), ("\n" + stats if stats != "" else "")]
+	else:
+		info.text = "[color=%s]No %s equipped.[/color]" % [Palette.hex(Palette.TEXT_DIM), key]
+	_locker_detail.add_child(info)
+	if equipped != null:
+		var iid := str(equipped.get("id", ""))
+		var slotk := str(equipped.get("slot", ""))
+		var uneq := Button.new()
+		uneq.text = "Unequip"
+		uneq.pressed.connect(func() -> void:
+			if net != null and _connected: net.equip.rpc_id(1, iid, slotk))
+		_locker_detail.add_child(uneq)
+	# swap list: the pieces you own for this slot but haven't equipped (sorted by item power)
+	var others := []
+	for it in slot_items:
+		if equipped == null or str(it.get("id", "")) != str(equipped.get("id", "")):
+			if not bool(it.get("equipped", false)):
+				others.append(it)
+	others.sort_custom(func(a, b): return int(a.get("item_power", 0)) > int(b.get("item_power", 0)))
+	if not others.is_empty():
+		# ▲ = beats the piece equipped in THIS slot (or fills an empty slot). Compared against the equipped
+		# item's power directly — NOT _is_upgrade (which reads _inv_items, empty when only the locker is open).
+		var eq_power := int(equipped.get("item_power", 0)) if equipped != null else -1
+		_locker_detail.add_child(HSeparator.new())
+		_locker_detail.add_child(Widgets.section("EQUIP FROM BAG"))
+		var sc := ScrollContainer.new()
+		sc.custom_minimum_size = Vector2(296, 150)
+		sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		var lst := VBoxContainer.new()
+		lst.add_theme_constant_override("separation", 3)
+		sc.add_child(lst)
+		for it in others:
+			var is_up: bool = int(it.get("item_power", 0)) > eq_power
+			var b := Button.new()
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.clip_text = true
+			b.custom_minimum_size = Vector2(286, 30)
+			b.add_theme_color_override("font_color", _item_color(it))
+			b.text = "%s   ✦%d%s" % [str(it.get("name", "?")), int(it.get("item_power", 0)), ("  ▲" if is_up else "")]
+			var iid2 := str(it.get("id", ""))
+			var slotk2 := str(it.get("slot", ""))
+			b.pressed.connect(func() -> void:
+				if net != null and _connected: net.equip.rpc_id(1, iid2, slotk2))
+			lst.add_child(b)
+		_locker_detail.add_child(sc)
 
 func _show_item_tooltip(it, owned: Array) -> void:
 	if it == null or _tooltip == null:
@@ -519,6 +963,7 @@ func _toggle_inventory() -> void:
 	if _inv_panel.visible:
 		if _quest_panel != null:                     # only one full-screen modal at a time
 			_quest_panel.visible = false
+		if _locker_panel != null: _locker_panel.visible = false
 		_load_inventory()
 
 func _load_inventory() -> void:
@@ -811,6 +1256,8 @@ func recv_inventory_changed() -> void:
 		_load_forge()
 	if _vendor_panel != null and _vendor_panel.visible:   # a token buy changed our balance → refresh buttons
 		_render_vendor()
+	if _locker_panel != null and _locker_panel.visible:   # an equip/unequip changed the loadout
+		_load_locker()
 
 # ---- quests (server-authoritative; the log + tracker render from server-pushed state) ----
 # server pushes the full quest state once on join (recv_quest_state) and an update per change.
@@ -916,6 +1363,7 @@ func _toggle_questlog() -> void:
 	if _quest_panel.visible:
 		if _inv_panel != null:                       # only one full-screen modal at a time
 			_inv_panel.visible = false
+		if _locker_panel != null: _locker_panel.visible = false
 		if _shop_panel != null:
 			_shop_panel.visible = false
 		if _qgiver_panel != null:
@@ -1519,6 +1967,7 @@ func _toggle_wardrobe() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_wardrobe_panel.visible = not _wardrobe_panel.visible
 	if _wardrobe_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
 		_render_wardrobe()
 
 func _render_wardrobe() -> void:
@@ -1612,6 +2061,7 @@ func _toggle_leaderboard() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_lb_panel.visible = not _lb_panel.visible
 	if _lb_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
 		_on_lb_category(_lb_cat)                   # fetch the current tab on open
 
 func _on_lb_category(cat: String) -> void:
@@ -2952,6 +3402,8 @@ func _process(delta: float) -> void:
 	_update_camp_proximity()
 	_update_drill_banner()
 	_update_juice_online(delta)     # P4: level-up flash + zone-transition card one-shots
+	if _locker_panel != null and _locker_panel.visible and _locker_model_holder != null:
+		_locker_model_holder.rotation.y += delta * 0.5   # slow turntable on the locker figure
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -2976,6 +3428,10 @@ func receive_snapshot(snap: Dictionary) -> void:
 	_party = snap.get("party", [])
 	if _sheet_panel != null and _sheet_panel.visible:    # keep the character sheet live while it's open
 		_render_charsheet()
+	if _locker_panel != null and _locker_panel.visible:  # keep the locker's stats/model/header live (no re-fetch)
+		_update_locker_model()
+		_update_locker_stats()
+		_update_locker_header()
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
@@ -3073,6 +3529,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_sheet_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _locker_panel != null and _locker_panel.visible:
+				_locker_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _qgiver_panel != null and _qgiver_panel.visible:
 				_qgiver_panel.visible = false
 				get_viewport().set_input_as_handled()
@@ -3135,6 +3595,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_K and not _chatting:
 			_toggle_charsheet()
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_U and not _chatting:
+			_toggle_locker()                # the Locker Loadout (gear + stats + 3D figure)
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_TAB and not _chatting:
@@ -3242,7 +3706,7 @@ func _update_hud() -> void:
 	if bool(_vit_cache.get("zone_pvp", false)) != pvp:
 		_vit_cache["zone_pvp"] = pvp
 		_zone_label.add_theme_color_override("font_color", Palette.DANGER if pvp else Palette.ACCENT2)
-	var hints := "WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]K[/b] sheet · [b]J[/b] journal · [b]N[/b] meter · [b]G[/b] wardrobe · [b]L[/b] boards · [b]O[/b] options"
+	var hints := "WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]U[/b] locker · [b]K[/b] sheet · [b]J[/b] journal · [b]N[/b] meter · [b]G[/b] wardrobe · [b]L[/b] boards · [b]O[/b] options"
 	if str(_vit_cache.get("hints", "")) != hints:
 		_vit_cache["hints"] = hints
 		_bar.text = "[color=#7f93a8]%s[/color]" % hints
