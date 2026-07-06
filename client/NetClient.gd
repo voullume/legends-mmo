@@ -166,13 +166,18 @@ func _enter_mode() -> void:
 	_build_qgiver_dialog()
 	_build_settings()
 	_build_disconnect_overlay()
+	_build_juice_online()
 	var ua := OS.get_cmdline_user_args()
 	if "--meter" in ua:                           # dev-only: open the §4a meter on boot (pairs with --shot)
 		_toggle_meter()
 	var oi := ua.find("--open")                   # dev-only: open a named panel after the first snapshot
 	if oi >= 0 and oi + 1 < ua.size():
 		_dev_open = str(ua[oi + 1])
+	if "--juicetest" in ua:                       # dev-only: fire demo P4 juice once connected (for --shot)
+		_dev_juice = true
 	print("[netclient] ready — awaiting server fighter assignment")
+
+var _dev_juice := false
 
 var _dev_open := ""                               # dev-only screenshot hook: panel to open once connected
 func _dev_open_panel() -> void:
@@ -829,7 +834,10 @@ func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void
 			_quest_toast("[color=#9fe8a0]Quest ready to turn in:[/color] %s [color=#7f93a8](see the Quest Giver)[/color]" % _esc(str(q["name"])))
 	_refresh_quests()
 
+# the single choke point for quest/circuit/drill/cosmetic notifications. P4: fires a top-right toast
+# AND keeps the chat-log append (scrollback history — the line already carries its own inline colors).
 func _quest_toast(line: String) -> void:
+	_toast(line, Palette.ACCENT)
 	_chat_lines.append(line)
 	if _chat_lines.size() > 9:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
@@ -2425,6 +2433,8 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 	AudioManager.play_sfx("loot")
 	var col: String = RARITY_COLORS.get(rarity, "#cfd6df")
 	var bonus := ("   +%d %s" % [amt, stat]) if amt != 0 else ""
+	# P4: a rarity-accented loot toast (top-right) + keep the chat-log line as history
+	_toast("[color=#ffd24d]★ Looted[/color]  [color=%s]%s[/color]\n[color=#7f93a8]%s · %s%s[/color]" % [col, _esc(item), rarity, slot, bonus], Color.html(col))
 	_chat_lines.append("[color=#ffd24d]★ Looted[/color] [color=%s]%s[/color] [color=#7f93a8](%s · %s)%s[/color]" % [col, _esc(item), rarity, slot, bonus])
 	if _chat_lines.size() > 9:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
@@ -2835,6 +2845,88 @@ func _update_boss_telegraph() -> void:
 	_ult_tint.color.a = lerpf(0.10, 0.40, clampf(1.0 - uc / 3.0, 0.0, 1.0))   # intensify as impact nears
 	_ult_banner.text = "⚠  FULL CAMP RESET  %d  ⚠\nBREAK LINE OF SIGHT — GET BEHIND COVER" % int(ceil(uc))
 
+# P4: suppress the shared vignette/death juice while the session isn't live (connection error /
+# pre-first-snapshot). _state is never cleared on a drop, so _render_world keeps running — without
+# this the vignette/death would freeze on stale state under the disconnect overlay.
+func _juice_suppressed() -> bool:
+	return _net_msg != "" or _player_id == "" or _player == null
+
+# P4 online-only juice: a gold level-up flash (z=160) + a zone-transition card (z=110). The shared
+# vignette/death/toast layer is built by Client._build_hud; these two ride online-only events.
+var _level_flash: ColorRect = null
+var _flash_t := -1.0                         # ≥0 while a level-up flash plays
+var _zone_card: ColorRect = null
+var _zone_card_label: Label = null
+var _zone_card_t := -1.0                      # ≥0 while a zone card plays
+
+func _build_juice_online() -> void:
+	_level_flash = ColorRect.new()
+	_level_flash.color = Color(1.0, 0.84, 0.32, 0.0)
+	_level_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_level_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_level_flash.z_index = 160
+	_level_flash.visible = false
+	_hud.add_child(_level_flash)
+	_zone_card = ColorRect.new()
+	_zone_card.color = Color(0.03, 0.04, 0.06, 0.0)
+	_zone_card.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_zone_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_card.z_index = 110
+	_zone_card.visible = false
+	_hud.add_child(_zone_card)
+	var cc := CenterContainer.new()
+	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zone_card.add_child(cc)
+	_zone_card_label = Label.new()
+	_zone_card_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_zone_card_label.add_theme_font_size_override("font_size", 40)
+	_zone_card_label.add_theme_color_override("font_color", Palette.ACCENT2)
+	_zone_card_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_zone_card_label.add_theme_constant_override("outline_size", 10)
+	cc.add_child(_zone_card_label)
+
+func _trigger_level_flash() -> void:
+	if reduce_fx or _level_flash == null:        # a bright full-screen pulse is a motion trigger → skip
+		return
+	_flash_t = 0.0
+
+func _trigger_zone_card(map: String) -> void:
+	if _zone_card == null:
+		return
+	_zone_card_label.text = _zone_name(map)
+	_zone_card_t = 0.0
+
+# per-frame one-shots (level flash fade + zone card fade in/hold/out). Called from _process.
+func _update_juice_online(dt: float) -> void:
+	if _flash_t >= 0.0 and _level_flash != null:
+		_flash_t += dt
+		if _flash_t >= 0.5:
+			_flash_t = -1.0
+			_level_flash.visible = false
+		else:
+			_level_flash.visible = true
+			_level_flash.color.a = (1.0 - _flash_t / 0.5) * 0.4
+	if _zone_card_t >= 0.0 and _zone_card != null:
+		_zone_card_t += dt
+		var fin := 0.3
+		var hold := 1.1
+		var fout := 0.6
+		if _zone_card_t >= fin + hold + fout:
+			_zone_card_t = -1.0
+			_zone_card.visible = false
+		else:
+			_zone_card.visible = true
+			var a := 1.0
+			if _zone_card_t < fin:
+				a = _zone_card_t / fin
+			elif _zone_card_t > fin + hold:
+				a = 1.0 - (_zone_card_t - fin - hold) / fout
+			if reduce_fx:                          # no motion fade — steady then cut
+				a = 0.0 if _zone_card_t > fin + hold else 1.0
+			_zone_card.color.a = a * 0.5
+			_zone_card_label.modulate.a = a
+
 func _process(delta: float) -> void:
 	if supa != null and net != null and _connected:
 		_reauth_t += delta
@@ -2859,6 +2951,7 @@ func _process(delta: float) -> void:
 	_update_vendor_proximity()
 	_update_camp_proximity()
 	_update_drill_banner()
+	_update_juice_online(delta)     # P4: level-up flash + zone-transition card one-shots
 
 # ---- transport callbacks ----
 func _on_connected() -> void:
@@ -2887,21 +2980,30 @@ func receive_snapshot(snap: Dictionary) -> void:
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
 			_player.class_id = pf["classId"]
-	var map := str(snap.get("map", ""))          # zone change → portal whoosh + music crossfade
+	var map := str(snap.get("map", ""))          # zone change → portal whoosh + music crossfade + P4 zone card
 	if map != _last_map:
 		if _last_map != "":
 			AudioManager.play_sfx("portal")
+			_trigger_zone_card(map)              # P4: "Now Entering <Zone>" card (not on the first login zone-in)
 		_last_map = map
 		AudioManager.play_music(map)
-	var lpf = _find_fighter(_player_id)           # level-up fanfare
+	var lpf = _find_fighter(_player_id)           # level-up fanfare + P4 flash/toast
 	if lpf != null:
 		var lvl := int(lpf.get("level", 1))
 		if _last_level > 0 and lvl > _last_level:
 			AudioManager.play_sfx("level_up")
+			_trigger_level_flash()
+			_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level %d[/color]" % [Palette.hex(Palette.ACCENT), lvl], Palette.ACCENT, true)
 		_last_level = lvl
 	_handle_events()             # spawn damage-number / hit FX from this snapshot's events
 	if _dev_open != "" and _player_id != "" and _find_fighter(_player_id) != null:
 		_dev_open_panel()        # dev screenshot hook: open a panel once we have a live fighter
+	if _dev_juice and _player_id != "" and _find_fighter(_player_id) != null:
+		_dev_juice = false       # dev screenshot hook: fire the P4 juice once (toasts + zone card + flash)
+		_toast("[color=#ffd24d]★ Looted[/color]  [color=#c77dff]Epic Cleats[/color]\n[color=#7f93a8]epic · feet  +18 SPD[/color]", Color.html("#c77dff"))
+		_toast("[color=#9fe8a0]✔ Quest complete:[/color] Boot Camp", Palette.ACCENT)
+		_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level 3[/color]" % Palette.hex(Palette.ACCENT), Palette.ACCENT, true)
+		_trigger_zone_card("glitchyard_1")
 
 func assign_fighter(fid: String) -> void:
 	_player_id = fid

@@ -195,6 +195,26 @@ var _meter_dragged := false                # once the player drags it, stop auto
 var _enc_start := 0.0
 var _enc_last := -1.0e9                    # last tracked-event time; an event ≥GAP later opens a new encounter
 
+# --- P4 screen-space juice: low-HP vignette + death overlay + toast stack (shared infra) ---
+const LOW_HP_THRESH := 0.30                # vignette fades in below this HP fraction
+const DEATH_FADE := 0.35                   # death-overlay fade-in seconds
+const TOAST_W := 340.0
+const TOAST_GAP := 6.0
+const TOAST_MAX := 4                        # visible non-fading toasts before the oldest is pushed out
+const TOAST_IN := 0.18
+const TOAST_OUT := 0.35
+const TOAST_HOLD := 4.5
+const TOAST_HOLD_BIG := 6.0
+const TOAST_SLIDE := 24.0                   # px slide-in offset (skipped under reduce_fx)
+const TOAST_TOP := 64.0                     # clears the zone + drill banners
+var _vignette: TextureRect = null
+var _death_overlay: ColorRect = null
+var _death_sub: Label = null
+var _death_t := 0.0                         # death-overlay fade accumulator
+var _low_hp_t := 0.0                        # low-HP heartbeat-pulse accumulator
+var _toast_layer: Control = null
+var _toasts := []                          # newest first: {node, phase, t, life, slide}
+
 func _ready() -> void:
 	_load_fx_settings()
 	_load_meshy()
@@ -240,6 +260,10 @@ func _enter_mode() -> void:
 		_bots_frozen = false
 		if not _state.is_empty():
 			_state["botsFrozen"] = false
+	if "--lowhp" in uargs:                    # dev: drop the player to 12% HP to verify the low-HP vignette
+		var lp = _find_fighter(_player_id)
+		if lp != null:
+			lp["hp"] = float(lp["maxHP"]) * 0.12
 	if "--meter" in uargs:
 		_toggle_meter()
 	if "--meter-dump" in uargs:              # headless proof: print the accumulator after 12 s, then quit
@@ -705,6 +729,13 @@ func _teardown() -> void:
 	_enc_last = -1.0e9
 	if _meter_panel != null:
 		_render_meter()
+	_clear_toasts()                    # P4: flush in-flight toasts + latch off the vignette/death overlay
+	if _vignette != null:
+		_vignette.visible = false
+	if _death_overlay != null:
+		_death_overlay.visible = false
+	_death_t = 0.0
+	_low_hp_t = 0.0
 
 func _spawn(f: Dictionary) -> void:
 	var holder := Node3D.new()
@@ -904,6 +935,7 @@ func _render_world(delta: float) -> void:
 	_render_obstacles()
 	_render_decals()
 	_update_hud()
+	_drive_screen_juice()          # P4: low-HP vignette + death overlay + toast reflow (single call site)
 
 # Draw the zone's purely-visual decoration (training drill rings + traffic cones) for camp identity. Read
 # from World.DECALS for the current map (client-side, not sent over the wire); rebuilt only on a map change.
@@ -2138,6 +2170,198 @@ func _build_hud() -> void:
 	_hud.add_child(_tooltip)
 	_build_vitals()
 	_build_meter()
+	_build_screen_juice()
+
+# P4: the shared screen-space juice layer — a low-HP vignette (z=-20, under the HUD), a death/benched
+# overlay (z=140), and a top-right toast stack (z=200). All MOUSE_FILTER_IGNORE so they never eat input.
+# Online-only juice (level-up flash, zone card) is built separately in NetClient._build_juice_online.
+func _build_screen_juice() -> void:
+	var grad := Gradient.new()                # radial red edge glow — asset-free, no shader
+	grad.offsets = PackedFloat32Array([0.0, 0.58, 1.0])
+	grad.colors = PackedColorArray([Color(0.85, 0.08, 0.08, 0.0), Color(0.85, 0.08, 0.08, 0.0), Color(0.86, 0.05, 0.05, 0.92)])
+	var gtex := GradientTexture2D.new()
+	gtex.gradient = grad
+	gtex.fill = GradientTexture2D.FILL_RADIAL
+	gtex.fill_from = Vector2(0.5, 0.5)
+	gtex.fill_to = Vector2(1.0, 0.5)
+	gtex.width = 256
+	gtex.height = 256
+	_vignette = TextureRect.new()
+	_vignette.texture = gtex
+	_vignette.stretch_mode = TextureRect.STRETCH_SCALE
+	_vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_vignette.z_index = -20
+	_vignette.modulate.a = 0.0
+	_vignette.visible = false
+	_hud.add_child(_vignette)
+	_death_overlay = ColorRect.new()
+	_death_overlay.color = Color(0.03, 0.02, 0.04, 0.62)
+	_death_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_death_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_death_overlay.z_index = 140
+	_death_overlay.visible = false
+	_hud.add_child(_death_overlay)
+	var dcc := CenterContainer.new()
+	dcc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dcc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_death_overlay.add_child(dcc)
+	var dvb := VBoxContainer.new()
+	dvb.alignment = BoxContainer.ALIGNMENT_CENTER
+	dvb.add_theme_constant_override("separation", 6)
+	dcc.add_child(dvb)
+	var dl := Label.new()
+	dl.text = "DEFEATED"
+	dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dl.add_theme_font_size_override("font_size", 52)
+	dl.add_theme_color_override("font_color", Palette.DANGER)
+	dl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	dl.add_theme_constant_override("outline_size", 10)
+	dvb.add_child(dl)
+	_death_sub = Label.new()
+	_death_sub.text = "Respawning…"
+	_death_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_death_sub.add_theme_font_size_override("font_size", 20)
+	_death_sub.add_theme_color_override("font_color", Palette.TEXT)
+	dvb.add_child(_death_sub)
+	_toast_layer = Control.new()
+	_toast_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_toast_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast_layer.z_index = 200
+	_hud.add_child(_toast_layer)
+
+# per-frame juice: low-HP vignette + death fade + toast reflow. ONE call site (from _render_world after
+# _update_hud) so accumulators never double-advance. Hidden when the session is suppressed (disconnect).
+func _drive_screen_juice() -> void:
+	var dt := get_process_delta_time()
+	_update_toasts(dt)                 # keep advancing so cards expire + free even while hidden
+	var suppressed: bool = _juice_suppressed()
+	if _toast_layer != null:           # hide the stack (but let it drain) under the disconnect/pre-snapshot overlay
+		_toast_layer.visible = not suppressed
+	if _vignette == null:
+		return
+	var pf = _find_fighter(_player_id)
+	if suppressed or pf == null or _player == null:
+		_vignette.visible = false
+		_death_overlay.visible = false
+		_death_t = 0.0
+		return
+	var alive: bool = bool(pf.get("alive", true))
+	var frac: float = clampf(float(pf["hp"]) / maxf(1.0, float(pf["maxHP"])), 0.0, 1.0)
+	if alive and frac < LOW_HP_THRESH:
+		var inten: float = 1.0 - frac / LOW_HP_THRESH        # 0 at threshold → 1 near death
+		var a: float = 0.22 + inten * 0.5
+		if not reduce_fx:
+			_low_hp_t += dt
+			a *= 0.78 + 0.22 * sin(_low_hp_t * 6.0)          # heartbeat pulse
+		_vignette.visible = true
+		_vignette.modulate.a = a
+	else:
+		_vignette.visible = false
+	if not alive:
+		_death_t = minf(DEATH_FADE, _death_t + dt)
+		_death_overlay.visible = true
+		_death_overlay.modulate.a = 1.0 if reduce_fx else (_death_t / DEATH_FADE)
+	else:
+		_death_t = 0.0
+		_death_overlay.visible = false
+
+# subclasses suppress juice when the session isn't live (NetClient: a connection error/pre-snapshot)
+func _juice_suppressed() -> bool:
+	return false
+
+# P4: push a transient top-right toast. bbcode text + accent stripe; big = level-up prominence.
+# reduce_fx keeps the toast (fade only, no slide). Shared infra — NetClient fires the events.
+func _toast(bbcode: String, accent: Color, big := false) -> void:
+	if _toast_layer == null:
+		return
+	var card := PanelContainer.new()
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.BG_PANEL, 0.95)
+	sb.set_border_width_all(1)
+	sb.set_border_width(SIDE_LEFT, 4)                    # accent stripe on the left edge
+	sb.border_color = Color(accent, 0.9)
+	sb.set_corner_radius_all(7)
+	sb.set_content_margin_all(9)
+	card.add_theme_stylebox_override("panel", sb)
+	var rt := RichTextLabel.new()
+	rt.bbcode_enabled = true
+	rt.fit_content = true
+	rt.scroll_active = false
+	rt.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rt.custom_minimum_size = Vector2(TOAST_W, 0)
+	rt.add_theme_font_size_override("normal_font_size", Palette.SIZE_SECTION if big else Palette.SIZE_BODY)
+	rt.add_theme_font_size_override("bold_font_size", Palette.SIZE_TITLE if big else Palette.SIZE_SECTION)
+	rt.text = bbcode
+	card.add_child(rt)
+	card.modulate.a = 0.0
+	_toast_layer.add_child(card)
+	_toasts.push_front({"node": card, "phase": "in", "t": 0.0,
+		"life": (TOAST_HOLD_BIG if big else TOAST_HOLD), "slide": not reduce_fx})
+	var live := 0
+	for e in _toasts:
+		if str(e["phase"]) != "out":
+			live += 1
+	var i := _toasts.size() - 1
+	while live > TOAST_MAX and i >= 0:                    # push the oldest live card into early fade-out
+		if str(_toasts[i]["phase"]) != "out":
+			_toasts[i]["phase"] = "out"
+			_toasts[i]["t"] = 0.0
+			live -= 1
+		i -= 1
+
+func _update_toasts(dt: float) -> void:
+	if _toasts.is_empty():
+		return
+	var vpw: float = _hud.get_viewport().get_visible_rect().size.x   # recomputed → auto-recenters on resize
+	var y := TOAST_TOP
+	var dead := []
+	for e in _toasts:
+		var card: Control = e["node"]
+		if not is_instance_valid(card):
+			dead.append(e)
+			continue
+		e["t"] = float(e["t"]) + dt
+		var a := 1.0
+		var offx := 0.0
+		match str(e["phase"]):
+			"in":
+				var k := clampf(float(e["t"]) / TOAST_IN, 0.0, 1.0)
+				a = k
+				if e["slide"]:
+					offx = (1.0 - k) * TOAST_SLIDE
+				if k >= 1.0:
+					e["phase"] = "hold"
+					e["t"] = 0.0
+			"hold":
+				if float(e["t"]) >= float(e["life"]):
+					e["phase"] = "out"
+					e["t"] = 0.0
+			"out":
+				var k2 := clampf(float(e["t"]) / TOAST_OUT, 0.0, 1.0)
+				a = 1.0 - k2
+				if e["slide"]:
+					offx = k2 * TOAST_SLIDE
+				if k2 >= 1.0:
+					dead.append(e)
+					continue
+		card.modulate.a = a
+		var tx: float = vpw - card.size.x - 14.0 + offx    # top-right anchored (slides in from the right)
+		var ny: float = y if (reduce_fx or card.position.y <= 0.0) else lerpf(card.position.y, y, clampf(dt * 12.0, 0.0, 1.0))
+		card.position = Vector2(tx, ny)
+		y += card.size.y + TOAST_GAP
+	for e in dead:
+		if is_instance_valid(e["node"]):
+			e["node"].queue_free()
+		_toasts.erase(e)
+
+func _clear_toasts() -> void:
+	for e in _toasts:
+		if is_instance_valid(e["node"]):
+			e["node"].queue_free()
+	_toasts.clear()
 
 # --- vitals frame + tray + zone banner (P1): the dense _info text line becomes a real HUD ---
 func _build_vitals() -> void:
