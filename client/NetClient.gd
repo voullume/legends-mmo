@@ -422,6 +422,7 @@ var _locker_items := []                   # last-loaded inventory
 var _locker_sel := {"key": "", "idx": 0}  # selected slot
 var _locker_detail: VBoxContainer = null
 var _locker_stats: HBoxContainer = null
+var _locker_stat_sig := "-"                # change-guard so the stat bar rebuilds only when values change
 var _locker_header: RichTextLabel = null
 var _locker_loading := false
 var _locker_pending := false
@@ -634,6 +635,7 @@ func _toggle_locker() -> void:
 	if _locker_panel.visible:                 # full-screen opaque modal → close every other panel under it
 		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _lb_panel, _qgiver_panel, _settings_panel, _meter_panel]:
 			if pnl != null: pnl.visible = false
+		_locker_stat_sig = "-"                # force a fresh stat-bar rebuild on (re)open
 		_update_locker_model()
 		_load_locker()
 
@@ -704,11 +706,17 @@ func _update_locker_header() -> void:
 func _update_locker_stats() -> void:
 	if _locker_stats == null:
 		return
-	for c in _locker_stats.get_children():
-		c.queue_free()
 	var si: Dictionary = _state.get("self", {})
 	var pf = _find_fighter(_player_id)
 	var cls: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
+	# stats only change on equip/level, but the self block can populate item_power/gear a beat AFTER open —
+	# so refresh live per snapshot, but skip the ~15-node rebuild when nothing changed (no 30 Hz churn).
+	var sig := "%s|%d|%s" % [cls, int(si.get("item_power", 0)), JSON.stringify(si.get("equip_bonus", {}))]
+	if sig == _locker_stat_sig:
+		return
+	_locker_stat_sig = sig
+	for c in _locker_stats.get_children():
+		c.queue_free()
 	# OVR = item power
 	var ovr := VBoxContainer.new()
 	ovr.custom_minimum_size = Vector2(78, 0)
@@ -3437,9 +3445,10 @@ func receive_snapshot(snap: Dictionary) -> void:
 	_party = snap.get("party", [])
 	if _sheet_panel != null and _sheet_panel.visible:    # keep the character sheet live while it's open
 		_render_charsheet()
-	if _locker_panel != null and _locker_panel.visible:  # keep the locker's model + header live (level/item power)
-		_update_locker_model()                           # stats only change on equip → refreshed via recv_inventory_changed,
-		_update_locker_header()                          # so no per-snapshot stat-bar rebuild (avoids 30 Hz node churn)
+	if _locker_panel != null and _locker_panel.visible:  # keep the locker's model + header + stats live
+		_update_locker_model()
+		_update_locker_header()
+		_update_locker_stats()                           # sig-guarded → rebuilds only when a value actually changed
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
