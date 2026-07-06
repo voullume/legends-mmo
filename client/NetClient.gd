@@ -69,6 +69,10 @@ var _inv_paperdoll: GridContainer             # P7: the equipped-slots paperdoll
 var _inv_status: Label                        # P7: "N items" / loading / empty
 var _inv_ctx: PopupMenu                       # P7: right-click context menu
 var _inv_ctx_item := ""                       # the item id the context menu is acting on
+var _inv_controls: HBoxContainer = null       # sort buttons + Equip Best (rebuilt per render)
+var _inv_sort_mode := "rarity"                # rarity | type | power
+var _inv_change_seq := 0                       # bumped on recv_inventory_changed (Equip Best waits on it)
+var _equip_best_busy := false                  # re-entrancy guard for the Equip Best sequence
 var _chat_grace := 0          # frames after closing chat where input stays suppressed
 var _inv_loading := false     # an inventory GET is in flight
 var _inv_pending := false     # a refresh was requested while loading
@@ -200,6 +204,9 @@ func _dev_open_panel() -> void:
 	if which == "locker" and "--sel" in OS.get_cmdline_user_args():
 		await get_tree().create_timer(1.5).timeout   # dev: select main_hand to show the detail panel
 		_select_locker_slot("main_hand", 0)
+	if which == "inventory" and "--equipbest" in OS.get_cmdline_user_args():
+		await get_tree().create_timer(2.0).timeout   # dev: run Equip Best once the inventory has loaded
+		_equip_best()
 
 func _build_chat() -> void:
 	_chat_log = RichTextLabel.new()
@@ -301,6 +308,9 @@ func _build_inventory() -> void:
 	_inv_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
 	_inv_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	vb.add_child(_inv_status)
+	_inv_controls = HBoxContainer.new()           # sort + Equip Best (populated by _render_inv_tiles)
+	_inv_controls.add_theme_constant_override("separation", 8)
+	vb.add_child(_inv_controls)
 	var body := HBoxContainer.new()
 	body.add_theme_constant_override("separation", 16)
 	vb.add_child(body)
@@ -1022,33 +1032,138 @@ func _load_inventory() -> void:
 		_inv_status.text = "couldn't load inventory"
 		_rebuild_paperdoll([])
 		return
-	var items: Array = r.get("items", [])
-	_inv_items = items                            # cache for hover comparison tooltips
-	_rebuild_paperdoll(items)
-	if items.is_empty():
+	_inv_items = r.get("items", [])               # cache for hover comparison tooltips
+	_rebuild_paperdoll(_inv_items)
+	_render_inv_tiles()
+
+# rebuild the controls (sort + Equip Best) + status + the sorted tile grid from the cached _inv_items.
+# Cheap (no re-fetch) — the sort buttons call this directly.
+func _render_inv_tiles() -> void:
+	if _inv_grid == null:
+		return
+	if _tooltip != null:
+		_tooltip.visible = false
+	for ch in _inv_grid.get_children():
+		ch.queue_free()
+	for ch in _inv_controls.get_children():
+		ch.queue_free()
+	# controls row: sort modes + Equip Best
+	_inv_controls.add_child(_ctrl_label("sort:"))
+	for key in ["rarity", "type", "power"]:
+		var k_l: String = key
+		_inv_controls.add_child(_ctrl_btn(key.capitalize(), Palette.ACCENT if _inv_sort_mode == key else Palette.TEXT_DIM, func() -> void:
+			_inv_sort_mode = k_l
+			_render_inv_tiles()))
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_inv_controls.add_child(spacer)
+	var best := _ctrl_btn("⚡ Equip Best", Palette.ACCENT, _equip_best)
+	best.disabled = _equip_best_busy
+	_inv_controls.add_child(best)
+	if _inv_items.is_empty():
 		_inv_status.text = "empty — kill mobs to find loot"
 		return
 	var ups := 0
-	for it in items:
+	for it in _inv_items:
 		if _is_upgrade(it):
 			ups += 1
 	var uptxt: String = "   ·   ▲ %d upgrade%s" % [ups, "" if ups == 1 else "s"] if ups > 0 else ""
-	_inv_status.text = "%d items · click to equip · right-click to lock%s" % [items.size(), uptxt]
-	var view: Array = items.duplicate()           # equipped first, then rarity desc, then name
-	view.sort_custom(_inv_sort)
+	_inv_status.text = "%d items · click to equip · right-click to lock%s" % [_inv_items.size(), uptxt]
+	var view: Array = _inv_items.duplicate()
+	view.sort_custom(_inv_sort_cmp)
 	for it in view:
 		_inv_grid.add_child(_inv_tile(it))
 
-func _inv_sort(a, b) -> bool:
-	var ae := 1 if bool(a.get("equipped", false)) else 0
-	var be := 1 if bool(b.get("equipped", false)) else 0
-	if ae != be:
-		return ae > be
-	var ra := int(RARITY_RANK.get(str(a.get("rarity", "")), 0))
-	var rb := int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
-	if ra != rb:
-		return ra > rb
-	return str(a.get("name", "")) < str(b.get("name", ""))
+func _inv_sort_cmp(a, b) -> bool:
+	match _inv_sort_mode:
+		"type":
+			var sa := str(a.get("slot", ""))
+			var sb := str(b.get("slot", ""))
+			if sa != sb:
+				return sa < sb
+			return int(RARITY_RANK.get(str(a.get("rarity", "")), 0)) > int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
+		"power":
+			return int(a.get("item_power", 0)) > int(b.get("item_power", 0))
+		_:  # rarity: equipped first, then rarity desc, then name
+			var ae := 1 if bool(a.get("equipped", false)) else 0
+			var be := 1 if bool(b.get("equipped", false)) else 0
+			if ae != be:
+				return ae > be
+			var ra := int(RARITY_RANK.get(str(a.get("rarity", "")), 0))
+			var rb := int(RARITY_RANK.get(str(b.get("rarity", "")), 0))
+			if ra != rb:
+				return ra > rb
+			return str(a.get("name", "")) < str(b.get("name", ""))
+
+# an item's fit for the current class: sum of each stat × the class's base value for that stat, so a
+# class's key stats (its high base stats) weigh heaviest. item_power breaks ties.
+func _class_score(it: Dictionary, weights: Dictionary) -> int:
+	var totals := _item_stat_totals(it)
+	var s := 0
+	for st in totals:
+		s += int(totals[st]) * int(weights.get(st, 0))
+	return s
+
+# Equip Best: for each slot pick the top item(s) by class fit; unequip mismatches, equip the winners.
+# The server rate-limits equips (300 ms + a serialize guard), so fire them one at a time, waiting for the
+# recv_inventory_changed push (bumps _inv_change_seq) before the next — or a short timeout as a fallback.
+func _equip_best() -> void:
+	if _equip_best_busy or net == null or not _connected or _inv_items.is_empty():
+		return
+	var si: Dictionary = _state.get("self", {})
+	var pf = _find_fighter(_player_id)
+	var cls: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
+	if cls == "" or not GameData.CLASSES.has(cls):
+		return
+	var weights: Dictionary = GameData.CLASSES[cls]["stats"]
+	var by_slot := {}
+	for it in _inv_items:
+		var sl := str(it.get("slot", ""))
+		if sl == "":
+			continue
+		if not by_slot.has(sl):
+			by_slot[sl] = []
+		by_slot[sl].append(it)
+	var actions := []                             # [{id, slot}] — unequips first, then equips
+	for sl in by_slot:
+		var cap: int = 2 if sl == "ring" else 1
+		var items: Array = by_slot[sl]
+		items.sort_custom(func(a, b):
+			var sca := _class_score(a, weights)
+			var scb := _class_score(b, weights)
+			if sca != scb:
+				return sca > scb
+			return int(a.get("item_power", 0)) > int(b.get("item_power", 0)))
+		var best: Array = items.slice(0, cap)
+		var best_ids := {}
+		for b in best:
+			best_ids[str(b.get("id", ""))] = true
+		for it in items:                          # unequip anything worn in this slot that isn't a winner
+			if bool(it.get("equipped", false)) and not best_ids.has(str(it.get("id", ""))):
+				actions.append({"id": str(it.get("id", "")), "slot": sl})
+		for b in best:                            # equip each winner not already worn
+			if not bool(b.get("equipped", false)):
+				actions.append({"id": str(b.get("id", "")), "slot": sl})
+	if actions.is_empty():
+		_inv_status.text = "already wearing your best gear for this class"
+		return
+	_equip_best_busy = true
+	for ch in _inv_controls.get_children():       # disable the button while running
+		if ch is Button and (ch as Button).text == "⚡ Equip Best":
+			(ch as Button).disabled = true
+	for i in actions.size():
+		var a = actions[i]
+		_inv_status.text = "⚡ equipping best gear…  (%d/%d)" % [i + 1, actions.size()]
+		var seq := _inv_change_seq
+		if net != null and _connected:
+			net.equip.rpc_id(1, str(a["id"]), str(a["slot"]))
+		var waited := 0.0                         # wait for this equip to land (server push), or bail after 1.4 s
+		while _inv_change_seq == seq and waited < 1.4:
+			await get_tree().create_timer(0.08).timeout
+			waited += 0.08
+		await get_tree().create_timer(0.12).timeout   # margin past the 300 ms equip rate window
+	_equip_best_busy = false
+	_load_inventory()
 
 func _item_color(it: Dictionary) -> Color:
 	var uv = it.get("unique_id")
@@ -1279,6 +1394,7 @@ func _on_inv_ctx(id: int) -> void:
 			net.equip.rpc_id(1, _inv_ctx_item, str(_inv_ctx.get_meta("slot", "")))
 
 func recv_inventory_changed() -> void:
+	_inv_change_seq += 1                          # Equip Best waits on this to pace its equips
 	if _inv_panel != null and _inv_panel.visible:
 		_load_inventory()
 	if _shop_panel != null and _shop_panel.visible:   # a buy/sell/roll/lock changed our items + credits
