@@ -60,6 +60,12 @@ var _leave_btn: Button = null
 var _invite_popup: PanelContainer = null      # "Invite <name>?" after clicking a player
 var _invite_prompt: PanelContainer = null     # an incoming invite (accept/decline)
 var _invite_from_fid := ""
+# party loot want/need/pass roll (one prompt at a time; extra drops queue)
+var _loot_roll_queue := []                    # [{drop_id, info, ms}]
+var _loot_roll_panel: PanelContainer = null
+var _loot_roll_cur := -1                       # drop_id currently prompting
+var _loot_roll_deadline := 0.0                 # secs left before auto-pass
+var _loot_roll_timer_lbl: Label = null
 var _inv_panel: Control
 var _sheet_panel: Control                    # character sheet (K) — computed base+gear stats + item power
 var _sheet_label: RichTextLabel
@@ -3450,6 +3456,114 @@ func _close_invite_prompt() -> void:
 		_invite_prompt.queue_free()
 		_invite_prompt = null
 
+# ---- party loot: want/need/pass roll ----
+func recv_loot_roll(drop_id: int, info: Dictionary, ms: int) -> void:
+	_loot_roll_queue.append({"drop_id": drop_id, "info": info, "ms": ms})
+	if _loot_roll_panel == null:
+		_show_next_loot_roll()
+
+func _show_next_loot_roll() -> void:
+	if _loot_roll_panel != null or _loot_roll_queue.is_empty():
+		return
+	var e: Dictionary = _loot_roll_queue.pop_front()
+	var info: Dictionary = e["info"]
+	_loot_roll_cur = int(e["drop_id"])
+	_loot_roll_deadline = float(e["ms"]) / 1000.0
+	_loot_roll_panel = _invite_box(Palette.ACCENT, 2)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	_loot_roll_panel.add_child(vb)
+	var title := Label.new()
+	title.text = "🎲  PARTY LOOT"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", Palette.SIZE_TITLE)
+	title.add_theme_color_override("font_color", Palette.ACCENT)
+	vb.add_child(title)
+	var rar := str(info.get("rarity", "common"))
+	var rcol: String = Palette.UNIQUE_HEX if bool(info.get("unique", false)) else RARITY_COLORS.get(rar, "#cfd6df")
+	var item := RichTextLabel.new()
+	item.bbcode_enabled = true
+	item.fit_content = true
+	item.scroll_active = false
+	item.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	item.custom_minimum_size = Vector2(300, 0)
+	var statline := ("  [color=%s]+%d %s[/color]" % [Palette.hex(Palette.XP), int(info.get("amt", 0)), str(info.get("stat", ""))]) if int(info.get("amt", 0)) != 0 else ""
+	item.text = "[center][b][color=%s]%s[/color][/b]\n[color=%s]%s · %s · i%d[/color]%s[/center]" % [
+		rcol, _esc(str(info.get("name", "?"))), Palette.hex(Palette.TEXT_FAINT), rar, str(info.get("slot", "")), int(info.get("ilvl", 1)), statline]
+	vb.add_child(item)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(row)
+	var did := _loot_roll_cur
+	row.add_child(_loot_roll_btn("Need", Palette.XP, func() -> void: _loot_roll_choose(did, "need")))
+	row.add_child(_loot_roll_btn("Want", Palette.ACCENT, func() -> void: _loot_roll_choose(did, "want")))
+	row.add_child(_loot_roll_btn("Pass", Palette.TEXT_DIM, func() -> void: _loot_roll_choose(did, "pass")))
+	_loot_roll_timer_lbl = Label.new()
+	_loot_roll_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_loot_roll_timer_lbl.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	_loot_roll_timer_lbl.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	vb.add_child(_loot_roll_timer_lbl)
+	_hud.add_child(_loot_roll_panel)
+	_loot_roll_panel.reset_size()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_loot_roll_panel.position = Vector2((vp.x - _loot_roll_panel.size.x) / 2.0, vp.y * 0.34)
+
+func _loot_roll_btn(text: String, col: Color, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(96, 44)
+	b.add_theme_color_override("font_color", col)
+	b.pressed.connect(cb)
+	return b
+
+func _loot_roll_choose(drop_id: int, choice: String) -> void:
+	if net != null and _connected:
+		net.loot_roll.rpc_id(1, drop_id, choice)
+	_close_loot_roll()
+	_show_next_loot_roll()
+
+func _close_loot_roll() -> void:
+	if _loot_roll_panel != null:
+		_loot_roll_panel.queue_free()
+		_loot_roll_panel = null
+	_loot_roll_cur = -1
+	_loot_roll_timer_lbl = null
+
+# auto-pass on timeout (driven from _process)
+func _update_loot_roll(delta: float) -> void:
+	if _loot_roll_panel == null:
+		return
+	_loot_roll_deadline -= delta
+	if _loot_roll_deadline <= 0.0:
+		_loot_roll_choose(_loot_roll_cur, "pass")     # ran out → auto-pass, show the next
+	elif _loot_roll_timer_lbl != null:
+		_loot_roll_timer_lbl.text = "auto-pass in %ds" % int(ceil(_loot_roll_deadline))
+
+# the outcome (winner + rolls) — a toast; and close the prompt if the server resolved it early
+func recv_loot_roll_result(drop_id: int, result: Dictionary) -> void:
+	if _loot_roll_cur == drop_id:
+		_close_loot_roll()
+		_show_next_loot_roll()
+	var info: Dictionary = result.get("item", {})
+	var rar := str(info.get("rarity", "common"))
+	var rcol: String = Palette.UNIQUE_HEX if bool(info.get("unique", false)) else RARITY_COLORS.get(rar, "#cfd6df")
+	var winner := str(result.get("winner", "nobody"))
+	var rolls: Dictionary = result.get("rolls", {})
+	var roll_txt := ""
+	if not rolls.is_empty():                          # show each roller's 1-100 (highest won)
+		var parts := []
+		for fid in rolls:
+			parts.append("%s %d" % [_roster_name(str(fid)), int(rolls[fid])])
+		roll_txt = "\n[color=%s]%s[/color]" % [Palette.hex(Palette.TEXT_FAINT), "  ·  ".join(parts)]
+	_toast("[b]🎲 %s[/b] won [color=%s]%s[/color]%s" % [_esc(winner), rcol, _esc(str(info.get("name", "?"))), roll_txt], Palette.ACCENT)
+
+func _roster_name(fid: String) -> String:         # party-member display name from the roster (fallback to the fid)
+	for m in _party:
+		if str(m.get("fid", "")) == fid:
+			return str(m.get("name", fid))
+	return fid
+
 func _send_ability(key: String) -> void:
 	if _can_press(key):              # off-cd + alive as far as the client knows → show the predicted tell
 		_play_cast_sound(key)
@@ -3619,6 +3733,7 @@ func _process(delta: float) -> void:
 	_update_camp_proximity()
 	_update_drill_banner()
 	_update_juice_online(delta)     # P4: level-up flash + zone-transition card one-shots
+	_update_loot_roll(delta)        # party loot want/need/pass countdown → auto-pass
 	if _locker_panel != null and _locker_panel.visible and _locker_model_holder != null:
 		_locker_model_holder.rotation.y += delta * 0.5   # slow turntable on the locker figure
 

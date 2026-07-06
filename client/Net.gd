@@ -98,6 +98,22 @@ func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
 	if client != null:
 		client.recv_party_invite(inviter_name, inviter_fid)
 
+# ---- party loot: want/need/pass roll ----
+@rpc("authority", "call_remote", "reliable")
+func recv_loot_roll(drop_id: int, info: Dictionary, ms: int) -> void:   # server → open the roll UI
+	if client != null:
+		client.recv_loot_roll(drop_id, info, ms)
+
+@rpc("any_peer", "call_remote", "reliable")
+func loot_roll(drop_id: int, choice: String) -> void:                   # client → the player's Need/Want/Pass
+	if server != null:
+		server.loot_roll(multiplayer.get_remote_sender_id(), drop_id, choice)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_loot_roll_result(drop_id: int, result: Dictionary) -> void:   # server → the outcome (winner + rolls)
+	if client != null:
+		client.recv_loot_roll_result(drop_id, result)
+
 # ---- shop (client → server; server re-validates credits/ownership/location) ----
 @rpc("any_peer", "call_remote", "reliable")
 func shop_buy(slot: String, rarity: String) -> void:

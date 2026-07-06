@@ -99,6 +99,15 @@ const RARITIES := [
 ]
 const LOOT_STATS := ["PWR", "PRE", "SPD", "END", "INS", "CLU"]
 const SLOT_CAP := {"ring": 2}                # equip-slot capacity per item type (default 1; rings stack 2)
+# per-tier base chance a kill drops an item at all (minions also scale +DROP_INTENSITY_STEP per Circuit tier).
+# Tuned DOWN so loot feels earned (was minion 0.65 / elite+boss 1.0).
+const DROP_CHANCE := {"minion": 0.15, "elite": 0.40, "boss": 0.90}
+const DROP_INTENSITY_STEP := 0.03
+# party loot: a want/need/pass roll opens when a partied player (≥2 real members, same zone) gets a drop.
+const LOOT_ROLL_MS := 20000                       # the roll window before it auto-resolves
+var _loot_rolls := {}                             # drop_id -> {item, map, eligible:[pids], choices:{pid:choice}, leader, deadline}
+var _loot_roll_ctr := 0
+var _loot_roll_next := {}                         # pid -> earliest next loot_roll ms (anti-spam, like the other RPCs)
 const AFFIX_COUNT_BY_RARITY := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 4}
 const SHOP_ILVL := 8                         # the shop catalog/roll's fixed item level (a reliable baseline)
 # economy (Credits): buy from a fixed catalog, gamble a random roll, or sell inventory back
@@ -1103,6 +1112,9 @@ const INVITE_COOLDOWN_MS := 1000                  # per-sender anti-spam (mirror
 const INVITE_TTL_MS := 30000                      # a pending invite expires (and stops blocking) after 30s
 var _party_invites := {}                          # target_pid -> {from: inviter_pid, t: ms}
 var _party_invite_next := {}                      # inviter_pid -> earliest next-invite ms
+var _party_seq := {}                              # pid -> join order (lowest = founder → party leader for loot fallback)
+var _party_seq_ctr := 0
+
 
 func _pid_by_fid(fid: String) -> int:
 	for pid in _session:
@@ -1155,6 +1167,12 @@ func party_accept(pid: int, inviter_fid: String) -> void:
 		members = [ipid]
 	if pid not in members:
 		members.append(pid)
+	if not _party_seq.has(ipid):                  # founder gets the earliest join order → leader
+		_party_seq_ctr += 1
+		_party_seq[ipid] = _party_seq_ctr
+	if not _party_seq.has(pid):                   # the accepter joins after → higher order
+		_party_seq_ctr += 1
+		_party_seq[pid] = _party_seq_ctr
 	var res_total := 0                            # RP2: companions bonded to any prospective member count toward the cap
 	for rfid in _res_party:
 		if int(_res_party[rfid]) in members:
@@ -1181,6 +1199,7 @@ func _party_set(members: Array) -> void:
 		for m in members:
 			if _session.has(m):
 				_session[m]["party"] = []
+			_party_seq.erase(m)                   # disbanded → clear join order
 		return
 	for m in members:
 		if _session.has(m):
@@ -1188,6 +1207,12 @@ func _party_set(members: Array) -> void:
 
 func _party_leave(pid: int) -> void:
 	_party_invites.erase(pid)
+	_party_seq.erase(pid)                          # this member left → drop their join order
+	for drop_id in _loot_rolls:                    # forfeit any open roll: a departed member can't vote on or win it
+		var lr = _loot_rolls[drop_id]
+		if pid in lr["eligible"]:
+			(lr["eligible"] as Array).erase(pid)
+			(lr["choices"] as Dictionary).erase(pid)
 	if not _session.has(pid):
 		return
 	var party: Array = (_session[pid]["party"] as Array).duplicate()
@@ -1926,6 +1951,7 @@ func _physics_process(delta: float) -> void:
 		_save_all()
 	if steps > 0:
 		_award_kills()                            # grant XP for mob kills before events are cleared
+		_tick_loot_rolls()                        # auto-resolve any timed-out party loot rolls
 		_broadcast()
 	_tick_us_peak = maxi(_tick_us_peak, int(Time.get_ticks_usec() - work_t0))
 	_health_t += delta
@@ -2234,7 +2260,9 @@ func _award_kills() -> void:
 				if gy:
 					_award_tokens(credit_pid, _mob_tokens(victim))
 				_award_xp(credit_pid, _mob_xp(victim))
-				_grant_loot(credit_pid, victim)
+				var drop := _roll_loot(victim)                 # roll once; solo → grant; party (≥2 real, same zone) → want/need/pass
+				if not drop.is_empty():
+					_distribute_loot(credit_pid, drop, str(mapname))
 				_quest_on_kill(credit_pid, victim)             # advance any matching kill-quest
 				if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
 					_award_pages(credit_pid, BOSS_PAGES)
@@ -2326,11 +2354,17 @@ func _mob_xp(mob) -> int:
 	var mult := MOB_BOSS_XP if tier == "boss" else (MOB_ELITE_XP if tier == "elite" else 1)
 	return int(MOB_XP_BASE * lvl * mult * _intensity_reward(mob))
 
+# roll THEN grant (used by the Circuit-clear bonus). Mob kills roll once + distribute (solo grant or party roll).
 func _grant_loot(pid: int, mob) -> void:
 	if not _session.has(pid):
 		return
 	var item := _roll_loot(mob)
-	if item.is_empty():
+	if not item.is_empty():
+		await _grant_item(pid, item)
+
+# grant an ALREADY-rolled item: persist it, then notify. The single write point for a loot drop.
+func _grant_item(pid: int, item: Dictionary) -> void:
+	if not _session.has(pid) or item.is_empty():
 		return
 	var s = _session[pid]
 	var r = await supa.add_item_as(s["access"], s["char_id"], item)
@@ -2341,11 +2375,131 @@ func _grant_loot(pid: int, mob) -> void:
 		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
 		print("[loot] %s looted [%s] %s (+%d %s)" % [s["name"], item["rarity"], item["name"], item["bonus_amt"], item["bonus_stat"]])
 
+# a compact item summary for the roll UI (residents/companions aren't peers, so never included)
+func _loot_item_info(item: Dictionary) -> Dictionary:
+	return {"name": str(item.get("name", "?")), "rarity": str(item.get("rarity", "common")),
+		"slot": str(item.get("slot", "")), "amt": int(item.get("bonus_amt", 0)), "stat": str(item.get("bonus_stat", "")),
+		"ilvl": int(item.get("ilvl", 1)), "unique": str(item.get("unique_id", "")) != ""}
+
+# a drop landed for a partied killer → either grant solo, or open a want/need/pass roll for the real party
+# members in the same zone (AI companions are fid-only, never in the pid party list → they never roll).
+func _distribute_loot(killer_pid: int, item: Dictionary, mapname: String) -> void:
+	var eligible := []
+	if _session.has(killer_pid):
+		var party: Array = _session[killer_pid]["party"]
+		if party.size() >= 2:
+			for m in party:
+				if _session.has(m) and str(_session[m]["map"]) == mapname:
+					eligible.append(m)
+	if eligible.size() < 2:                              # solo, or party split across zones → straight to the killer
+		_grant_item(killer_pid, item)
+		return
+	_loot_roll_ctr += 1
+	var drop_id := _loot_roll_ctr
+	_loot_rolls[drop_id] = {"item": item, "map": mapname, "eligible": eligible, "choices": {},
+		"deadline": Time.get_ticks_msec() + LOOT_ROLL_MS}   # all-pass winner is recomputed from live seq at resolve time
+	var info := _loot_item_info(item)
+	for m in eligible:
+		if _session.has(m) and net != null:
+			net.recv_loot_roll.rpc_id(m, drop_id, info, LOOT_ROLL_MS)
+
+# a party member's Need/Want/Pass choice (client → server)
+func loot_roll(pid: int, drop_id: int, choice: String) -> void:
+	if not _session.has(pid) or not _loot_rolls.has(drop_id):
+		return
+	var now := Time.get_ticks_msec()
+	if now < int(_loot_roll_next.get(pid, 0)):
+		return
+	_loot_roll_next[pid] = now + 200
+	var roll = _loot_rolls[drop_id]
+	if pid not in roll["eligible"] or (roll["choices"] as Dictionary).has(pid):
+		return                                           # not eligible, or already chose
+	if choice != "need" and choice != "want" and choice != "pass":
+		choice = "pass"
+	roll["choices"][pid] = choice
+	var all_chose := true                                # resolve early only once every still-connected eligible has chosen
+	for m in roll["eligible"]:                           # (count-compare would misfire on stale votes left by a disconnect)
+		if _session.has(m) and not (roll["choices"] as Dictionary).has(m):
+			all_chose = false
+			break
+	if all_chose:
+		_resolve_loot_roll(drop_id)
+
+# resolve a roll: tiered Need > Want (a lone claimant wins outright; ties roll 1-100 within the winning tier);
+# everyone passed → the party leader; then grant the item to the winner and tell every roller the outcome.
+func _resolve_loot_roll(drop_id: int) -> void:
+	if not _loot_rolls.has(drop_id):
+		return
+	var roll = _loot_rolls[drop_id]
+	_loot_rolls.erase(drop_id)                           # claim it once (idempotent)
+	var item: Dictionary = roll["item"]
+	var needs := []
+	var wants := []
+	for m in roll["eligible"]:
+		if not _session.has(m):
+			continue                                     # disconnected = pass
+		var c := str((roll["choices"] as Dictionary).get(m, "pass"))
+		if c == "need":
+			needs.append(m)
+		elif c == "want":
+			wants.append(m)
+	var pool: Array = needs if not needs.is_empty() else wants   # Need outranks Want
+	var rolls := {}
+	var winner := -1
+	if pool.size() == 1:
+		winner = int(pool[0])                            # lone claimant → wins outright
+	elif pool.size() > 1:
+		var best := -1
+		for m in pool:
+			var rv: int = _loot_rng.next_int(100) + 1    # 1..100 (Variant → annotate per the := trap)
+			rolls[m] = rv
+			if rv > best or (rv == best and (winner < 0 or m < winner)):
+				best = rv
+				winner = m
+	else:                                                # everyone passed → the party leader AMONG still-eligible members
+		var best_seq := 1 << 62                          # founder = lowest join seq; a mid-roll leaver's seq was erased → sorts last,
+		for m in roll["eligible"]:                        # and an out-of-zone founder was never in eligible → both correctly excluded
+			if not _session.has(m):
+				continue                                 # disconnected → can't win
+			var lsq := int(_party_seq.get(m, 1 << 61))
+			if lsq < best_seq or (lsq == best_seq and (winner < 0 or m < winner)):
+				best_seq = lsq
+				winner = m
+	# tell every roller the outcome (winner name + choices + rolls), then grant to the winner
+	var choices_out := {}
+	var rolls_out := {}
+	for m in roll["eligible"]:
+		var f := str(_session[m]["fid"]) if _session.has(m) else str(m)
+		choices_out[f] = str((roll["choices"] as Dictionary).get(m, "pass"))
+		if rolls.has(m):
+			rolls_out[f] = int(rolls[m])
+	var win_name := str(_session[winner]["name"]) if (winner >= 0 and _session.has(winner)) else "nobody"
+	var result := {"item": _loot_item_info(item), "winner": win_name, "choices": choices_out, "rolls": rolls_out}
+	for m in roll["eligible"]:
+		if _session.has(m) and net != null:
+			net.recv_loot_roll_result.rpc_id(m, drop_id, result)
+	if winner >= 0 and _session.has(winner):
+		_grant_item(winner, item)
+	else:
+		print("[loot] roll %d: item lost (no eligible winner)" % drop_id)
+
+# expire timed-out rolls (called from the tick)
+func _tick_loot_rolls() -> void:
+	if _loot_rolls.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	var expired := []
+	for drop_id in _loot_rolls:
+		if now >= int(_loot_rolls[drop_id]["deadline"]):
+			expired.append(drop_id)
+	for drop_id in expired:
+		_resolve_loot_roll(drop_id)
+
 func _roll_loot(mob) -> Dictionary:
 	var tier := str(mob.get("mobTier", "minion"))
 	var lvl := int(mob.get("mobLevel", 1))
 	var intensity := int(mob.get("intensity", 1))            # Circuit Intensity (1 = open world → no change)
-	var chance := 1.0 if tier != "minion" else clampf(0.65 + (intensity - 1) * 0.05, 0.0, 1.0)   # higher tiers drop more
+	var chance := clampf(float(DROP_CHANCE.get(tier, 0.15)) + ((intensity - 1) * DROP_INTENSITY_STEP if tier == "minion" else 0.0), 0.0, 1.0)
 	if _loot_rng.next() > chance:
 		return {}
 	var rar := _roll_rarity(tier, intensity)
