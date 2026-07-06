@@ -68,8 +68,18 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 
 # Wire drag (header) + resize (bottom-right grip) + persistence onto a Widgets panel.
 static func _make_window(root: Control, pc: PanelContainer, head: Control, title: String, min_width: float) -> void:
-	var placed := {"v": false}
-	# drag by the header
+	# resize grip (bottom-right), a sibling of pc kept pinned to the panel's corner by `pin`
+	var grip := ColorRect.new()
+	grip.color = Color(Palette.BORDER_BRIGHT, 0.5)
+	grip.custom_minimum_size = Vector2(16, 16)
+	grip.size = Vector2(16, 16)
+	grip.mouse_default_cursor_shape = Control.CURSOR_FDIAGSIZE
+	grip.visible = false
+	root.add_child(grip)
+	var pin := func() -> void:
+		grip.position = pc.position + pc.size - grip.size
+	pc.resized.connect(pin)                  # content-driven size changes keep the grip aligned
+	# drag by the header (a move only changes position → doesn't emit `resized`, so re-pin explicitly)
 	var drag := {"on": false, "off": Vector2.ZERO}
 	head.gui_input.connect(func(ev) -> void:
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
@@ -79,17 +89,9 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 			else:
 				_save_window(title, pc)
 		elif ev is InputEventMouseMotion and drag["on"]:
-			_place_panel(root, pc, root.get_local_mouse_position() - drag["off"]))
-	# resize grip (bottom-right), a sibling kept pinned to the panel's corner
-	var grip := ColorRect.new()
-	grip.color = Color(Palette.BORDER_BRIGHT, 0.5)
-	grip.custom_minimum_size = Vector2(16, 16)
-	grip.size = Vector2(16, 16)
-	grip.mouse_default_cursor_shape = Control.CURSOR_FDIAGSIZE
-	root.add_child(grip)
-	var pin := func() -> void:
-		grip.position = pc.position + pc.size - grip.size
-	pc.resized.connect(pin)
+			_place_panel(root, pc, root.get_local_mouse_position() - drag["off"])
+			pin.call())
+	# resize by the grip
 	var rz := {"on": false, "start": Vector2.ZERO, "base": Vector2.ZERO}
 	grip.gui_input.connect(func(ev) -> void:
 		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
@@ -103,14 +105,25 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 			var d: Vector2 = root.get_local_mouse_position() - rz["start"]
 			pc.custom_minimum_size = Vector2(maxf(min_width * 0.6, float(rz["base"].x) + d.x), maxf(120.0, float(rz["base"].y) + d.y))
 			pin.call())
-	# on first show → restore saved position/size, or center
+	# on show: restore (first time), re-clamp, re-pin the grip; hook the viewport resize once we're in-tree
+	var placed := {"v": false, "vp": false}
 	root.visibility_changed.connect(func() -> void:
-		if root.visible and not placed["v"]:
+		grip.visible = root.visible
+		if not root.visible:
+			return
+		if not placed["v"]:
 			placed["v"] = true
 			_restore_window(root, pc, title, min_width)
-			pin.call()
-		grip.visible = root.visible)
-	grip.visible = false
+		if not placed["vp"]:                 # re-clamp + re-pin when the game window is resized
+			placed["vp"] = true
+			var vpn := root.get_viewport()
+			if vpn != null:
+				vpn.size_changed.connect(func() -> void:
+					if root.visible:
+						_place_panel(root, pc, pc.position)
+						pin.call())
+		_place_panel(root, pc, pc.position)  # keep it on-screen
+		pin.call())
 
 # clamp a panel top-left so it stays on screen
 static func _place_panel(root: Control, pc: Control, p: Vector2) -> void:

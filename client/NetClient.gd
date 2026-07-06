@@ -468,12 +468,14 @@ func _build_locker() -> void:
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 10)
 	m.add_child(root)
-	# header: [LOCKER LOADOUT title]  ·  [CHARACTER NAME + class/level — top-center, prominent]  ·  [✕]
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 14)
+	# header: a full-width band with the LOCKER LOADOUT title anchored left, the ✕ anchored right, and the
+	# CHARACTER NAME + class/level in a full-rect CenterContainer so it's truly SCREEN-centered (not offset
+	# by the differing widths of the left title vs the right ✕).
+	var head := Control.new()
+	head.custom_minimum_size = Vector2(0, 56)
 	root.add_child(head)
 	var titv := VBoxContainer.new()               # left: the screen title
-	titv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	titv.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	var tit := Label.new()
 	tit.text = "LOCKER LOADOUT"
 	tit.add_theme_font_size_override("font_size", 24)
@@ -485,8 +487,12 @@ func _build_locker() -> void:
 	tag.add_theme_color_override("font_color", Palette.ACCENT)
 	titv.add_child(tag)
 	head.add_child(titv)
-	var namev := VBoxContainer.new()              # center: the character (prominent)
-	namev.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var namecc := CenterContainer.new()           # center: the character (prominent, screen-centered)
+	namecc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	namecc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(namecc)
+	var namev := VBoxContainer.new()
+	namecc.add_child(namev)
 	_locker_name = Label.new()
 	_locker_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_locker_name.add_theme_font_size_override("font_size", 30)
@@ -497,17 +503,12 @@ func _build_locker() -> void:
 	_locker_subtitle.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
 	_locker_subtitle.add_theme_color_override("font_color", Palette.ACCENT2)
 	namev.add_child(_locker_subtitle)
-	head.add_child(namev)
-	var rightv := HBoxContainer.new()             # right: close (EXPAND balances the left title → name centers)
-	rightv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rightv.alignment = BoxContainer.ALIGNMENT_END
-	var x := Button.new()
+	var x := Button.new()                          # right: close
+	x.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	x.text = "✕"
 	x.focus_mode = Control.FOCUS_NONE
-	x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	x.pressed.connect(_toggle_locker)
-	rightv.add_child(x)
-	head.add_child(rightv)
+	head.add_child(x)
 	root.add_child(HSeparator.new())
 	# body: left slots | 3D figure | right slots | detail
 	var body := HBoxContainer.new()

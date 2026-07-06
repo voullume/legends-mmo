@@ -919,7 +919,10 @@ func _render_world(delta: float) -> void:
 		# instant WASD releases (no glide-running) — facing still uses the smoothed velocity below.
 		var anim_moving: bool = n["vel"].length() > 0.010
 		if f["id"] == _player_id and _player != null:
-			anim_moving = absf(float(_player.intent.get("mx", 0.0))) > 0.05 or absf(float(_player.intent.get("my", 0.0))) > 0.05
+			# run only while actively holding a direction AND actually displacing — so it stops the instant
+			# keys release (no glide-run) yet doesn't run-in-place when held against a wall or rooted/stunned
+			var pressing: bool = absf(float(_player.intent.get("mx", 0.0))) > 0.05 or absf(float(_player.intent.get("my", 0.0))) > 0.05
+			anim_moving = pressing and n["vel"].length() > 0.004
 		# face heading while moving, else the nearest enemy
 		var flip: float = PI if MESHY_FLIP else 0.0
 		var model: Node3D = n["model"]   # scale is constant (set at spawn) — idle stands tall, run crouches, blended
