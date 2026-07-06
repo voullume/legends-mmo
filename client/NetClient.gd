@@ -622,7 +622,9 @@ func _update_locker_model() -> void:
 		ap.playback_default_blend_time = 0.12
 		_safe_play(ap, kit["anims"].get("idle", "idle"))
 	if dye != "":
-		_apply_dye(model, dye)
+		# self block ships the dye ID ("emerald"); _apply_dye wants a hex — resolve it (the in-world model
+		# uses the server-resolved `dye` field, but the locker reads cos_dye raw). Guard var stays the ID.
+		_apply_dye(model, str(GameData.DYE_CATALOG.get(dye, {}).get("color", "")))
 
 func _toggle_locker() -> void:
 	if _locker_panel == null:
@@ -630,7 +632,7 @@ func _toggle_locker() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_locker_panel.visible = not _locker_panel.visible
 	if _locker_panel.visible:                 # full-screen opaque modal → close every other panel under it
-		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _lb_panel, _qgiver_panel, _settings_panel]:
+		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _lb_panel, _qgiver_panel, _settings_panel, _meter_panel]:
 			if pnl != null: pnl.visible = false
 		_update_locker_model()
 		_load_locker()
@@ -1481,6 +1483,7 @@ func _toggle_qgiver() -> void:
 	if _tooltip != null: _tooltip.visible = false     # ditto — clear any stuck inventory hover tooltip
 	_qgiver_panel.visible = not _qgiver_panel.visible
 	if _qgiver_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
 		if _inv_panel != null:                       # only one full-screen panel at a time
 			_inv_panel.visible = false
 		if _shop_panel != null:
@@ -1686,6 +1689,8 @@ func _toggle_settings() -> void:
 	if _settings_panel == null:
 		return
 	_settings_panel.visible = not _settings_panel.visible
+	if _settings_panel.visible and _locker_panel != null:   # else it opens behind the opaque locker
+		_locker_panel.visible = false
 
 # ---- shop (home-zone economy: buy from a catalog, gamble a roll, sell inventory back) ----
 func recv_shop_info(info: Dictionary) -> void:
@@ -1752,6 +1757,7 @@ func _toggle_shop() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_shop_panel.visible = not _shop_panel.visible
 	if _shop_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
 		_sell_selection.clear()             # fresh selection each time the shop opens
 		_sell_salvage = false               # default to Sell mode on open
 		_render_shop_buy()
@@ -1792,6 +1798,7 @@ func _toggle_vendor() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_vendor_panel.visible = not _vendor_panel.visible
 	if _vendor_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
 		_render_vendor()
 
 func _render_vendor() -> void:
@@ -1865,6 +1872,7 @@ func _toggle_camp() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_camp_panel.visible = not _camp_panel.visible
 	if _camp_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
 		_render_camp()
 
 func _render_camp() -> void:
@@ -2220,6 +2228,7 @@ func _toggle_forge() -> void:
 		if _inv_panel != null: _inv_panel.visible = false      # one full-screen modal at a time
 		if _sheet_panel != null: _sheet_panel.visible = false
 		if _quest_panel != null: _quest_panel.visible = false
+		if _locker_panel != null: _locker_panel.visible = false
 		_load_forge()
 
 func _load_forge() -> void:
@@ -3428,10 +3437,9 @@ func receive_snapshot(snap: Dictionary) -> void:
 	_party = snap.get("party", [])
 	if _sheet_panel != null and _sheet_panel.visible:    # keep the character sheet live while it's open
 		_render_charsheet()
-	if _locker_panel != null and _locker_panel.visible:  # keep the locker's stats/model/header live (no re-fetch)
-		_update_locker_model()
-		_update_locker_stats()
-		_update_locker_header()
+	if _locker_panel != null and _locker_panel.visible:  # keep the locker's model + header live (level/item power)
+		_update_locker_model()                           # stats only change on equip → refreshed via recv_inventory_changed,
+		_update_locker_header()                          # so no per-snapshot stat-bar rebuild (avoids 30 Hz node churn)
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
@@ -3633,6 +3641,7 @@ func _unhandled_input(e: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_N and not _chatting:
+			if _locker_panel != null: _locker_panel.visible = false   # meter behind the opaque locker = invisible
 			_toggle_meter()                 # the §4a DPS/HPS meter — usable anywhere
 			get_viewport().set_input_as_handled()
 			return

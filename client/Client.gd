@@ -2030,6 +2030,8 @@ func _sync_projectiles() -> void:
 
 # ============================================================ helpers
 func _find_fighter(id) -> Variant:
+	if not _state.has("fighters"):    # defensive: callable before the first snapshot (e.g. opening the locker mid-connect)
+		return null
 	for f in _state["fighters"]:
 		if f["id"] == id:
 			return f
