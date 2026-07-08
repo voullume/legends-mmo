@@ -271,6 +271,56 @@ static func circles_from(entries: Array) -> Array:
 static func obstacle_circles(map: String) -> Array:
 	return circles_from(OBSTACLES.get(map, []))
 
+# ---- collision for DECORATION props (data/decals/<map>.json) — so players + mobs can't walk through the town's
+# buildings/trees/fences/etc. Server-side only: each solid prop becomes one collision circle appended to the
+# world's obstacle set (the sim's AI.separation blocks fighters at r + 14). It is NOT sent to the client, which
+# already renders the props as decals — so no double-render. ----
+# Per-model footprint: the block RADIUS (sim units) generated PER unit of placed height  →  r = FOOTPRINT * h.
+# So a prop scaled up blocks a proportionally bigger circle. A model NOT listed here gets NO collision (flat décor
+# you walk over: grass, flowers, painted rings, cones). TO GIVE A NEW PROP COLLISION: add it here with a factor ≈
+# its horizontal footprint relative to its height — wide buildings ~5.5, chunky rocks ~8, thin fences ~9, tree
+# TRUNKS ~2 (the canopy is visual). Err on the SMALL side (you can widen later); the sim blocks at r + 14.
+const PROP_FOOTPRINT := {
+	"building-a": 5.5, "building-c": 5.5, "building-e": 5.5, "building-h": 5.5,
+	"building-k": 5.5, "building-n": 5.5, "building-q": 5.5, "building-t": 5.5, "stadium": 4.5,
+	"rock_largeA": 8.0, "rock_largeC": 8.0, "rock_largeE": 8.0, "rock_tallC": 5.0, "stone_largeB": 8.0,
+	"tree_oak": 2.2, "tree_default": 2.2, "tree_thin": 1.6, "tree_pineRoundC": 2.4, "tree_palmDetailedTall": 1.6,
+	"fence_simple": 9.0, "fence_planks": 9.0, "fence_corner": 9.0,
+	"plant_bush": 6.0, "plant_bushLarge": 8.0,
+	"chimney-small": 3.5, "chimney-medium": 3.5, "chimney-large": 4.0, "detail-tank": 5.0,
+	"bag": 9.0, "barrier": 9.0, "rack": 9.0, "log_stack": 7.0,
+}
+const DECAL_COLLIDE_MIN_R := 4.0
+const DECAL_COLLIDE_MAX_R := 130.0
+
+# collision circles for a map's decoration props. Reads the authored data/decals/<map>.json (what the client
+# draws), else the const DECALS fallback, so collision always matches what's visible.
+static func collision_from_decals(map: String) -> Array:
+	var out := []
+	for d in _decals_source(map):
+		if not (d is Dictionary) or str(d.get("kind", "")) != "prop":
+			continue
+		var model := str(d.get("model", ""))
+		if not PROP_FOOTPRINT.has(model):
+			continue                                     # flat décor (grass/flowers/…) → no collision
+		var hv = d.get("h", 1.0)
+		var h: float = float(hv) if (hv is float or hv is int) else 1.0
+		var r: float = clampf(float(PROP_FOOTPRINT[model]) * h, DECAL_COLLIDE_MIN_R, DECAL_COLLIDE_MAX_R)
+		out.append({"x": float(d.get("x", 0.0)), "y": float(d.get("y", 0.0)), "r": r})
+	return out
+
+# the decal list for a map: the authored JSON if present (what players see), else the const DECALS.
+static func _decals_source(map: String) -> Array:
+	var jpath := "res://data/decals/%s.json" % map
+	if FileAccess.file_exists(jpath):
+		var f := FileAccess.open(jpath, FileAccess.READ)
+		if f != null:
+			var parsed = JSON.parse_string(f.get_as_text())
+			f.close()
+			if parsed is Array:
+				return parsed
+	return DECALS.get(map, [])
+
 const OBSTACLES := {
 	# Panels run perpendicular to the player's eastward approach (yaw≈PI/2 = a N–S wall), split into lanes
 	# so the camps stay reachable; bags (square pillars, single circle) flank each zone's elite. Cover grows

@@ -228,7 +228,9 @@ func _new_world(map: String) -> Dictionary:
 	w["zone"] = true                             # persistent: no match-end / no overtime ramp
 	# own map dict per world (NOT the shared GameData venue): the cover-panel rows expand into collision
 	# circles here, which unlock cover/LOS/projectile-block. The client renders the panel props from World.
-	w["map"] = {"id": map, "name": tmpl, "obstacles": World.obstacle_circles(tmpl)}
+	# cover panels (OBSTACLES) + decoration-prop collision (data/decals/<map>.json) — so town buildings/trees/fences
+	# etc. block players + mobs, not just the authored cover. Server-side only (the client renders props as decals).
+	w["map"] = {"id": map, "name": tmpl, "obstacles": World.obstacle_circles(tmpl) + World.collision_from_decals(tmpl)}
 	var c := World.cfg(tmpl)                      # per-map size + regen + aggro + pvp (by template)
 	w["arenaW"] = int(c["w"])
 	w["arenaH"] = int(c["h"])
