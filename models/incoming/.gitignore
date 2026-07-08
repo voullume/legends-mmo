@@ -1,0 +1,8 @@
+# Drop-folder for new asset GLBs → tools/optimize_assets.sh → tools/asset_inspect.gd.
+# Nothing here is meant to be committed: raw GLBs, the _optimized/ output, and Godot's
+# import artifacts (.import + extracted textures) are all scratch. Approved assets get
+# MOVED into models/kits/… or models/meshy/… before they go in the game.
+*
+!.gitkeep
+!.gitignore
+!README.md
