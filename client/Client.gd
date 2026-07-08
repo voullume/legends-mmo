@@ -147,6 +147,20 @@ var _acc := 0.0
 var _bots_frozen := true        # start paused so the player can feel out controls unrushed
 
 var _hud: CanvasLayer
+var _coords_on := false         # dev overlay (F3): sim-space (map) coord readout under the cursor
+var _coords_lbl: Label = null
+# --- in-game decorator (F4): place decal props by clicking, save to data/decals/<map>.json ---
+var _deco_on := false
+var _deco_lbl: Label = null
+var _deco_idx := 0              # index into DECO_PROPS (the prop being placed)
+var _deco_h := 3.0             # height for the next placed prop
+var _deco_yaw := 0.0           # yaw for the next placed prop
+var _deco_status := ""         # last-action line shown in the HUD
+var _deco_sel := -1            # index of the GRABBED prop (follows the cursor until dropped), or -1
+var _deco_sel_map := ""        # the zone the grabbed prop belongs to (drop the grab on a zone change)
+var _deco_undo := []           # stack of [map, snapshot] — undo the last place / delete / move
+var _decals_edit := {}         # map -> working Array of decal dicts (overrides JSON/World once you edit)
+var _decals_cache := {}        # map -> resolved Array (JSON-on-disk or World fallback); avoids per-frame file reads
 var _info: RichTextLabel
 var _bar: RichTextLabel
 var _hotbar: HBoxContainer                 # MMO-style skill bar (a slot per ability)
@@ -571,6 +585,371 @@ func _resize_arena() -> void:
 	if _field != null and _field.mesh is PlaneMesh:
 		(_field.mesh as PlaneMesh).size = Vector2(_aw() * SCALE, _ah() * SCALE)
 
+# Dev overlay (toggle F3): print the sim-space (map) coordinate under the cursor so you can hand-author
+# World.gd DECALS/OBSTACLES/MOBS positions by pointing instead of guessing. Purely client-side — no
+# gameplay effect, not sent anywhere. The readout is the SAME coordinate space you type into World.gd.
+# pin a label to the TOP-RIGHT corner (right-aligned, grows leftward), clear of the top-left player HUD.
+func _pin_topright(lbl: Label, top: float) -> void:
+	lbl.anchor_left = 1.0
+	lbl.anchor_right = 1.0
+	lbl.offset_left = -760.0
+	lbl.offset_right = -16.0
+	lbl.offset_top = top
+	lbl.offset_bottom = top + 90.0
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+
+func _toggle_coords() -> void:
+	_coords_on = not _coords_on
+	if _coords_lbl == null and _hud != null:
+		_coords_lbl = Label.new()
+		_coords_lbl.add_theme_font_size_override("font_size", 15)
+		_coords_lbl.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+		_coords_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		_coords_lbl.add_theme_constant_override("outline_size", 4)
+		_pin_topright(_coords_lbl, 12.0)
+		_coords_lbl.z_index = 4096
+		_coords_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_hud.add_child(_coords_lbl)
+	if _coords_lbl != null:
+		_coords_lbl.visible = _coords_on
+
+func _cursor_sim() -> Vector2:                     # sim-space (map) coord under the mouse; (-1,-1) if the ray misses
+	if _cam == null:
+		return Vector2(-1, -1)
+	var mp := get_viewport().get_mouse_position()
+	var o := _cam.project_ray_origin(mp)
+	var dir := _cam.project_ray_normal(mp)
+	if absf(dir.y) < 1e-5:
+		return Vector2(-1, -1)
+	var t := -o.y / dir.y                           # intersect the y=0 ground plane
+	if t < 0.0:
+		return Vector2(-1, -1)
+	var hit := o + dir * t
+	return Vector2(hit.x / SCALE + _aw() / 2.0, hit.z / SCALE + _ah() / 2.0)   # inverse of _world()
+
+func _update_coords() -> void:
+	if not _coords_on or _coords_lbl == null:
+		return
+	var p := _cursor_sim()
+	if p.x < 0.0:
+		return
+	var mapname: String = str(_state.get("map", "?")) if _state != null else "?"
+	_coords_lbl.text = "map %s    x %d    y %d    (bounds %d x %d)" % [mapname, int(round(p.x)), int(round(p.y)), int(_aw()), int(_ah())]
+
+# ============================================================ IN-GAME DECORATOR (F4)
+# Place decal props by clicking the ground instead of hand-editing shared/World.gd. Saves to
+# res://data/decals/<map>.json (loaded at runtime — so a bad edit can never break the game's scripts).
+# Purely cosmetic + client-side. Author from source (./play.sh dev); deploy the json to reach players.
+const DECO_PROPS := [
+	"cone", "tree_oak", "tree_pineRoundC", "tree_default", "tree_thin", "tree_palmDetailedTall",
+	"rock_largeA", "rock_largeC", "rock_largeE", "rock_tallC", "stone_largeB",
+	"plant_bush", "plant_bushLarge", "grass_large", "flower_redA", "flower_yellowB", "log_stack",
+	"fence_simple", "fence_planks", "fence_corner",
+	"building-a", "building-c", "building-e", "building-h", "building-k", "building-n", "building-q", "building-t",
+	"chimney-small", "chimney-medium", "chimney-large", "detail-tank",
+	"bag", "barrier", "rack", "stadium",
+]
+
+# decal source for a map, priority: live editor working copy → data/decals/<map>.json → World.DECALS const.
+func _decals_for(map: String) -> Array:
+	if _decals_edit.has(map):
+		return _decals_edit[map]
+	if _decals_cache.has(map):
+		return _decals_cache[map]
+	var out: Array = World.decals_for(map)
+	var jpath := "res://data/decals/%s.json" % map
+	if FileAccess.file_exists(jpath):
+		var f := FileAccess.open(jpath, FileAccess.READ)
+		if f != null:
+			var parsed = JSON.parse_string(f.get_as_text())
+			f.close()
+			if parsed is Array:
+				out = parsed
+			else:
+				push_warning("[decals] %s isn't a JSON array — using the World.gd fallback" % jpath)
+	_decals_cache[map] = out
+	return out
+
+func _edit_list(map: String) -> Array:             # the mutable working copy (seeded from whatever's there now)
+	if not _decals_edit.has(map):
+		_decals_edit[map] = _decals_for(map).duplicate(true)
+	return _decals_edit[map]
+
+func _toggle_deco() -> void:
+	_deco_on = not _deco_on
+	if _deco_lbl == null and _hud != null:
+		_deco_lbl = Label.new()
+		_deco_lbl.add_theme_font_size_override("font_size", 14)
+		_deco_lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.55))
+		_deco_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		_deco_lbl.add_theme_constant_override("outline_size", 4)
+		_pin_topright(_deco_lbl, 44.0)
+		_deco_lbl.z_index = 4096
+		_deco_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_hud.add_child(_deco_lbl)
+	if _deco_lbl != null:
+		_deco_lbl.visible = _deco_on
+	if _deco_on and not _coords_on:
+		_toggle_coords()                            # the coord readout pairs naturally with placing
+	_deco_status = "decorate mode ON" if _deco_on else ""
+	_update_deco_lbl()
+
+func _update_deco_lbl() -> void:
+	if _deco_lbl == null:
+		return
+	var status: String = ("\n  » %s" % _deco_status) if _deco_status != "" else ""
+	if _deco_sel >= 0:
+		var gmap: String = str(_state.get("map", "")) if _state != null else ""
+		var glst := _edit_list(gmap)
+		if _deco_sel < glst.size():
+			var d: Dictionary = glst[_deco_sel]
+			_deco_lbl.text = "GRAB %s    x %d  y %d    lift %.1f   height %.1f   yaw %.2f\n  move mouse to reposition · , . rotate · - = height · PgUp/PgDn lift · click or G to drop%s" % [
+				str(d.get("model", d.get("kind", "?"))), int(float(d.get("x", 0))), int(float(d.get("y", 0))),
+				float(d.get("oy", 0.0)), float(d.get("h", 0.0)), float(d.get("yaw", 0.0)), status]
+			return
+		_deco_sel = -1
+	var id: String = DECO_PROPS[_deco_idx]
+	_deco_lbl.text = "DECORATE    [ ] prop: %s     , . rotate     - = height %.1f\n  L-click place · G grab/move · X delete · Ctrl+Z undo · Ctrl+S save · F4 exit%s" % [id, _deco_h, status]
+
+# highest-priority input hook: only active while decorating (else early-out), so zero effect on normal play.
+func _input(e: InputEvent) -> void:
+	if not _deco_on:
+		if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F4:
+			# F4 is context-sensitive: in your OWN Locker Room it toggles the server-driven build editor (P3b);
+			# everywhere else it's the admin/dev decorator (map authoring → local JSON). The base has no server
+			# locker, so _locker_build_available() is false here and F4 keeps its dev-decorator meaning; NetClient
+			# overrides the two hooks to route F4 (and its own editor input, via _extra_input) into the locker editor.
+			if _locker_build_available():
+				_locker_build_toggle()
+			else:
+				_toggle_deco()
+			get_viewport().set_input_as_handled()
+			return
+		if _extra_input(e):                             # subclass input hook (the Locker Room build editor when active)
+			get_viewport().set_input_as_handled()
+		return
+	var foc := get_viewport().gui_get_focus_owner()
+	if foc is LineEdit or foc is TextEdit:
+		return                                      # a text field is focused (e.g. chat) — don't steal keys
+	if _deco_input(e):
+		get_viewport().set_input_as_handled()
+
+# --- overridable hooks for the player-facing Locker Room build editor (P3b). The base (local sandbox /
+# map-authoring) has no server locker, so these are inert; NetClient overrides them to drive the editor. ---
+func _locker_build_available() -> bool:
+	return false
+func _locker_build_toggle() -> void:
+	pass
+func _extra_input(_e: InputEvent) -> bool:
+	return false
+
+func _deco_input(e: InputEvent) -> bool:
+	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+		if _deco_sel >= 0:
+			_deco_sel = -1                          # drop the grabbed prop right here
+			_deco_status = "dropped"
+			_update_deco_lbl()
+		else:
+			_deco_place()
+		return true
+	if e is InputEventKey and e.pressed and not e.echo:
+		match e.keycode:
+			KEY_F4:
+				_toggle_deco()
+				return true
+			KEY_G:                                  # grab the nearest prop (or drop the held one)
+				if _deco_sel >= 0:
+					_deco_sel = -1
+					_deco_status = "dropped"
+					_update_deco_lbl()
+				else:
+					_deco_grab_nearest()
+				return true
+			KEY_Z:
+				if e.ctrl_pressed:
+					_deco_undo_last()
+					return true
+			KEY_BRACKETLEFT:
+				_deco_idx = (_deco_idx - 1 + DECO_PROPS.size()) % DECO_PROPS.size()
+				_update_deco_lbl()
+				return true
+			KEY_BRACKETRIGHT:
+				_deco_idx = (_deco_idx + 1) % DECO_PROPS.size()
+				_update_deco_lbl()
+				return true
+			KEY_COMMA:
+				_deco_tweak("yaw", -0.2618)         # ~15° — the grabbed prop if held, else the next placed one
+				return true
+			KEY_PERIOD:
+				_deco_tweak("yaw", 0.2618)
+				return true
+			KEY_MINUS:
+				_deco_tweak("h", -0.3)
+				return true
+			KEY_EQUAL:
+				_deco_tweak("h", 0.3)
+				return true
+			KEY_PAGEUP:
+				_deco_tweak("oy", 0.25)             # lift up (to stack on top of something)
+				return true
+			KEY_PAGEDOWN:
+				_deco_tweak("oy", -0.25)
+				return true
+			KEY_X:
+				_deco_delete_nearest()
+				return true
+			KEY_S:
+				if e.ctrl_pressed:
+					_deco_save()
+					return true
+	return false
+
+# per-frame: while a prop is grabbed, it tracks the cursor on the ground (drop with click or G).
+func _update_deco() -> void:
+	if not _deco_on or _deco_sel < 0:
+		return
+	var map: String = str(_state.get("map", "")) if _state != null else ""
+	if map != _deco_sel_map:                         # changed zones while holding one → drop it
+		_deco_sel = -1
+		_update_deco_lbl()
+		return
+	var lst := _edit_list(map)
+	if _deco_sel >= lst.size():
+		_deco_sel = -1
+		return
+	var p := _cursor_sim()
+	if p.x < 0.0:
+		return
+	var nx := snappedf(p.x, 1.0)
+	var ny := snappedf(p.y, 1.0)
+	if float(lst[_deco_sel].get("x", 0.0)) != nx or float(lst[_deco_sel].get("y", 0.0)) != ny:
+		lst[_deco_sel]["x"] = nx
+		lst[_deco_sel]["y"] = ny
+		_decals_sig = ""                            # moved → re-render
+		_update_deco_lbl()
+
+# adjust yaw / height / lift of the GRABBED prop if one is held; otherwise the next-placed defaults.
+func _deco_tweak(field: String, delta: float) -> void:
+	if _deco_sel >= 0:
+		var map: String = str(_state.get("map", "")) if _state != null else ""
+		var lst := _edit_list(map)
+		if _deco_sel < lst.size():
+			var v := float(lst[_deco_sel].get(field, 0.0)) + delta
+			if field == "h":
+				v = clampf(v, 0.3, 20.0)
+			elif field == "oy":
+				v = clampf(v, -10.0, 40.0)
+			lst[_deco_sel][field] = snappedf(v, 0.01)
+			_decals_sig = ""
+	elif field == "yaw":
+		_deco_yaw += delta
+	elif field == "h":
+		_deco_h = clampf(_deco_h + delta, 0.3, 20.0)
+	_update_deco_lbl()
+
+func _deco_grab_nearest() -> void:
+	var p := _cursor_sim()
+	if p.x < 0.0:
+		return
+	var map: String = str(_state.get("map", "")) if _state != null else ""
+	var lst := _edit_list(map)
+	var best := -1
+	var bestd := 90.0 * 90.0                         # grab within ~90 sim units of the cursor
+	for i in lst.size():
+		var dx: float = float(lst[i].get("x", 0.0)) - p.x
+		var dy: float = float(lst[i].get("y", 0.0)) - p.y
+		var d := dx * dx + dy * dy
+		if d < bestd:
+			bestd = d
+			best = i
+	if best >= 0:
+		_deco_push_undo(map)                         # snapshot the pre-move state so undo reverts it
+		_deco_sel = best
+		_deco_sel_map = map
+		_deco_status = "grabbed %s — move the mouse, click to drop" % str(lst[best].get("model", lst[best].get("kind", "?")))
+	else:
+		_deco_status = "nothing to grab near the cursor"
+	_update_deco_lbl()
+
+func _deco_push_undo(map: String) -> void:
+	_deco_undo.append([map, _edit_list(map).duplicate(true)])
+	if _deco_undo.size() > 64:
+		_deco_undo.pop_front()
+
+func _deco_undo_last() -> void:
+	_deco_sel = -1                                   # cancel any grab in progress
+	if _deco_undo.is_empty():
+		_deco_status = "nothing to undo"
+		_update_deco_lbl()
+		return
+	var rec: Array = _deco_undo.pop_back()
+	_decals_edit[str(rec[0])] = rec[1]
+	_decals_sig = ""
+	_deco_status = "undo"
+	_update_deco_lbl()
+
+func _deco_place() -> void:
+	var p := _cursor_sim()
+	if p.x < 0.0:
+		return
+	var map: String = str(_state.get("map", "")) if _state != null else ""
+	if map == "":
+		return
+	var id: String = DECO_PROPS[_deco_idx]
+	var entry: Dictionary
+	if id == "cone":
+		entry = {"kind": "cone", "x": snappedf(p.x, 1.0), "y": snappedf(p.y, 1.0)}
+	else:
+		entry = {"kind": "prop", "model": id, "x": snappedf(p.x, 1.0), "y": snappedf(p.y, 1.0), "h": snappedf(_deco_h, 0.1), "yaw": snappedf(_deco_yaw, 0.01)}
+	_deco_push_undo(map)                            # snapshot before the change (Ctrl+Z reverts this place)
+	_edit_list(map).append(entry)
+	_decals_sig = ""                                # force _render_decals to rebuild next frame
+	_deco_status = "placed %s at %d,%d" % [id, int(p.x), int(p.y)]
+	_update_deco_lbl()
+
+func _deco_delete_nearest() -> void:
+	var p := _cursor_sim()
+	if p.x < 0.0:
+		return
+	var map: String = str(_state.get("map", "")) if _state != null else ""
+	var lst := _edit_list(map)
+	var best := -1
+	var bestd := 70.0 * 70.0                        # only delete within ~70 sim units of the cursor
+	for i in lst.size():
+		var dx: float = float(lst[i].get("x", 0.0)) - p.x
+		var dy: float = float(lst[i].get("y", 0.0)) - p.y
+		var d := dx * dx + dy * dy
+		if d < bestd:
+			bestd = d
+			best = i
+	if best >= 0:
+		var gone = lst[best]
+		_deco_push_undo(map)                        # snapshot before the change (Ctrl+Z restores it)
+		lst.remove_at(best)
+		_decals_sig = ""
+		_deco_status = "deleted %s" % str(gone.get("model", gone.get("kind", "?")))
+	else:
+		_deco_status = "nothing to delete near the cursor"
+	_update_deco_lbl()
+
+func _deco_save() -> void:
+	var map: String = str(_state.get("map", "")) if _state != null else ""
+	if map == "":
+		return
+	var lst := _edit_list(map)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://data/decals"))
+	var jpath := "res://data/decals/%s.json" % map
+	var f := FileAccess.open(jpath, FileAccess.WRITE)
+	if f == null:
+		_deco_status = "SAVE FAILED (err %d) — run from source (./play.sh dev), not an exported build" % FileAccess.get_open_error()
+		_update_deco_lbl()
+		return
+	f.store_string(JSON.stringify(lst, "\t"))
+	f.close()
+	_decals_cache[map] = lst.duplicate(true)
+	_deco_status = "saved %d decals → data/decals/%s.json" % [lst.size(), map]
+	_update_deco_lbl()
+
 func _build_world() -> void:
 	_world_root = Node3D.new()
 	add_child(_world_root)
@@ -943,13 +1322,15 @@ func _render_world(delta: float) -> void:
 	_render_zones()
 	_render_obstacles()
 	_render_decals()
+	_update_coords()               # dev: F3 sim-space coord readout under the cursor (map authoring)
+	_update_deco()                 # dev: while a prop is grabbed (G), it follows the cursor
 	_update_hud()
 	_drive_screen_juice()          # P4: low-HP vignette + death overlay + toast reflow (single call site)
 
 # Draw the zone's purely-visual decoration (training drill rings + traffic cones) for camp identity. Read
 # from World.DECALS for the current map (client-side, not sent over the wire); rebuilt only on a map change.
 func _render_decals() -> void:
-	var decals: Array = _state["decals"] if _state.has("decals") else World.decals_for(str(_state.get("map", "")))
+	var decals: Array = _state["decals"] if _state.has("decals") else _decals_for(str(_state.get("map", "")))
 	var sig := JSON.stringify(decals)
 	if sig == _decals_sig:
 		return
@@ -985,7 +1366,7 @@ func _render_decals() -> void:
 			cm.height = 0.8
 			cone.mesh = cm
 			cone.material_override = _mat(Color(1.0, 0.45, 0.1))   # traffic orange
-			cone.position = pos + Vector3(0.0, 0.4, 0.0)
+			cone.position = pos + Vector3(0.0, 0.4 + float(d.get("oy", 0.0)), 0.0)
 			_decal_root.add_child(cone)
 		elif str(d["kind"]) == "prop":                       # set-dressing GLB (e.g. the heavy bag) — no collision
 			var pe := _prop_entry(str(d.get("model", "bag")))
@@ -993,7 +1374,7 @@ func _render_decals() -> void:
 				var pi = pe["scene"].instantiate()
 				var psc: float = float(d.get("h", 3.0)) / float(pe["h"])
 				pi.scale = Vector3(psc, psc, psc)
-				pi.position = pos + Vector3(0.0, -float(pe["min_y"]) * psc, 0.0)
+				pi.position = pos + Vector3(0.0, -float(pe["min_y"]) * psc + float(d.get("oy", 0.0)), 0.0)   # oy = vertical lift (stacking)
 				pi.rotation.y = float(d.get("yaw", 0.0))
 				_decal_root.add_child(pi)
 
@@ -1003,12 +1384,24 @@ func _render_decals() -> void:
 const OBSTACLE_PAD := 14.0                            # the sim blocks fighters at obstacle r + this (AI.separation) — fill the prop to here so there's no gap
 
 # Lazily load a prop GLB + its AABB (footprint + height + ground offset), cached.
+# GLB search folders for a prop/decal id, first hit wins: the Meshy cover props, then the free Kenney
+# CC0 kits (models/kits/nature + /city). Lets DECALS/OBSTACLES reference any kit prop by bare basename
+# (e.g. "tree_oak", "rock_largeA", "building-a") with no per-asset wiring or Meshy credits.
+const PROP_DIRS := ["res://models/meshy/props/", "res://models/kits/nature/", "res://models/kits/city/"]
+
 func _prop_entry(id: String) -> Dictionary:
 	if _prop_cache.has(id):
 		return _prop_cache[id]
-	var path := "res://models/meshy/props/%s.glb" % id
+	var path := ""
+	for d in PROP_DIRS:                          # first folder that actually has <id>.glb wins
+		var cand: String = d + id + ".glb"
+		if ResourceLoader.exists(cand):
+			path = cand
+			break
+	if path == "":
+		push_warning("[prop] no GLB found for id '%s' under %s" % [id, str(PROP_DIRS)])
 	var e := {"scene": null, "min_y": 0.0, "foot": 1.0, "h": 1.0}
-	if ResourceLoader.exists(path):
+	if path != "" and ResourceLoader.exists(path):
 		e["scene"] = load(path)
 		var inst = e["scene"].instantiate()
 		var acc := {"have": false, "aabb": AABB()}
@@ -2131,6 +2524,8 @@ func _unhandled_input(e: InputEvent) -> void:
 				_place_player_at(start_pos)
 		elif e.physical_keycode == KEY_N:
 			_toggle_meter()                         # the §4a DPS/HPS meter (sandbox: bots brawl → it fills)
+		elif e.physical_keycode == KEY_F3:
+			_toggle_coords()                        # dev: sim-space coord readout under the cursor
 
 # ============================================================ HUD
 func _build_hud() -> void:

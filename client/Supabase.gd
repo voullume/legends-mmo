@@ -144,6 +144,82 @@ func save_character_as(token: String, char_id: String, fields: Dictionary) -> Di
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters?id=eq." + char_id, JSON.stringify(fields), PackedStringArray(), auth)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
+# server-side (P0 Builder Mode): atomically buy the Locker-Room unlock — flip locker_unlocked false→true. Gated IN
+# the filter on locker_unlocked=eq.false with Prefer: return=representation, so ONLY the first caller (across
+# concurrent same-character sessions OR a reconnect) matches a row and unlocks; a second/duplicate call matches
+# nothing → ok=false → the server refunds the credits. Idempotent + dupe-safe (mirrors quest_mark_rewarded_as).
+# service_role only: it bypasses RLS AND the characters_guard_progression pin (a player token would be pinned back
+# to false by the trigger, so there is no dev fallback — the zone server always runs with the service key).
+func locker_unlock_as(char_id: String) -> bool:
+	if service_key == "":
+		return false
+	var q := "?id=eq.%s&locker_unlocked=eq.false&select=id" % char_id
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/characters" + q, JSON.stringify({"locker_unlocked": true}), PackedStringArray(["Prefer: return=representation"]), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0
+
+# server-side (P1 Builder Mode): a character's PLACED build items = their Locker-Room layout. The zone server reads
+# it on room entry and caches the result as snapshot decals. Scoped by character_id (the server passes the entering
+# player's own id). Service-role read (reliable, server-owned); falls back to the player token in dev.
+func get_placed_build_items_as(token: String, char_id: String):
+	var auth: String = service_key if service_key != "" else token
+	var q := "?character_id=eq.%s&category=eq.build&placed=eq.true&select=id,model,xform" % char_id
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory" + q, "", PackedStringArray(), auth)
+	return r["data"] if r["code"] == 200 and r["data"] is Array else null   # null on a read error → callers keep the prior cache (don't blank the room)
+
+# server-side (P2 Builder Mode): the models of a character's OWNED build items (placed + unplaced), for the cap
+# check. Returns an Array of model strings, or NULL on a failed read so the caller FAILS CLOSED (deny the buy)
+# rather than reading 0 owned and letting an unbounded buy through. Service-role, scoped by character_id.
+func build_owned_models_as(char_id: String):
+	if service_key == "":
+		return null
+	var q := "?character_id=eq.%s&category=eq.build&select=model" % char_id
+	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/inventory" + q, "", PackedStringArray(), service_key)
+	if r["code"] != 200 or not (r["data"] is Array):
+		return null
+	var out := []
+	for row in (r["data"] as Array):
+		out.append(str((row as Dictionary).get("model", "")))
+	return out
+
+# server-side (P2): insert ONE unplaced build item. name=model (P3 can prettify); rarity/slot are the sentinels
+# the build-shape CHECK requires. Service-role (inventory is server-write-only). ok iff a row was created.
+func add_build_item_as(char_id: String, model: String) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var body := {"character_id": char_id, "category": "build", "model": model, "name": model,
+		"rarity": "common", "slot": "build", "placed": false}
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/inventory", JSON.stringify(body), PackedStringArray(["Prefer: return=representation"]), service_key)
+	var ok: bool = r["code"] == 201 and r["data"] is Array and (r["data"] as Array).size() > 0
+	return {"ok": ok, "id": str((r["data"][0] as Dictionary).get("id", "")) if ok else "", "code": r["code"]}
+
+# server-side (P2): PLACE an owned, unplaced build item — gated IN the filter on category=build & placed=false so a
+# duplicate/concurrent place can't double-apply, and a client can't place gear or another character's item (scoped
+# by character_id). Sets placed=true + the (server-clamped) xform. ok iff a row actually flipped. Service-role.
+func build_place_as(char_id: String, item_id: String, xform: Dictionary) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s&category=eq.build&placed=eq.false&select=id" % [item_id, char_id]
+	var body := JSON.stringify({"placed": true, "xform": xform})
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, body, PackedStringArray(["Prefer: return=representation"]), service_key)
+	return {"ok": r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0}
+
+# server-side (P2): MOVE/rotate/lift an already-PLACED build item (gated on placed=true). Only the xform changes.
+func build_move_as(char_id: String, item_id: String, xform: Dictionary) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s&category=eq.build&placed=eq.true&select=id" % [item_id, char_id]
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, JSON.stringify({"xform": xform}), PackedStringArray(["Prefer: return=representation"]), service_key)
+	return {"ok": r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0}
+
+# server-side (P2): REMOVE a placed item back to the Build tab (placed=false, xform cleared) — gated on placed=true
+# so it returns the SAME item (no refund, no dupe). ok iff a placed row actually flipped. Service-role.
+func build_remove_as(char_id: String, item_id: String) -> Dictionary:
+	if service_key == "":
+		return {"ok": false}
+	var q := "?id=eq.%s&character_id=eq.%s&category=eq.build&placed=eq.true&select=id" % [item_id, char_id]
+	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/inventory" + q, JSON.stringify({"placed": false, "xform": null}), PackedStringArray(["Prefer: return=representation"]), service_key)
+	return {"ok": r["code"] >= 200 and r["code"] < 300 and r["data"] is Array and (r["data"] as Array).size() > 0}
+
 # inventory WRITES go out as service_role (bypasses RLS) when the server has the key, so clients
 # can be denied direct write access; falls back to the player token if no service key is configured.
 func add_item_as(token: String, char_id: String, item: Dictionary) -> Dictionary:

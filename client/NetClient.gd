@@ -95,6 +95,40 @@ var _shop_root: Node3D = null # the 3D shop pad visual
 var _shop_sig := ""
 var _shop_hint: Label = null  # "Press B to shop" proximity prompt
 var _near_shop := false
+# Builder Mode (P3): the Build Shop pad/panel (buy furniture) + the locked-locker "Purchase" portal prompt
+var _build_info := {}              # catalog + caps + unlock cost (from recv_build_info)
+var _build_shop_panel: Control = null
+var _build_shop_status: Label = null
+var _build_shop_grid: GridContainer = null
+var _build_shop_root: Node3D = null
+var _build_shop_sig := ""
+var _build_shop_hint: Label = null
+var _near_build_shop := false
+var _locker_portal_hint: Label = null
+var _near_locker_portal := false
+var _was_locker_unlocked := false   # tracks false→true to toast "Locker Room unlocked!" once
+# Builder Mode (P3b): the in-Locker-Room build editor (F4 in your own unlocked room). Server-driven — every
+# place/move/remove is an RPC; the room renders from the server's snapshot decals (client is purely UX).
+var _lb_on := false                 # is the locker build editor active?
+var _lb_pal := []                   # palette: your OWNED UNPLACED build items [{id, model}]
+var _lb_idx := 0                    # index into _lb_pal (the item to place next)
+var _lb_h := 2.0                    # scale (height) for the next placement
+var _lb_yaw := 0.0                  # yaw for the next placement
+var _lb_oy := 0.0                   # lift (stacking) for the next placement
+var _lb_grab_id := ""               # id of the PLACED prop being moved (follows the cursor); "" = none
+var _lb_grab_model := ""            # model of the grabbed prop (so the ghost shows what you're moving)
+var _lb_grab_from := {}             # the grabbed prop's xform BEFORE the move (for undo)
+var _lb_undo := []                  # stack of reverse-ops [{act,id,xform?}] for Ctrl+Z
+var _lb_del_id := ""                # id of the prop pending a [Y]/[N] delete confirmation ("" = not confirming)
+var _lb_del_ghost: Node3D = null    # RED highlight of the prop about to be deleted
+var _lb_del_panel: Panel = null     # the centered Delete? / Keep / Pick-another button menu
+var _lb_del_panel_model := ""       # model currently shown in the menu title (rebuild when it changes)
+var _build_help_panel: Panel = null # the onboarding "how to build" popup (auto on locker entry + [H])
+var _build_help_hide := false       # persisted pref: skip the auto-popup on entry (settings.cfg [build]/hide_help)
+var _build_help_hint: Label = null  # the always-visible "press [H] for build help" reminder in the locker
+var _lb_lbl: Label = null           # the editor HUD line
+var _lb_ghost: Node3D = null        # translucent preview of the to-place / being-moved prop at the cursor
+var _lb_ghost_key := ""             # model+"@"+h of the current ghost (rebuild only when it changes)
 var _forge_root: Node3D = null   # the 3D forge pad visual (P4)
 var _forge_sig := ""
 var _forge_hint: Label = null
@@ -169,6 +203,7 @@ func _enter_mode() -> void:
 	_build_charsheet()
 	_build_forge()
 	_build_shop()
+	_build_build_shop_panel()
 	_build_vendor()
 	_build_camp()
 	_build_wardrobe()
@@ -1043,6 +1078,8 @@ func _load_inventory() -> void:
 	_inv_items = r.get("items", [])               # cache for hover comparison tooltips
 	_rebuild_paperdoll(_inv_items)
 	_render_inv_tiles()
+	if _build_shop_panel != null and _build_shop_panel.visible:   # Build Shop open → refresh its "N/cap owned" count
+		_render_build_shop_catalog()
 
 # rebuild the controls (sort + Equip Best) + status + the sorted tile grid from the cached _inv_items.
 # Cheap (no re-fetch) — the sort buttons call this directly.
@@ -1057,7 +1094,7 @@ func _render_inv_tiles() -> void:
 		ch.queue_free()
 	# controls row: sort modes + Equip Best
 	_inv_controls.add_child(_ctrl_label("sort:"))
-	for key in ["rarity", "type", "power"]:
+	for key in ["rarity", "type", "power", "build"]:   # "build" = the Builder-Mode furniture tab
 		var k_l: String = key
 		_inv_controls.add_child(_ctrl_btn(key.capitalize(), Palette.ACCENT if _inv_sort_mode == key else Palette.TEXT_DIM, func() -> void:
 			_inv_sort_mode = k_l
@@ -1068,16 +1105,38 @@ func _render_inv_tiles() -> void:
 	var best := _ctrl_btn("⚡ Equip Best", Palette.ACCENT, _equip_best)
 	best.disabled = _equip_best_busy
 	_inv_controls.add_child(best)
-	if _inv_items.is_empty():
+	if _inv_sort_mode == "build":                      # Builder Mode: furniture/props ONLY (gear tabs exclude these)
+		var bview := []
+		for it in _inv_items:
+			if str(it.get("category", "")) == "build":
+				bview.append(it)
+		if bview.is_empty():
+			_inv_status.text = "no furniture yet — buy props at the Build Shop [P] in the home base"
+			return
+		var placed_n := 0
+		for it in bview:
+			if bool(it.get("placed", false)):
+				placed_n += 1
+		_inv_status.text = "%d furniture · %d placed · buy more at the Build Shop [P]" % [bview.size(), placed_n]
+		bview.sort_custom(func(a, b): return str(a.get("model", "")) < str(b.get("model", "")))
+		for it in bview:
+			_inv_grid.add_child(_build_item_tile(it))
+		return
+	# gear tabs (rarity/type/power) — EXCLUDE build items so furniture never clutters the gear grid
+	var gear := []
+	for it in _inv_items:
+		if str(it.get("category", "")) != "build":
+			gear.append(it)
+	if gear.is_empty():
 		_inv_status.text = "empty — kill mobs to find loot"
 		return
 	var ups := 0
-	for it in _inv_items:
+	for it in gear:
 		if _is_upgrade(it):
 			ups += 1
 	var uptxt: String = "   ·   ▲ %d upgrade%s" % [ups, "" if ups == 1 else "s"] if ups > 0 else ""
-	_inv_status.text = "%d items · click to equip · right-click to lock%s" % [_inv_items.size(), uptxt]
-	var view: Array = _inv_items.duplicate()
+	_inv_status.text = "%d items · click to equip · right-click to lock%s" % [gear.size(), uptxt]
+	var view: Array = gear.duplicate()
 	view.sort_custom(_inv_sort_cmp)
 	for it in view:
 		_inv_grid.add_child(_inv_tile(it))
@@ -1414,6 +1473,10 @@ func recv_inventory_changed() -> void:
 		_render_vendor()
 	if _locker_panel != null and _locker_panel.visible:   # an equip/unequip changed the loadout
 		_load_locker()
+	if _build_shop_panel != null and _build_shop_panel.visible:   # a build_buy changed our furniture + credits
+		_load_inventory()                             # reloads _inv_items → re-renders the catalog count via the _load_inventory hook
+	if _lb_on:                                        # a build_buy/place/move/remove changed the palette → refresh it
+		_lb_refresh_palette()
 
 # ---- quests (server-authoritative; the log + tracker render from server-pushed state) ----
 # server pushes the full quest state once on join (recv_quest_state) and an update per change.
@@ -1865,6 +1928,10 @@ func _toggle_settings() -> void:
 func recv_shop_info(info: Dictionary) -> void:
 	_shop_info = info
 
+# Builder Mode (P3): the Build Shop catalog + caps + unlock cost, pushed on auth (mirrors recv_shop_info)
+func recv_build_info(info: Dictionary) -> void:
+	_build_info = info
+
 func _build_shop() -> void:
 	var p := Widgets.panel("Shop", "B / Esc", 1010.0, _toggle_shop)
 	_shop_panel = p["root"]
@@ -2012,6 +2079,8 @@ func _my_pages() -> int:
 	return maxi(0, int(_state.get("self", {}).get("pages", 0)))
 func _has_key() -> bool:
 	return bool(_state.get("self", {}).get("has_key", false))
+func _locker_unlocked() -> bool:                  # Builder Mode: do you own your Locker Room? (self-block flag)
+	return bool(_state.get("self", {}).get("locker_unlocked", false))
 func _key_cost() -> int:                          # authoritative Master Key cost from the server (no client drift)
 	return maxi(1, int(_state.get("self", {}).get("key_cost", 300)))
 
@@ -2882,6 +2951,785 @@ func _update_shop_proximity() -> void:
 		_shop_panel.visible = false                  # walked away → close the shop
 		_close_sell_confirm()
 
+# ---- Builder Mode (P3): the Build Shop pad + panel (buy furniture) + the locked-locker "Purchase" prompt ----
+func _build_build_shop_panel() -> void:
+	var p := Widgets.panel("Build Shop", "P / Esc", 560.0, _toggle_build_shop)
+	_build_shop_panel = p["root"]
+	_hud.add_child(_build_shop_panel)
+	var vb: VBoxContainer = p["body"]
+	_build_shop_status = Label.new()
+	_build_shop_status.add_theme_font_size_override("font_size", 16)
+	vb.add_child(_build_shop_status)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(524, 420)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	_build_shop_grid = GridContainer.new()
+	_build_shop_grid.columns = 2
+	_build_shop_grid.add_theme_constant_override("h_separation", 6)
+	_build_shop_grid.add_theme_constant_override("v_separation", 6)
+	sc.add_child(_build_shop_grid)
+
+func _toggle_build_shop() -> void:
+	if _build_shop_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_build_shop_panel.visible = not _build_shop_panel.visible
+	if _build_shop_panel.visible:
+		if _shop_panel != null: _shop_panel.visible = false
+		if _locker_panel != null: _locker_panel.visible = false
+		_render_build_shop_catalog()
+		_load_inventory()                            # populate _inv_items → an accurate "N/cap owned" count
+
+func _render_build_shop_catalog() -> void:
+	if _build_shop_grid == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	var cap := int(_build_info.get("owned_cap", 50))
+	var model_cap := int(_build_info.get("model_cap", 20))
+	var owned := 0                                    # total build items + a per-model tally (both from the inv cache)
+	var by_model := {}
+	for it in _inv_items:
+		if str(it.get("category", "")) == "build":
+			owned += 1
+			var mm := str(it.get("model", ""))
+			by_model[mm] = int(by_model.get(mm, 0)) + 1
+	var full := owned >= cap
+	if _build_shop_status != null:
+		var fulltag := "   [color=#ff8a8a]· FULL[/color]" if full else ""
+		_build_shop_status.text = "◈ %d credits    ·    %d/%d furniture owned%s" % [_my_credits(), owned, cap, fulltag]
+	for ch in _build_shop_grid.get_children(): ch.queue_free()
+	var cat: Array = _build_info.get("catalog", [])
+	if cat.is_empty():
+		_build_shop_grid.add_child(_hint_tile("Build Shop catalog unavailable"))
+		return
+	for e in cat:
+		var model: String = str(e.get("model", ""))
+		var tier: String = str(e.get("tier", ""))
+		var price: int = int(e.get("price", 0))
+		var mcount := int(by_model.get(model, 0))
+		var at_model_cap := mcount >= model_cap
+		var blocked := full or at_model_cap           # can't buy: total cap OR this model's per-model cap
+		var afford: bool = _my_credits() >= price and not blocked
+		var namecol := "#dfe6ef" if not blocked else "#77808c"   # dim the name when unbuyable
+		var pcol := "#ffd24d" if afford else "#ff8a8a"
+		var ccol := "#ff8a8a" if at_model_cap else "#7f8a99"     # per-model count turns red at the cap
+		var captag := ""
+		if full:
+			captag = "   [color=#ff8a8a]· inventory full[/color]"
+		elif at_model_cap:
+			captag = "   [color=#ff8a8a]· MAX[/color]"
+		var header := "[color=%s]%s[/color] [color=#7f8a99](%s)[/color]\n[color=%s]◈ %d[/color]   [color=%s]%d/%d[/color]%s" % \
+			[namecol, _esc(model), tier, pcol, price, ccol, mcount, model_cap, captag]
+		var border := Color.html("#8fb3d9") if not blocked else Color.html("#414b57")   # dimmed border when capped
+		var m := model
+		var pr := price
+		var mmax := at_model_cap
+		var mcap := model_cap
+		_build_shop_grid.add_child(_grid_tile(border, header, null, [], null,
+			func() -> void:
+				if full:
+					_toast("[color=#ff8a8a]Build inventory full — %d/%d owned. Remove or sell some first.[/color]" % [owned, cap], Color.html("#ff8a8a"))
+				elif mmax:
+					_toast("[color=#ff8a8a]You already own the max (%d) of %s[/color]" % [mcap, _esc(m)], Color.html("#ff8a8a"))
+				elif _my_credits() < pr:
+					_toast("[color=#ff8a8a]Not enough credits for %s (◈%d)[/color]" % [_esc(m), pr], Color.html("#ff8a8a"))
+				elif net != null and _connected:
+					net.build_buy.rpc_id(1, m)))
+
+func _render_build_shop_pad() -> void:
+	var pad = _state.get("build_shop")
+	var sig := JSON.stringify(pad)
+	if sig == _build_shop_sig:
+		return
+	_build_shop_sig = sig
+	if _build_shop_root != null:
+		_build_shop_root.queue_free()
+		_build_shop_root = null
+	if pad == null or _world_root == null:
+		return
+	_build_shop_root = Node3D.new()
+	_world_root.add_child(_build_shop_root)
+	var pos := Vector3((float(pad["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(pad["y"]) - _ah() / 2.0) * SCALE)
+	var pillar := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = World.BUILD_SHOP_RADIUS * SCALE * 0.5
+	cyl.bottom_radius = World.BUILD_SHOP_RADIUS * SCALE * 0.6
+	cyl.height = 2.6
+	pillar.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.5, 0.72, 0.95, 0.32)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_enabled = true
+	mat.emission = Color(0.42, 0.66, 0.95)
+	mat.emission_energy_multiplier = 1.6
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	pillar.material_override = mat
+	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
+	_build_shop_root.add_child(pillar)
+	var lbl := Label3D.new()
+	lbl.text = "🔨 Build Shop"
+	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lbl.no_depth_test = true
+	lbl.fixed_size = true
+	lbl.pixel_size = 0.0016
+	lbl.font_size = 52
+	lbl.outline_size = 16
+	lbl.outline_modulate = Color(0, 0, 0, 0.9)
+	lbl.modulate = Color(0.7, 0.85, 1.0)
+	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
+	_build_shop_root.add_child(lbl)
+
+func _update_build_shop_proximity() -> void:
+	if _build_shop_hint == null:
+		_build_shop_hint = Label.new()
+		_build_shop_hint.add_theme_font_size_override("font_size", 18)
+		_build_shop_hint.modulate = Color(0.7, 0.85, 1.0)
+		_build_shop_hint.visible = false
+		_hud.add_child(_build_shop_hint)
+	var pad = _state.get("build_shop")
+	var pf = _find_fighter(_player_id)
+	_near_build_shop = false
+	if pad != null and pf != null:
+		var d := Vector2(float(pf["x"]) - float(pad["x"]), float(pf["y"]) - float(pad["y"])).length()
+		_near_build_shop = d <= World.BUILD_SHOP_RADIUS
+	if _near_build_shop and (_build_shop_panel == null or not _build_shop_panel.visible):
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		_build_shop_hint.text = "Press [P] to shop for furniture"
+		_build_shop_hint.position = Vector2(vp.x / 2.0 - 110.0, vp.y - 178.0)
+		_build_shop_hint.visible = true
+	else:
+		_build_shop_hint.visible = false
+	if not _near_build_shop and _build_shop_panel != null and _build_shop_panel.visible:
+		_build_shop_panel.visible = false            # walked away → close
+
+# the Locker Room portal, when you don't own it yet, shows a "press [Y] to Purchase" prompt (buy_locker_room).
+# Once unlocked, walking onto the pad auto-enters (server-side), so this prompt just disappears.
+func _update_locker_portal_proximity() -> void:
+	if _locker_portal_hint == null:
+		_locker_portal_hint = Label.new()
+		_locker_portal_hint.add_theme_font_size_override("font_size", 18)
+		_locker_portal_hint.modulate = Color(1.0, 0.85, 0.45)
+		_locker_portal_hint.visible = false
+		_hud.add_child(_locker_portal_hint)
+	var pad = _state.get("locker_portal")
+	var pf = _find_fighter(_player_id)
+	_near_locker_portal = false
+	if pad != null and pf != null and not _locker_unlocked():
+		var d := Vector2(float(pf["x"]) - float(pad["x"]), float(pf["y"]) - float(pad["y"])).length()
+		_near_locker_portal = d <= World.PORTAL_RADIUS + 26.0
+	if _near_locker_portal:
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+		var cost := int(_build_info.get("unlock_cost", 10000))
+		_locker_portal_hint.text = "🔒 Your Locker Room — press [Y] to Purchase (◈ %d)" % cost
+		_locker_portal_hint.position = Vector2(vp.x / 2.0 - 180.0, vp.y - 206.0)
+		_locker_portal_hint.visible = true
+	else:
+		_locker_portal_hint.visible = false
+
+func _buy_locker_room() -> void:
+	if _locker_unlocked():
+		return
+	if _my_credits() < int(_build_info.get("unlock_cost", 10000)):
+		_toast("[color=#ff8a8a]Not enough credits to unlock your Locker Room[/color]", Color.html("#ff8a8a"))
+		return
+	if net != null and _connected:
+		net.buy_locker_room.rpc_id(1)
+
+# one informational Build-inventory tile: the model name + a "placed" badge. Placement itself is P3b.
+func _build_item_tile(it: Dictionary) -> Button:
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(144, 44)
+	b.clip_text = true
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.focus_mode = Control.FOCUS_NONE
+	var placed := bool(it.get("placed", false))
+	var col := Color.html("#9fe8a0") if placed else Color.html("#cfd6df")
+	b.text = ("✔ " if placed else "") + str(it.get("model", it.get("name", "?")))
+	b.add_theme_color_override("font_color", col)
+	b.add_theme_color_override("font_hover_color", col.lightened(0.2))
+	b.tooltip_text = str(it.get("model", "?")) + ("  · placed in your Locker Room" if placed else "  · in your Build tab (place it in your Locker Room)")
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.12, 0.16, 0.92)
+	sb.set_border_width_all(2)
+	sb.border_color = col
+	sb.set_corner_radius_all(4)
+	sb.set_content_margin_all(7)
+	b.add_theme_stylebox_override("normal", sb)
+	b.add_theme_stylebox_override("hover", sb)
+	b.add_theme_stylebox_override("pressed", sb)
+	return b
+
+# ---- Builder Mode P3b: the Locker Room build editor (F4 in your own unlocked room) ----------------------------
+# Reuses the F4-decorator feel (cursor place / grab-move / rotate / lift), but every action is a SERVER RPC
+# (build_place/move/remove) and the room renders from the server's snapshot decals — the client never touches
+# local JSON here and never trusts its own coords (the server clamps). F4 routes here (not the admin decorator)
+# only when _locker_build_available() — i.e. you're standing in your own unlocked locker_room instance.
+func _locker_build_available() -> bool:
+	return str(_state.get("map", "")) == World.LOCKER and _locker_unlocked()
+
+func _locker_build_toggle() -> void:
+	if _lb_on:
+		_lb_set_on(false)
+		return
+	if not _locker_build_available():
+		return
+	_lb_set_on(true)
+
+func _lb_set_on(on: bool) -> void:
+	_lb_on = on
+	_lb_grab_id = ""
+	_lb_grab_model = ""
+	_lb_grab_from = {}
+	_lb_undo.clear()
+	_lb_del_id = ""
+	if is_instance_valid(_lb_del_ghost):
+		_lb_del_ghost.queue_free()
+	_lb_del_ghost = null
+	_lb_free_del_menu()
+	if _lb_lbl == null and _hud != null:
+		_lb_lbl = Label.new()
+		_lb_lbl.add_theme_font_size_override("font_size", 14)
+		_lb_lbl.add_theme_color_override("font_color", Color(0.7, 0.95, 0.75))
+		_lb_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		_lb_lbl.add_theme_constant_override("outline_size", 4)
+		_pin_topright(_lb_lbl, 44.0)
+		_lb_lbl.z_index = 4096
+		_lb_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_hud.add_child(_lb_lbl)
+	if _lb_lbl != null:
+		_lb_lbl.visible = on
+	if not on:
+		if is_instance_valid(_lb_ghost):
+			_lb_ghost.queue_free()
+		_lb_ghost = null
+		_lb_ghost_key = ""
+		return
+	if not _coords_on:
+		_toggle_coords()                            # the coord readout pairs naturally with placing
+	_lb_refresh_palette()
+	_toast("[color=#9fe8a0]🔨 Build mode[/color]\n[color=#cfd6df]LMB place · [ ] pick · , . rotate · - = size · PgUp/Dn lift · G grab/move · X remove · F4 exit[/color]", Palette.ACCENT)
+
+# the editor's input (only reached, via Client._input → _extra_input, while _lb_on). Mirrors _deco_input but RPC-driven.
+func _extra_input(e: InputEvent) -> bool:
+	if not _lb_on:
+		return false
+	var foc := get_viewport().gui_get_focus_owner()
+	if foc is LineEdit or foc is TextEdit:
+		return false                                # typing (chat) — don't steal keys
+	return _lb_input(e)
+
+func _lb_input(e: InputEvent) -> bool:
+	# while confirming a delete, let mouse clicks fall through to the on-screen menu buttons (don't place)
+	if _lb_del_id != "" and e is InputEventMouseButton:
+		return false
+	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+		if _lb_grab_id != "":                       # dropping a grabbed prop → move it here
+			_lb_drop_move()
+		else:                                       # place the selected palette item at the cursor
+			_lb_place()
+		return true
+	if e is InputEventKey and e.pressed and not e.echo:
+		match e.keycode:
+			KEY_F4:
+				_locker_build_toggle()
+				return true
+			KEY_Z:                                  # undo the last place / move / remove
+				if e.ctrl_pressed:
+					_lb_undo_last()
+					return true
+			KEY_G:                                  # grab the nearest placed prop (or drop the held one)
+				if _lb_grab_id != "":
+					_lb_drop_move()
+				else:
+					_lb_do_grab()
+				return true
+			KEY_X:                                  # target the nearest prop for deletion (press again → cycle to another)
+				_lb_retarget_delete()
+				return true
+			KEY_Y:                                  # confirm the pending delete
+				if _lb_del_id != "":
+					_lb_confirm_delete()
+					return true
+			KEY_N:                                  # cancel the pending delete
+				if _lb_del_id != "":
+					_lb_del_id = ""
+					_lb_update_lbl()
+					return true
+			KEY_BRACKETLEFT:
+				if not _lb_pal.is_empty():
+					_lb_idx = (_lb_idx - 1 + _lb_pal.size()) % _lb_pal.size()
+					_lb_update_lbl()
+				return true
+			KEY_BRACKETRIGHT:
+				if not _lb_pal.is_empty():
+					_lb_idx = (_lb_idx + 1) % _lb_pal.size()
+					_lb_update_lbl()
+				return true
+			KEY_COMMA:
+				_lb_yaw -= 0.2618                   # ~15°
+				_lb_update_lbl()
+				return true
+			KEY_PERIOD:
+				_lb_yaw += 0.2618
+				_lb_update_lbl()
+				return true
+			KEY_MINUS:
+				_lb_h = clampf(_lb_h / 1.15, 0.4, 15.0)   # multiplicative → smooth across the wide 0.4–15 range
+				_lb_update_lbl()
+				return true
+			KEY_EQUAL:
+				_lb_h = clampf(_lb_h * 1.15, 0.4, 15.0)
+				_lb_update_lbl()
+				return true
+			KEY_PAGEUP:
+				_lb_oy = clampf(_lb_oy + 0.25, -1.0, 8.0)
+				_lb_update_lbl()
+				return true
+			KEY_PAGEDOWN:
+				_lb_oy = clampf(_lb_oy - 0.25, -1.0, 8.0)
+				_lb_update_lbl()
+				return true
+	return false
+
+# the placement transform the server will clamp (never trusted). Snapped like the admin decorator.
+func _lb_xform() -> Dictionary:
+	var p := _cursor_sim()
+	return {"x": snappedf(p.x, 1.0), "y": snappedf(p.y, 1.0), "h": snappedf(_lb_h, 0.1),
+		"yaw": snappedf(_lb_yaw, 0.01), "oy": snappedf(_lb_oy, 0.01)}
+
+# the id of the nearest PLACED prop to EITHER the cursor OR the player's character (whichever is closer), or "" if
+# none within range. The cursor raycast hits the GROUND, so aiming at a tall prop lands past its base — checking
+# the character position too means "stand on/next to it and press X/G" reliably works. Used by G (grab) + X (remove).
+func _lb_nearest_placed(exclude := "") -> String:
+	var pts := []
+	var cur := _cursor_sim()
+	if cur.x >= 0.0:
+		pts.append(cur)
+	var pf = _find_fighter(_player_id)
+	if pf != null:
+		pts.append(Vector2(float(pf["x"]), float(pf["y"])))
+	if pts.is_empty():
+		return ""
+	var best := ""
+	var best_d := 110.0                             # pick radius (sim units) — generous; nearest to cursor OR character
+	for d in (_state.get("decals", []) as Array):
+		if not (d is Dictionary) or str(d.get("kind", "")) != "prop":
+			continue
+		var id := str(d.get("id", ""))
+		if id == "" or id == exclude:               # exclude → X / "Pick another" cycles to a DIFFERENT prop
+			continue
+		var dp := Vector2(float(d.get("x", 0.0)), float(d.get("y", 0.0)))
+		var dist := INF
+		for p in pts:
+			dist = minf(dist, (dp - p).length())
+		if dist < best_d:
+			best_d = dist
+			best = id
+	return best
+
+# a placed decal (has the owner's item id) by id, or {} if not found.
+func _lb_decal_by_id(id: String) -> Dictionary:
+	for d in (_state.get("decals", []) as Array):
+		if d is Dictionary and str(d.get("id", "")) == id:
+			return d
+	return {}
+
+func _lb_decal_xform(d: Dictionary) -> Dictionary:
+	return {"x": float(d.get("x", 0.0)), "y": float(d.get("y", 0.0)), "h": float(d.get("h", 2.0)),
+		"yaw": float(d.get("yaw", 0.0)), "oy": float(d.get("oy", 0.0))}
+
+# place the selected palette item at the cursor (server clamps + is authoritative). Records a reverse-op for undo.
+func _lb_place() -> void:
+	_lb_del_id = ""                                 # any other action cancels a pending delete-confirm
+	if _lb_pal.is_empty():
+		_toast("[color=#ff8a8a]No furniture to place — buy some at the Build Shop [P][/color]", Color.html("#ff8a8a"))
+		return
+	if net == null or not _connected:
+		return
+	var id := str((_lb_pal[_lb_idx] as Dictionary).get("id", ""))
+	if id == "":
+		return
+	net.build_place.rpc_id(1, id, _lb_xform())
+	_lb_push_undo({"act": "remove", "id": id})      # undo a place → remove it
+
+# grab the nearest placed prop to move it: adopt its size/rotation/lift so the ghost shows it faithfully and the
+# move preserves them (unless you then adjust), and remember its old spot for undo.
+func _lb_do_grab() -> void:
+	_lb_del_id = ""                                 # cancel any pending delete-confirm
+	var gid := _lb_nearest_placed()
+	if gid == "":
+		_toast("[color=#ff8a8a]No placed prop nearby to grab — stand near it or aim at its base[/color]", Color.html("#ff8a8a"))
+		return
+	var d := _lb_decal_by_id(gid)
+	_lb_grab_id = gid
+	_lb_grab_model = str(d.get("model", ""))
+	_lb_grab_from = _lb_decal_xform(d)
+	_lb_h = float(d.get("h", _lb_h))
+	_lb_yaw = float(d.get("yaw", _lb_yaw))
+	_lb_oy = float(d.get("oy", _lb_oy))
+	_lb_update_lbl()
+
+# drop the grabbed prop at the cursor → move RPC + record the move for undo.
+func _lb_drop_move() -> void:
+	if _lb_grab_id == "":
+		return
+	if net != null and _connected:
+		net.build_move.rpc_id(1, _lb_grab_id, _lb_xform())
+		if not _lb_grab_from.is_empty():
+			_lb_push_undo({"act": "move", "id": _lb_grab_id, "xform": _lb_grab_from.duplicate()})
+	_lb_grab_id = ""
+	_lb_grab_model = ""
+	_lb_grab_from = {}
+	_lb_update_lbl()
+
+func _lb_push_undo(op: Dictionary) -> void:
+	_lb_undo.append(op)
+	if _lb_undo.size() > 40:
+		_lb_undo.pop_front()
+
+# undo the last edit: place→remove, remove→place-back, move→move-back. Server-authoritative (fires the inverse RPC).
+func _lb_undo_last() -> void:
+	_lb_del_id = ""                                 # cancel any pending delete-confirm
+	if _lb_undo.is_empty():
+		_toast("[color=#cfd6df]Nothing to undo[/color]", Palette.TEXT_DIM)
+		return
+	if net == null or not _connected:
+		return
+	var op: Dictionary = _lb_undo.pop_back()
+	var id := str(op.get("id", ""))
+	match str(op.get("act", "")):
+		"remove":
+			net.build_remove.rpc_id(1, id)
+		"place":
+			net.build_place.rpc_id(1, id, op.get("xform", {}))
+		"move":
+			net.build_move.rpc_id(1, id, op.get("xform", {}))
+	_lb_grab_id = ""
+	_lb_grab_model = ""
+	_lb_grab_from = {}
+	_toast("[color=#9fe8a0]↩ Undo[/color]", Palette.ACCENT)
+	_lb_update_lbl()
+
+# confirm the pending [Y]/[N] delete → remove the highlighted prop (recording it for undo).
+func _lb_confirm_delete() -> void:
+	if _lb_del_id == "":
+		return
+	var rd := _lb_decal_by_id(_lb_del_id)
+	if net != null and _connected and not rd.is_empty():
+		net.build_remove.rpc_id(1, _lb_del_id)
+		_lb_push_undo({"act": "place", "id": _lb_del_id, "xform": _lb_decal_xform(rd)})
+	_lb_del_id = ""
+	_lb_update_lbl()
+
+# target the nearest prop for deletion; called again (X or the "Pick another" button) it EXCLUDES the current
+# target so it cycles to a different nearby prop.
+func _lb_retarget_delete() -> void:
+	var rid := _lb_nearest_placed(_lb_del_id)
+	if rid != "":
+		_lb_del_id = rid
+	elif _lb_del_id == "":
+		_toast("[color=#ff8a8a]No placed prop nearby — stand near it or aim at its base[/color]", Color.html("#ff8a8a"))
+	# else: no OTHER prop nearby → keep the current target
+	_lb_update_lbl()
+
+func _lb_free_del_menu() -> void:
+	if _lb_del_panel != null:
+		_lb_del_panel.queue_free()
+	_lb_del_panel = null
+	_lb_del_panel_model = ""
+
+# a centered "Delete this <model>?" menu with clickable buttons (Y/N/X keys still work too). Rebuilt when the
+# targeted model changes; freed when the confirm ends. Reconciled with _lb_del_id each frame in _lb_update_del_highlight.
+func _lb_build_del_menu(model: String) -> void:
+	_lb_free_del_menu()
+	if _hud == null:
+		return
+	_lb_del_panel_model = model
+	_lb_del_panel = Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Palette.BG_PANEL
+	sb.border_color = Palette.DANGER
+	for s in ["left", "right", "top", "bottom"]:
+		sb.set("border_width_" + s, 2)
+		sb.set("corner_radius_" + s, 8)
+		sb.set("content_margin_" + s, 18.0)
+	_lb_del_panel.add_theme_stylebox_override("panel", sb)
+	_lb_del_panel.mouse_filter = Control.MOUSE_FILTER_STOP   # absorb clicks over the menu chrome (don't leak to the game)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 10)
+	_lb_del_panel.add_child(vb)
+	var title := Label.new()
+	title.text = "🗑  Delete this %s?" % model
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Palette.DANGER)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(title)
+	var sub := Label.new()
+	sub.text = "It goes back to your Build tab · Ctrl+Z undoes it"
+	sub.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(sub)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(row)
+	row.add_child(_tile_btn("🗑  Delete  (Y)", Palette.DANGER, true, _lb_confirm_delete))
+	row.add_child(_tile_btn("Keep  (N)", Palette.TEXT, true, func() -> void: _lb_del_id = ""))
+	row.add_child(_tile_btn("Pick another  (X)", Palette.ACCENT2, true, _lb_retarget_delete))
+	_hud.add_child(_lb_del_panel)
+	_lb_del_panel.reset_size()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_lb_del_panel.position = Vector2((vp.x - _lb_del_panel.size.x) / 2.0, vp.y * 0.60 - _lb_del_panel.size.y / 2.0)
+
+# ---- Locker Room onboarding: a "how to build" popup, auto-shown on entry (unless the player opts out) + [H] ----
+func _load_build_help_pref() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(AudioManager.SETTINGS_PATH) == OK:
+		_build_help_hide = bool(cfg.get_value("build", "hide_help", false))
+
+func _set_build_help_hide(on: bool) -> void:
+	_build_help_hide = on
+	var cfg := ConfigFile.new()
+	cfg.load(AudioManager.SETTINGS_PATH)          # keep the existing audio/fx sections
+	cfg.set_value("build", "hide_help", on)
+	cfg.save(AudioManager.SETTINGS_PATH)
+
+# called on the map-change INTO the locker: auto-open the help unless the player checked "don't show".
+func _on_enter_locker() -> void:
+	_load_build_help_pref()
+	if not _build_help_hide:
+		_show_build_help()
+
+func _close_build_help() -> void:
+	if _build_help_panel != null:
+		_build_help_panel.queue_free()
+	_build_help_panel = null
+
+func _toggle_build_help() -> void:
+	if _build_help_panel != null:
+		_close_build_help()
+	else:
+		_show_build_help()
+
+func _show_build_help() -> void:
+	_close_build_help()
+	if _hud == null:
+		return
+	_build_help_panel = Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Palette.BG_PANEL
+	sb.border_color = Palette.ACCENT
+	for s in ["left", "right", "top", "bottom"]:
+		sb.set("border_width_" + s, 2)
+		sb.set("corner_radius_" + s, 10)
+		sb.set("content_margin_" + s, 22.0)
+	_build_help_panel.add_theme_stylebox_override("panel", sb)
+	_build_help_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	_build_help_panel.add_child(vb)
+	var title := Label.new()
+	title.text = "🔨  Welcome to your Locker Room"
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Palette.ACCENT)
+	vb.add_child(title)
+	var body := RichTextLabel.new()
+	body.bbcode_enabled = true
+	body.fit_content = true
+	body.scroll_active = false
+	body.custom_minimum_size = Vector2(540, 0)
+	body.add_theme_color_override("default_color", Palette.TEXT)
+	body.text = "This is your own [b]private space[/b] — decorate it however you like.\n\n" + \
+		"[color=#ffd24d]How it works[/color]\n" + \
+		"[b]1.[/b]  Buy furniture at the [color=#8ad6ff]Build Shop[/color] pad ([color=#ffd24d]P[/color]) back in the Home Base.\n" + \
+		"[b]2.[/b]  Return here and press [color=#ffd24d]F4[/color] to enter [b]Build Mode[/b].\n" + \
+		"[b]3.[/b]  While in Build Mode:\n" + \
+		"       [color=#ffd24d][lb] [rb][/color] pick item    [color=#ffd24d]Left-click[/color] place    [color=#ffd24d]G[/color] grab / move    [color=#ffd24d]X[/color] remove\n" + \
+		"       [color=#ffd24d], .[/color] rotate    [color=#ffd24d]- =[/color] resize    [color=#ffd24d]PgUp / PgDn[/color] lift    [color=#ffd24d]Ctrl+Z[/color] undo\n" + \
+		"       [color=#ffd24d]F4[/color] leave Build Mode\n\n" + \
+		"Removing a placed item sends it back to your Build tab. Your layout [b]saves automatically[/b]. Have fun!"
+	vb.add_child(body)
+	var cb := CheckBox.new()
+	cb.text = "Don't show this automatically when I enter"
+	cb.button_pressed = _build_help_hide
+	cb.toggled.connect(func(on: bool) -> void: _set_build_help_hide(on))
+	vb.add_child(cb)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(row)
+	row.add_child(_tile_btn("Got it!", Palette.ACCENT, true, _close_build_help))
+	var foot := Label.new()
+	foot.text = "Press  [ H ]  anytime in your Locker Room to reopen this help."
+	foot.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(foot)
+	_hud.add_child(_build_help_panel)
+	_build_help_panel.reset_size()
+	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_build_help_panel.position = Vector2((vp.x - _build_help_panel.size.x) / 2.0, (vp.y - _build_help_panel.size.y) / 2.0)
+
+# the always-visible "[H] build help" reminder — shown while in the locker, but not while the help/build UI is up.
+func _update_locker_help_hint() -> void:
+	var in_locker := str(_state.get("map", "")) == World.LOCKER
+	if not in_locker and _build_help_panel != null:   # left the locker with the help open → close it
+		_close_build_help()
+	if _build_help_hint == null:
+		if not in_locker:
+			return
+		_build_help_hint = Label.new()
+		_build_help_hint.add_theme_font_size_override("font_size", 14)
+		_build_help_hint.add_theme_color_override("font_color", Palette.ACCENT)
+		_build_help_hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		_build_help_hint.add_theme_constant_override("outline_size", 4)
+		_build_help_hint.anchor_left = 0.5
+		_build_help_hint.anchor_right = 0.5
+		_build_help_hint.offset_left = -160.0
+		_build_help_hint.offset_right = 160.0
+		_build_help_hint.offset_top = 86.0            # just under the "LOCKER ROOM" zone banner
+		_build_help_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_build_help_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_build_help_hint.z_index = 4096
+		_build_help_hint.text = "🔨 Press  [ H ]  for build help"
+		_hud.add_child(_build_help_hint)
+	_build_help_hint.visible = in_locker and not _lb_on and _build_help_panel == null
+
+# rebuild the palette (your OWNED UNPLACED build items) from the inventory cache. If the cache is empty, pull it.
+func _lb_refresh_palette() -> void:
+	if supa != null:                                # always pull fresh: a place/move/remove/buy just changed placed-state
+		var r = await supa.get_inventory()
+		if r.get("ok"):
+			_inv_items = r.get("items", [])
+	var pal := []
+	for it in _inv_items:
+		if str((it as Dictionary).get("category", "")) == "build" and not bool((it as Dictionary).get("placed", false)):
+			pal.append({"id": str((it as Dictionary).get("id", "")), "model": str((it as Dictionary).get("model", ""))})
+	pal.sort_custom(func(a, b): return str(a["model"]) < str(b["model"]))
+	_lb_pal = pal
+	if _lb_idx >= _lb_pal.size():
+		_lb_idx = maxi(0, _lb_pal.size() - 1)
+	_lb_update_lbl()
+
+func _lb_update_lbl() -> void:
+	if _lb_lbl == null:
+		return
+	if _lb_del_id != "":                            # a delete is pending confirmation → red prompt (see the red highlight)
+		var dm := str(_lb_decal_by_id(_lb_del_id).get("model", "prop"))
+		_lb_lbl.add_theme_color_override("font_color", Color(1.0, 0.6, 0.6))
+		_lb_lbl.text = "⚠ DELETE  %s ?  (highlighted red)\n  [Y] yes, remove it   ·   [N] no, keep it   ·   [X] target a different prop   ·   F4 exit" % dm
+		return
+	_lb_lbl.add_theme_color_override("font_color", Color(0.7, 0.95, 0.75))   # normal green
+	# ALWAYS show the controls (even with no furniture) so the player never loses the reference.
+	if _lb_grab_id != "":                           # moving: name the prop prominently so it's clear what will move
+		var gm := _lb_grab_model if _lb_grab_model != "" else "prop"
+		_lb_lbl.text = "🔨 BUILD — ▶ MOVING  %s ◀    yaw %.0f°  size %.1f  lift %.1f\n  the preview follows your cursor · , . rotate · - = size · PgUp/Dn lift · click or G to drop it here · Ctrl+Z undo · F4 exit" % [gm, rad_to_deg(_lb_yaw), _lb_h, _lb_oy]
+		return
+	var sel := "(none — buy at the Build Shop [P])"
+	if not _lb_pal.is_empty():
+		sel = "[ ] %s  (%d/%d)" % [str((_lb_pal[_lb_idx] as Dictionary).get("model", "?")), _lb_idx + 1, _lb_pal.size()]
+	_lb_lbl.text = "🔨 BUILD    %s    yaw %.0f°  size %.1f  lift %.1f\n  L-click place · G grab/move · X remove · Ctrl+Z undo · , . rotate · - = size · PgUp/Dn lift · F4 exit" % [sel, rad_to_deg(_lb_yaw), _lb_h, _lb_oy]
+
+# per-frame preview at the cursor: the to-place palette prop, OR — while moving — the grabbed prop itself (so you
+# see its height/rotation follow the cursor before you drop it). The original placed copy still renders (server
+# authority) until the move lands, so there's a brief overlap; that's expected.
+func _lb_update_ghost() -> void:
+	var model := ""
+	if _lb_on and _world_root != null and _lb_del_id == "":   # while confirming a delete, hide the place-preview
+		if _lb_grab_id != "":
+			model = _lb_grab_model
+		elif not _lb_pal.is_empty():
+			model = str((_lb_pal[_lb_idx] as Dictionary).get("model", ""))
+	if model == "":
+		if is_instance_valid(_lb_ghost):
+			_lb_ghost.visible = false
+		return
+	var key := "%s@%.1f" % [model, _lb_h]
+	if key != _lb_ghost_key or not is_instance_valid(_lb_ghost):   # model/size changed OR the ghost was freed → rebuild
+		if is_instance_valid(_lb_ghost):
+			_lb_ghost.queue_free()
+		_lb_ghost = null
+		_lb_ghost_key = key
+		var pe := _prop_entry(model)
+		if pe["scene"] != null:
+			_lb_ghost = pe["scene"].instantiate()
+			var psc: float = _lb_h / float(pe["h"])
+			_lb_ghost.scale = Vector3(psc, psc, psc)
+			_ghost_tint(_lb_ghost)
+			_world_root.add_child(_lb_ghost)
+	if not is_instance_valid(_lb_ghost):
+		return
+	var p := _cursor_sim()
+	if p.x < 0.0:
+		_lb_ghost.visible = false
+		return
+	_lb_ghost.visible = true
+	var pe2 := _prop_entry(model)
+	var psc2: float = _lb_h / float(pe2["h"])
+	_lb_ghost.position = Vector3((p.x - _aw() / 2.0) * SCALE, -float(pe2["min_y"]) * psc2 + _lb_oy, (p.y - _ah() / 2.0) * SCALE)
+	_lb_ghost.rotation.y = _lb_yaw
+
+# make a ghost instance look like a translucent preview (recursively tint every mesh).
+func _ghost_tint(n: Node) -> void:
+	if n is MeshInstance3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.6, 0.9, 0.7, 0.45)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		(n as MeshInstance3D).material_override = m
+	for c in n.get_children():
+		_ghost_tint(c)
+
+# a RED translucent tint for the prop about to be deleted (recursively).
+func _del_tint(n: Node) -> void:
+	if n is MeshInstance3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(1.0, 0.28, 0.28, 0.55)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		(n as MeshInstance3D).material_override = m
+	for c in n.get_children():
+		_del_tint(c)
+
+# per-frame: while a delete is pending, overlay a RED pulsing highlight on the exact prop you're about to remove
+# (so you can see it's the right one before pressing Y). If the target vanishes, cancel the confirm.
+func _lb_update_del_highlight() -> void:
+	if not _lb_on or _lb_del_id == "" or _world_root == null:
+		if is_instance_valid(_lb_del_ghost):
+			_lb_del_ghost.queue_free()
+		_lb_del_ghost = null
+		_lb_free_del_menu()
+		return
+	var d := _lb_decal_by_id(_lb_del_id)
+	if d.is_empty():                                # target removed/moved out from under us → cancel the confirm
+		_lb_del_id = ""
+		if is_instance_valid(_lb_del_ghost):
+			_lb_del_ghost.queue_free()
+		_lb_del_ghost = null
+		_lb_free_del_menu()
+		_lb_update_lbl()
+		return
+	var model := str(d.get("model", ""))
+	var h := float(d.get("h", 2.0))
+	if _lb_del_panel == null or _lb_del_panel_model != model:   # target MODEL changed → rebuild the menu + the red ghost
+		_lb_build_del_menu(model)
+		if is_instance_valid(_lb_del_ghost):
+			_lb_del_ghost.queue_free()
+		_lb_del_ghost = null
+	if not is_instance_valid(_lb_del_ghost):
+		var pe := _prop_entry(model)
+		if pe["scene"] != null:
+			_lb_del_ghost = pe["scene"].instantiate()
+			_del_tint(_lb_del_ghost)
+			_world_root.add_child(_lb_del_ghost)
+	if not is_instance_valid(_lb_del_ghost):
+		return
+	var pe2 := _prop_entry(model)
+	var psc: float = h / float(pe2["h"]) * (1.04 + 0.05 * sin(float(Time.get_ticks_msec()) * 0.009))   # gentle pulse
+	_lb_del_ghost.scale = Vector3(psc, psc, psc)
+	_lb_del_ghost.position = Vector3((float(d.get("x", 0.0)) - _aw() / 2.0) * SCALE, -float(pe2["min_y"]) * psc + float(d.get("oy", 0.0)), (float(d.get("y", 0.0)) - _ah() / 2.0) * SCALE)
+	_lb_del_ghost.rotation.y = float(d.get("yaw", 0.0))
+
 # the Practice Vendor pad in the home base + the "press V" prompt (mirrors the shop pad, cyan)
 func _render_vendor_pad() -> void:
 	var v = _state.get("practice")
@@ -3724,6 +4572,16 @@ func _process(delta: float) -> void:
 	_update_party()
 	_render_shop_pad()
 	_update_shop_proximity()
+	_render_build_shop_pad()
+	_update_build_shop_proximity()
+	_update_locker_portal_proximity()
+	if _lb_on:                                    # Builder Mode: the in-locker build editor (ghost preview; auto-exit on leaving)
+		if not _locker_build_available():
+			_lb_set_on(false)
+		else:
+			_lb_update_ghost()
+			_lb_update_del_highlight()            # red pulsing highlight on a prop pending [Y]/[N] deletion
+	_update_locker_help_hint()                    # the "[H] build help" reminder while in the Locker Room
 	_render_forge_pad()
 	_update_forge_proximity()
 	_render_questgiver_pad()
@@ -3775,6 +4633,8 @@ func receive_snapshot(snap: Dictionary) -> void:
 			_trigger_zone_card(map)              # P4: "Now Entering <Zone>" card (not on the first login zone-in)
 		_last_map = map
 		AudioManager.play_music(map)
+		if map == World.LOCKER:                  # Builder Mode: onboarding "how to build" popup on entering your Locker Room
+			_on_enter_locker()
 	var lpf = _find_fighter(_player_id)           # level-up fanfare + P4 flash/toast
 	if lpf != null:
 		var lvl := int(lpf.get("level", 1))
@@ -3783,6 +4643,10 @@ func receive_snapshot(snap: Dictionary) -> void:
 			_trigger_level_flash()
 			_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level %d[/color]" % [Palette.hex(Palette.ACCENT), lvl], Palette.ACCENT, true)
 		_last_level = lvl
+	var unlocked_now := _locker_unlocked()        # Builder Mode: toast the first time you own your Locker Room
+	if unlocked_now and not _was_locker_unlocked:
+		_toast("[color=#9fe8a0]🔓 Locker Room unlocked![/color]\nWalk through the portal in the home base to enter.", Palette.ACCENT)
+	_was_locker_unlocked = unlocked_now
 	_handle_events()             # spawn damage-number / hit FX from this snapshot's events
 	if _dev_open != "" and _player_id != "" and _find_fighter(_player_id) != null:
 		_dev_open_panel()        # dev screenshot hook: open a panel once we have a live fighter
@@ -3944,6 +4808,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_admin_panel.visible = not _admin_panel.visible
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_F3 and not _chatting:
+			_toggle_coords()                # dev: sim-space (map) coord readout under the cursor for authoring maps
+			get_viewport().set_input_as_handled()
+			return
 		elif e.keycode == KEY_B and not _chatting and (_near_shop or (_shop_panel != null and _shop_panel.visible)):
 			_toggle_shop()                  # open/close the shop while on the home pad
 			get_viewport().set_input_as_handled()
@@ -3962,6 +4830,18 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_C and not _chatting and (_near_camp or (_camp_panel != null and _camp_panel.visible)):
 			_toggle_camp()                  # the Camp Circuit Intensity selector while at the entry portal
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_P and not _chatting and (_near_build_shop or (_build_shop_panel != null and _build_shop_panel.visible)):
+			_toggle_build_shop()            # the Build Shop (furniture) while on the home pad
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_Y and not _chatting and _near_locker_portal and not _locker_unlocked():
+			_buy_locker_room()              # purchase your Locker Room at the portal (one-time 10,000 credits)
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_H and not _chatting and str(_state.get("map", "")) == World.LOCKER:
+			_toggle_build_help()            # Builder Mode: open/close the "how to build" help in your Locker Room
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_N and not _chatting:

@@ -24,7 +24,8 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 # template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
 const CAMP := "camp"                        # the instanced Camp Circuit run (endgame grind + Intensity ladder)
 const DRILL := "drill"                      # the instanced Two-Minute Drill (endless wave survival → leaderboard)
-const INSTANCE_MAPS := ["camp", "drill"]    # templates that are instance-only (skipped by static-world boot)
+const LOCKER := "locker_room"               # Builder Mode: the private per-CHARACTER Locker Room (safe, no combat)
+const INSTANCE_MAPS := ["camp", "drill", "locker_room"]    # templates that are instance-only (skipped by static-world boot)
 
 static func is_instance_template(map: String) -> bool:
 	return INSTANCE_MAPS.has(map)
@@ -41,6 +42,7 @@ const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of 
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
 const DRILL_SPAWN := Vector2(600, 400)       # Two-Minute Drill: spawn in the arena center (waves close in)
+const LOCKER_SPAWN := Vector2(350, 380)      # Locker Room: arrive lower-center, facing into your room (clear of the west exit pad)
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
@@ -61,19 +63,23 @@ const MAPS := {
 	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
 	# Two-Minute Drill arena (P5): no out-of-combat regen (survival), waves spawned by the server
 	DRILL: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.0,   "regen_delay": 0.0, "aggro": true,  "pvp": false, "spawn": DRILL_SPAWN},
+	# Locker Room (Builder Mode): a small SAFE private room — no mobs, no aggro, strong regen. Decorated by its owner.
+	LOCKER: {"type": "safe", "w": 700, "h": 460, "regen": 0.12, "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": LOCKER_SPAWN},
 }
 
 const DUMMY_POS := Vector2(660, 300)         # the training dummy (home only)
 const DUMMY_CLASS := "linebacker"            # a tanky punching bag
 const PORTAL_RADIUS := 42.0                  # stepping this close to a pad teleports you
-const SHOP_POS := Vector2(700, 150)          # the shop pad (home base only) — stand near it to open the shop
+const SHOP_POS := Vector2(700, 145)          # the shop pad (home base only) — stand near it to open the shop
 const SHOP_RADIUS := 80.0
-const FORGE_POS := Vector2(480, 150)         # the forge pad (home base only) — upgrade/salvage gear here
+const FORGE_POS := Vector2(445, 125)         # the forge pad (home base only) — upgrade/salvage gear here
 const FORGE_RADIUS := 80.0
-const QUESTGIVER_POS := Vector2(250, 150)    # the quest giver (home base only) — stand near it to accept/turn in quests
+const QUESTGIVER_POS := Vector2(175, 140)    # the quest giver (home base only) — stand near it to accept/turn in quests
 const QUESTGIVER_RADIUS := 80.0
-const PRACTICE_POS := Vector2(830, 400)      # the Practice Vendor (home base only) — spend Practice Tokens on the Rookie Camp set (clear of the shop pad)
+const PRACTICE_POS := Vector2(150, 310)      # the Practice Vendor (home base only) — spend Practice Tokens on the Rookie Camp set
 const PRACTICE_RADIUS := 80.0
+const BUILD_SHOP_POS := Vector2(800, 225)    # Builder Mode: the Build Shop pad (home base only) — buy furniture/props (right column, above the Locker portal)
+const BUILD_SHOP_RADIUS := 80.0
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
 # Zone graph:  Home ↔ Arena,  Home → Glitchyard 1 ↔ 2 ↔ 3 ↔ 4 ↔ 5  (a linear chain; you arrive west, the
@@ -81,12 +87,15 @@ const PRACTICE_RADIUS := 80.0
 # clear of its forward pad (> PORTAL_RADIUS) so you don't instantly bounce back.
 const PORTALS := {
 	HOME: [
-		{"x": 300.0,  "y": 300.0, "to": GY1,   "tx": 200.0,  "ty": 425.0, "label": "▶ Glitchyard"},
-		{"x": 660.0,  "y": 460.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
+		{"x": 300.0,  "y": 380.0, "to": GY1,   "tx": 200.0,  "ty": 425.0, "label": "▶ Glitchyard"},
+		{"x": 770.0,  "y": 475.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
 		# INSTANCE entry: no static `to` — the server spins up (or rejoins) the player's private Camp instance.
-		{"x": 420.0,  "y": 460.0, "instance": CAMP, "label": "▶ Camp Circuit"},
+		{"x": 510.0,  "y": 475.0, "instance": CAMP, "label": "▶ Camp Circuit"},
 		# walk-on instance entry (`auto`) → drop straight into a fresh Two-Minute Drill (no tier selection)
-		{"x": 200.0,  "y": 460.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
+		{"x": 215.0,  "y": 475.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
+		# Builder Mode: walk on to enter your PRIVATE Locker Room. Per-CHARACTER instance (keyed by char_id). The
+		# server gates entry on locker_unlocked — the pad is inert (and P3 shows "Purchase (10,000)") until you own it.
+		{"x": 800.0,  "y": 385.0, "instance": LOCKER, "auto": true, "label": "▶ Locker Room"},
 	],
 	GY1: [
 		{"x": 120.0,  "y": 425.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
@@ -134,6 +143,10 @@ const PORTALS := {
 	# Drill exit (a west-corner bail — walking here ends the run; you also end by dying).
 	DRILL: [
 		{"x": 90.0,   "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ End Drill"},
+	],
+	# Locker Room exit (resolved by TEMPLATE — every "locker_room#<char>" instance shares this exit back to home).
+	LOCKER: [
+		{"x": 80.0,   "y": 380.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ Leave Locker Room"},
 	],
 }
 
@@ -320,6 +333,24 @@ static func obstacles_for(map: String) -> Array:
 # cones ("cone") that give each zone its training-camp identity. Read CLIENT-side from the current map (the
 # client preloads World.gd) and drawn by Client._render_decals — NOT sent over the wire.
 const DECALS := {
+	# WORKED EXAMPLE (home had no decals). All of these are purely cosmetic — no collision, client-only.
+	# The "prop" entries pull free Kenney CC0 GLBs from models/kits (no Meshy credits). Tune x/y/h/yaw to
+	# taste; press F3 in-game to read the sim-space coord under your cursor. See docs/map-authoring-guide.md.
+	HOME: [
+		{"kind": "ring", "x": 480.0, "y": 300.0, "r": 110.0},                                  # painted ring around the spawn
+		{"kind": "cone", "x": 340.0, "y": 300.0}, {"kind": "cone", "x": 300.0, "y": 250.0},     # flank the ▶ Glitchyard pad
+		{"kind": "prop", "model": "tree_oak",        "x": 110.0, "y": 470.0, "h": 3.4, "yaw": 0.3},
+		{"kind": "prop", "model": "tree_pineRoundC", "x": 150.0, "y": 95.0,  "h": 3.6, "yaw": 0.0},
+		{"kind": "prop", "model": "tree_default",    "x": 880.0, "y": 100.0, "h": 3.2, "yaw": 1.2},
+		{"kind": "prop", "model": "tree_oak",        "x": 860.0, "y": 480.0, "h": 3.4, "yaw": 2.1},
+		{"kind": "prop", "model": "rock_largeA",     "x": 200.0, "y": 385.0, "h": 1.3, "yaw": 0.6},
+		{"kind": "prop", "model": "rock_largeC",     "x": 770.0, "y": 305.0, "h": 1.1, "yaw": 1.9},
+		{"kind": "prop", "model": "plant_bushLarge", "x": 560.0, "y": 380.0, "h": 1.0, "yaw": 0.0},
+		{"kind": "prop", "model": "plant_bush",      "x": 420.0, "y": 255.0, "h": 0.8, "yaw": 0.0},
+		{"kind": "prop", "model": "fence_simple",    "x": 470.0, "y": 505.0, "h": 1.3, "yaw": 0.0},
+		{"kind": "prop", "model": "fence_simple",    "x": 555.0, "y": 505.0, "h": 1.3, "yaw": 0.0},
+		{"kind": "prop", "model": "fence_simple",    "x": 620.0, "y": 505.0, "h": 1.3, "yaw": 0.0},
+	],
 	GY1: [
 		{"kind": "ring", "x": 750.0, "y": 425.0, "r": 140.0}, {"kind": "ring", "x": 1180.0, "y": 425.0, "r": 90.0},
 		{"kind": "cone", "x": 540.0, "y": 280.0}, {"kind": "cone", "x": 540.0, "y": 570.0}, {"kind": "cone", "x": 1180.0, "y": 425.0},

@@ -1,0 +1,18 @@
+[
+	{
+		"h": 10.8,
+		"kind": "prop",
+		"model": "building-c",
+		"x": 1093.0,
+		"y": 41.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 9.3,
+		"kind": "prop",
+		"model": "building-a",
+		"x": 695.0,
+		"y": 865.0,
+		"yaw": 0.0
+	}
+]

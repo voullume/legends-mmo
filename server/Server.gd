@@ -565,6 +565,44 @@ func _enter_instance(pid: int, tmpl: String, tier: int) -> void:
 	var key := _ensure_instance(tmpl, owner, tier)
 	_relocate(f, _session[pid], key, World.spawn_for(tmpl))
 
+# ---- Builder Mode P1: enter your PRIVATE Locker Room. Keyed per-CHARACTER (char_id) — NOT party/fid — so the
+# room + its layout are yours alone and persist across sessions (the world is ephemeral, the placed items live in
+# the DB). Gated on locker_unlocked, server-authoritative (_check_portals also gates before calling this). On entry
+# we load the character's PLACED build items ONCE and cache them on the instance as snapshot `decals`; the 30 Hz
+# broadcast reads the cache and never re-queries. Empty until P2's build_buy/place populates rows. ----
+func _enter_locker_room(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	if not bool(s.get("locker_unlocked", false)):
+		return                                        # don't own it → the pad is inert (P3 offers the purchase)
+	var f = _find(s["fid"])
+	if f == null:
+		return
+	var key := _ensure_instance(World.LOCKER, str(s["char_id"]), 1)   # per-character; tier is unused (always 1)
+	_relocate(f, s, key, World.spawn_for(World.LOCKER))
+	var rows = await supa.get_placed_build_items_as(s["access"], str(s["char_id"]))
+	var meta = _instances.get(key)                    # may be null if the peer left during the await (instance torn down)
+	if meta != null and rows is Array:                # rows == null → read failed; leave decals empty (room re-queries on re-entry)
+		meta["decals"] = _locker_decals(rows)
+
+# format placed build-item rows [{model, xform}] into render decals matching Client._render_decals' prop decals
+# ({kind:"prop", model, x,y,h,yaw,oy}). A row whose xform isn't a dict is skipped (defensive — placed rows carry one).
+func _locker_decals(rows: Array) -> Array:
+	var out := []
+	for r in rows:
+		var xf = (r as Dictionary).get("xform", null)
+		if not (xf is Dictionary):
+			continue
+		# _safe_num on every read too (defense in depth): a junk row (e.g. a null-coord xform from an old client
+		# or an admin insert) renders at a safe default instead of throwing and blanking the whole room.
+		# `id` is included so the OWNER's client can map a placed prop back to its inventory row for move/remove
+		# (P3b); Client._render_decals ignores the extra key, and the locker is private so only the owner sees it.
+		out.append({"kind": "prop", "id": str((r as Dictionary).get("id", "")), "model": str((r as Dictionary).get("model", "")),
+			"x": _safe_num(xf.get("x"), 0.0), "y": _safe_num(xf.get("y"), 0.0), "h": _safe_num(xf.get("h"), 2.0),
+			"yaw": _safe_num(xf.get("yaw"), 0.0), "oy": _safe_num(xf.get("oy"), 0.0)})
+	return out
+
 # tear down an instance world once no players remain in it: remove its mobs (cleaning their id-keyed dicts)
 # and drop the world + meta. Called whenever a player leaves an instance (portal out, death-relocate, disconnect).
 func _maybe_teardown_instance(key: String) -> void:
@@ -762,6 +800,262 @@ func _do_equip_cosmetic(pid: int, dye_id: String) -> void:
 	if net != null:
 		net.recv_cosmetics_changed.rpc_id(pid, (s["cos_owned"] as Array).duplicate(), dye_id)
 
+# ---- Builder Mode + the Locker Room (P0 foundation) ---------------------------------------------------------
+# A one-time 10,000-credit unlock buys a player their private Locker Room (the instanced zone + Home-Base portal
+# land in P1). Build items are a new inventory CATEGORY (furniture/props) bought with credits from a Home-Base
+# Build Shop pad (build_buy + placement RPCs land in P2/P3). Everything is server-authoritative: credits + item
+# grants are server-owned, the unlock is atomic + idempotent + rate-limited + serialized, and hard caps bound
+# how much a character can own — which in turn bounds what a Locker Room costs to store + send. No shared/ changes.
+const LOCKER_UNLOCK_COST := 10000            # one-time credits to buy access to your Locker Room (§3d, locked)
+const BUILD_OWNED_CAP := 50                  # hard cap: total build items a character may own (Build tab + placed)
+const BUILD_PER_MODEL_CAP := 20              # anti-hoard: max copies of ONE model (raise toward the owned cap to disable)
+# placement bounds (P2): the server NEVER trusts client-sent coords — it clamps every placement into the room.
+# = GameData.ARENA_PAD (the walkable margin) so you can only place where you can WALK — no placing in the
+# non-walkable strip outside the room's lighter-green floor (playtest ask).
+const LOCKER_WALL_MARGIN := 50.0             # matches GameData.ARENA_PAD (fighter movement clamp in Geom.clamp_arena)
+const BUILD_H_MIN := 0.4                      # placement scale (height) clamp — catalog props are ~0.8..4 tall
+const BUILD_H_MAX := 15.0                     # headroom to size buildings up to a believable scale vs the ~2-unit player
+const BUILD_OY_MIN := -1.0                    # vertical-lift (stacking) clamp — can't sink far through the floor
+const BUILD_OY_MAX := 8.0
+# starter price catalog (§3d) — model id → tier; one central constant, trivial to retune. Every model here is a
+# real prop the client already renders (a subset of Client.DECO_PROPS → models/kits/*), so P1/P3 draw them for free.
+const BUILD_TIER_PRICE := {"small": 250, "medium": 600, "tree": 1000, "prop": 1500, "large": 4000}
+const BUILD_CATALOG := {
+	# Small (250) — note: 'cone' from §3d is excluded; it's a special primitive decal kind, not a prop GLB
+	"flower_redA": "small", "flower_yellowB": "small", "plant_bush": "small",
+	"grass_large": "small", "log_stack": "small",
+	# Medium (600)
+	"rock_largeA": "medium", "rock_largeC": "medium", "rock_largeE": "medium", "rock_tallC": "medium",
+	"stone_largeB": "medium", "plant_bushLarge": "medium", "fence_simple": "medium", "fence_planks": "medium",
+	"fence_corner": "medium",
+	# Trees (1,000)
+	"tree_oak": "tree", "tree_default": "tree", "tree_thin": "tree", "tree_pineRoundC": "tree",
+	"tree_palmDetailedTall": "tree",
+	# Props (1,500)
+	"bag": "prop", "barrier": "prop", "rack": "prop", "chimney-small": "prop", "chimney-medium": "prop",
+	"chimney-large": "prop", "detail-tank": "prop",
+	# Large (4,000)
+	"building-a": "large", "building-c": "large", "building-e": "large", "building-h": "large",
+	"building-k": "large", "building-n": "large", "building-q": "large", "building-t": "large", "stadium": "large",
+}
+
+# price of a build model in credits, or -1 if it isn't a catalog model (an unknown/forged id can never be bought).
+func _build_price(model: String) -> int:
+	var tier := str(BUILD_CATALOG.get(model, ""))
+	return int(BUILD_TIER_PRICE.get(tier, -1)) if tier != "" else -1
+
+# the build catalog as a pushable list [{model, tier, price}] — for the recv_build_info push + Build Shop UI (P3).
+func _build_catalog() -> Array:
+	var out := []
+	for m in BUILD_CATALOG:
+		out.append({"model": m, "tier": str(BUILD_CATALOG[m]), "price": _build_price(m)})
+	return out
+
+# cap gate: may this character own one MORE of `model`? Both counts are SERVER-fetched live totals (never client-
+# supplied). The 50 total cap bounds stockpile + render (placed ⊆ owned); the 20 per-model cap stops a hoard of one
+# prop. build_buy (P2) fetches the counts under its serialized lock and calls this BEFORE granting. Fails closed on
+# a negative count (a failed DB fetch → deny rather than grant unbounded).
+func _build_within_caps(owned: int, model_owned: int) -> bool:
+	return owned >= 0 and model_owned >= 0 and owned < BUILD_OWNED_CAP and model_owned < BUILD_PER_MODEL_CAP
+
+# The 10,000-credit Locker-Room unlock. Its OWN dupe-safe lock (set BEFORE the await); deduct-before-write +
+# refund-on-fail; the flag flip itself is atomic + idempotent in the DB (a gated false→true PATCH). Structurally
+# identical to _do_buy_cosmetic — a proven, already-reviewed spend path. locker_unlocked is written ONLY here (via
+# the gated PATCH), never by _save_one, so no stale session save can ever revert it (monotonic false→true).
+var _locker_busy := {}                            # pid -> an unlock op is in flight
+var _locker_next := {}                            # pid -> earliest next unlock op (ms)
+
+func _locker_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_locker_busy.get(pid, false)) or now < int(_locker_next.get(pid, 0)):
+		return false
+	_locker_busy[pid] = true
+	_locker_next[pid] = now + 300
+	return true
+
+func buy_locker_room(pid: int) -> void:
+	if not _locker_lock(pid):
+		return
+	await _do_buy_locker_room(pid)
+	_locker_busy.erase(pid)
+
+func _do_buy_locker_room(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	if bool(s.get("locker_unlocked", false)):
+		return                                        # already owned — no charge, no-op (also blocks a re-buy)
+	if int(s.get("credits", 0)) < LOCKER_UNLOCK_COST:
+		return                                        # server-authoritative affordability check
+	s["credits"] = int(s["credits"]) - LOCKER_UNLOCK_COST   # deduct up front; refund if the flip fails
+	var ok: bool = await supa.locker_unlock_as(str(s["char_id"]))   # atomic false→true; true ONLY if WE flipped it
+	if not ok:                                        # already unlocked (another session) / write failed → refund + persist
+		s["credits"] = int(s["credits"]) + LOCKER_UNLOCK_COST
+		_save_one(s, _find(s["fid"]))
+		return
+	if _session.has(pid):
+		s["locker_unlocked"] = true
+	_save_one(s, _find(s["fid"]))                     # persist the credit spend (paid even if the peer left mid-buy)
+	print("[zone] %s unlocked their Locker Room (−%d cr) — credits→%d" % [s.get("name", "?"), LOCKER_UNLOCK_COST, int(s["credits"])])
+	# No client push in P0: the deducted credits reach the client via the next per-tick snapshot (pinfo.credits,
+	# already broadcast). The client-facing confirmation + Home-Base portal state land in P1/P3 (which read
+	# locker_unlocked from the snapshot / a dedicated recv). buy_locker_room is the P0 RPC surface.
+
+# ---- Builder Mode P2: buy build items + place / move / remove them in your Locker Room. All server-authoritative:
+# the server owns credits + item grants + placement (clients send only intents). ONE serialized + rate-limited lock
+# for all four (per-character mutations that must not interleave across their DB awaits). build_buy enforces the
+# 50 / 20 caps by fetching the live owned counts UNDER the lock and gating BEFORE the insert; place/move/remove are
+# gated atomic PATCHes scoped by character_id (dupe-safe — a duplicate/concurrent op matches nothing, and you can't
+# touch gear or another character's items). Every mutation refreshes the instance's cached decals (so the room
+# re-renders on the next snapshot) and echoes recv_inventory_changed (so the Build tab refreshes). Remove flips
+# placed=false (returns the SAME item to the Build tab — no refund, no dupe). ----
+var _build_busy := {}                             # pid -> a build op is in flight
+var _build_next := {}                             # pid -> earliest next build op (ms)
+
+func _build_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_build_busy.get(pid, false)) or now < int(_build_next.get(pid, 0)):
+		return false
+	_build_busy[pid] = true
+	_build_next[pid] = now + 250
+	return true
+
+# safe numeric coercion for a CLIENT-supplied value: accept ONLY an actual finite number — anything else (null,
+# Array, Dict, Vector2, String, bool, NaN, Inf) → the default. Required because float() THROWS on a non-numeric
+# Variant and clampf/wrapf pass NaN/Inf straight through (a NaN would persist as JSON null and break the render).
+func _safe_num(v, def: float) -> float:
+	if v is float or v is int:
+		var f := float(v)
+		return f if is_finite(f) else def
+	return def
+
+# sanitize a CLIENT-supplied placement transform — never trust its coords. Clamp x/y inside the room walls, the
+# scale (h) and lift (oy) to sane ranges, and wrap yaw. Every field goes through _safe_num first (untrusted input),
+# so a missing/NaN/Inf/non-numeric value can't crash the handler or persist junk. Returns ONLY the transform keys.
+func _clamp_locker_xform(xform) -> Dictionary:
+	var xf: Dictionary = xform if xform is Dictionary else {}
+	var c := World.cfg(World.LOCKER)
+	var w := float(c.get("w", 700))
+	var h := float(c.get("h", 460))
+	return {
+		"x": clampf(_safe_num(xf.get("x"), w * 0.5), LOCKER_WALL_MARGIN, w - LOCKER_WALL_MARGIN),
+		"y": clampf(_safe_num(xf.get("y"), h * 0.5), LOCKER_WALL_MARGIN, h - LOCKER_WALL_MARGIN),
+		"h": clampf(_safe_num(xf.get("h"), 2.0), BUILD_H_MIN, BUILD_H_MAX),
+		"oy": clampf(_safe_num(xf.get("oy"), 0.0), BUILD_OY_MIN, BUILD_OY_MAX),
+		"yaw": wrapf(_safe_num(xf.get("yaw"), 0.0), -PI, PI),
+	}
+
+# is the player standing in THEIR OWN Locker Room right now? place/move/remove only make sense there, and the
+# instance's owner segment == their char_id — so this also proves they can only ever edit their own room.
+func _in_own_locker(pid: int) -> bool:
+	if not _session.has(pid):
+		return false
+	var key: String = str(_session[pid]["map"])
+	if _template(key) != World.LOCKER:
+		return false
+	var meta = _instances.get(key)
+	return meta != null and str((meta as Dictionary).get("owner", "")) == str(_session[pid]["char_id"])
+
+# re-query the character's placed items → rebuild the instance's cached decals (so the room re-renders next
+# snapshot). Cheap (≤ BUILD_OWNED_CAP rows) and only on a deliberate place/move/remove, never per frame.
+func _refresh_locker_decals(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var key: String = str(_session[pid]["map"])
+	if _template(key) != World.LOCKER:
+		return
+	var rows = await supa.get_placed_build_items_as(_session[pid]["access"], str(_session[pid]["char_id"]))
+	var meta = _instances.get(key)                    # re-check after the await (the instance may have torn down)
+	if meta != null and rows is Array:                # rows == null → transient read error; KEEP the prior cache (don't blank the room)
+		meta["decals"] = _locker_decals(rows)
+
+func build_buy(pid: int, model: String) -> void:
+	if not _build_lock(pid):
+		return
+	await _do_build_buy(pid, model)
+	_build_busy.erase(pid)
+
+func _do_build_buy(pid: int, model: String) -> void:
+	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+		return                                        # the Build Shop pad is in the home base (like the shop/forge)
+	var price := _build_price(model)
+	if price < 0:
+		return                                        # not a catalog model — an unknown/forged id can never be bought
+	var s = _session[pid]
+	if int(s.get("credits", 0)) < price:
+		return
+	var models = await supa.build_owned_models_as(str(s["char_id"]))   # live counts UNDER the lock; null → fail closed
+	if not _session.has(pid) or models == null:
+		return
+	var owned := (models as Array).size()
+	var model_owned := 0
+	for mm in (models as Array):
+		if str(mm) == model:
+			model_owned += 1
+	if not _build_within_caps(owned, model_owned):
+		return                                        # at the 50 total or 20 per-model cap → no-op
+	s["credits"] = int(s["credits"]) - price          # deduct up front; refund if the insert fails
+	var r = await supa.add_build_item_as(str(s["char_id"]), model)
+	if not r.get("ok"):
+		s["credits"] = int(s["credits"]) + price      # refund + persist (paid even if the peer left mid-buy)
+		_save_one(s, _find(s["fid"]))
+		return
+	_save_one(s, _find(s["fid"]))                     # persist the credit spend
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+	print("[zone] %s bought build item '%s' (−%d cr)" % [s.get("name", "?"), model, price])
+
+func build_place(pid: int, item_id: String, xform: Dictionary) -> void:
+	if not _build_lock(pid):
+		return
+	await _do_build_place(pid, item_id, xform)
+	_build_busy.erase(pid)
+
+func _do_build_place(pid: int, item_id: String, xform) -> void:
+	if not _in_own_locker(pid) or not _is_uuid(item_id):
+		return
+	var s = _session[pid]
+	var r = await supa.build_place_as(str(s["char_id"]), item_id, _clamp_locker_xform(xform))
+	if not r.get("ok"):
+		return                                        # not yours / already placed / not a build item → no-op
+	await _refresh_locker_decals(pid)
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
+func build_move(pid: int, item_id: String, xform: Dictionary) -> void:
+	if not _build_lock(pid):
+		return
+	await _do_build_move(pid, item_id, xform)
+	_build_busy.erase(pid)
+
+func _do_build_move(pid: int, item_id: String, xform) -> void:
+	if not _in_own_locker(pid) or not _is_uuid(item_id):
+		return
+	var s = _session[pid]
+	var r = await supa.build_move_as(str(s["char_id"]), item_id, _clamp_locker_xform(xform))
+	if not r.get("ok"):
+		return
+	await _refresh_locker_decals(pid)
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
+func build_remove(pid: int, item_id: String) -> void:
+	if not _build_lock(pid):
+		return
+	await _do_build_remove(pid, item_id)
+	_build_busy.erase(pid)
+
+func _do_build_remove(pid: int, item_id: String) -> void:
+	if not _in_own_locker(pid) or not _is_uuid(item_id):
+		return
+	var s = _session[pid]
+	var r = await supa.build_remove_as(str(s["char_id"]), item_id)
+	if not r.get("ok"):
+		return                                        # not placed / not yours → no-op
+	await _refresh_locker_decals(pid)
+	if net != null and _session.has(pid):
+		net.recv_inventory_changed.rpc_id(pid)
+
 # ---- Two-Minute Drill (P5): instanced endless wave survival → a leaderboard score ----
 # enter a fresh SOLO drill (owner = fid so scores are individual). Called from _check_portals (auto entry).
 func _enter_drill(pid: int) -> void:
@@ -906,8 +1200,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
-	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)):
-		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy owns its OWN terminal
+	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)) and not bool(_locker_busy.get(pid, false)) and not bool(_build_busy.get(pid, false)):
+		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy / locker-unlock / build-buy owns its OWN terminal
 												 # its OWN terminal save; saving here too would race that credit
 												 # write (a stale absolute write could clobber it). Skip it.
 	_release_residents_of(pid)                   # RP2: release any recruited companions back to their director
@@ -953,6 +1247,10 @@ func _on_peer_disconnected(pid: int) -> void:
 	_key_next.erase(pid)
 	_cos_busy.erase(pid)
 	_cos_next.erase(pid)
+	_locker_busy.erase(pid)
+	_locker_next.erase(pid)
+	_build_busy.erase(pid)
+	_build_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
 func authenticate(pid: int, access: String, _refresh: String = "") -> void:
@@ -979,7 +1277,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"name": str(ch.get("name", "?")), "xp": maxi(0, int(ch.get("xp", 0))), "level": lvl,
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": maxi(0, int(ch.get("credits", 0))),
 		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {},
-		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": ""}
+		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": "",
+		"locker_unlocked": bool(ch.get("locker_unlocked", false))}
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -987,6 +1286,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	net.assign_fighter.rpc_id(pid, fid)
 	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE})
 	net.recv_vendor_info.rpc_id(pid, {"catalog": _token_catalog()})   # the Practice Vendor (Rookie Camp set)
+	net.recv_build_info.rpc_id(pid, {"catalog": _build_catalog(), "unlock_cost": LOCKER_UNLOCK_COST,
+		"owned_cap": BUILD_OWNED_CAP, "model_cap": BUILD_PER_MODEL_CAP})   # Builder Mode: Build Shop catalog + caps (P3)
 	var mr = await supa.get_mats_as(access)           # load the player's salvage materials into the session
 	if _session.has(pid):
 		_session[pid]["scrap"] = int(mr.get("scrap", 0))
@@ -1054,7 +1355,12 @@ func _spawn_player(ch, level: int) -> String:
 	if not GameData.CLASSES.has(cls) or GameData.is_mob(cls):   # never let a mob id spawn as a player (HUD reads c["role"])
 		cls = "striker"
 	var map: String = str(ch.get("last_map", World.HOME))
-	if not _worlds.has(map):                       # stale/unknown map (e.g. the DB default 'stadium') → home
+	# never spawn straight into an instance from a restored last_map. last_map is a CLIENT-WRITABLE position column,
+	# so a tampered value like "locker_room#<other>#1" or "camp#<owner>#5" would drop you into a LIVE private/gated
+	# instance world — bypassing the locker_unlocked / Intensity gates AND another character's isolation (and the
+	# GATE RE-VALIDATION below can't catch it: instance portals use `instance:` not `to`/`gate`, so gate_for_map="").
+	# Instances are re-entered ONLY via their gated portal/RPC. Mirrors _save_one, which maps instances→HOME on write.
+	if not _worlds.has(map) or _is_instance(map):  # stale/unknown map (e.g. the DB default 'stadium') OR any instance key → home
 		map = World.HOME
 	var c := World.cfg(map)
 	var pos: Vector2 = World.spawn_for(map)        # safe maps (hubs) always spawn at the fixed point
@@ -2135,6 +2441,11 @@ func _check_portals() -> void:
 						_enter_drill(pid)
 						_tp_next[f["id"]] = now + TP_GRACE_MS
 						break
+					if str(portal["instance"]) == World.LOCKER:   # Builder Mode: walk-on entry, gated on locker_unlocked
+						if bool(s.get("locker_unlocked", false)):
+							_enter_locker_room(pid)
+							_tp_next[f["id"]] = now + TP_GRACE_MS
+						break                          # locked → inert (no teleport); P3 offers the purchase on proximity
 					continue                          # Camp: walking onto the pad only opens the client selector.
 				if portal.has("gate") and not _portal_unlocked(pid, str(portal["gate"])):
 					continue                          # gated + locked (e.g. the secret boss) — no teleport (it's also hidden in the snapshot)
@@ -3114,16 +3425,24 @@ func _broadcast() -> void:
 		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
 		if _is_instance(str(s["map"])) and str((_instances.get(str(s["map"]), {}) as Dictionary).get("mode", "")) == "drill":
 			snap["drillWave"] = int((_instances[str(s["map"])] as Dictionary).get("wave", 0))   # Two-Minute Drill HUD counter
+		if _template(str(s["map"])) == World.LOCKER:  # Builder Mode: the owner's placed build items → server decals (client _render_decals prefers these)
+			snap["decals"] = (_instances.get(str(s["map"]), {}) as Dictionary).get("decals", [])
 		if str(s["map"]) == World.HOME:           # the shop / forge pads + quest giver only exist in the home base
 			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
 			snap["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}
 			snap["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
 			snap["practice"] = {"x": World.PRACTICE_POS.x, "y": World.PRACTICE_POS.y}   # the Practice Vendor (reward loop)
+			snap["build_shop"] = {"x": World.BUILD_SHOP_POS.x, "y": World.BUILD_SHOP_POS.y}   # Builder Mode: buy furniture (P3)
+			for lp in World.PORTALS.get(World.HOME, []):   # the Locker Room portal position → client's "Purchase (10,000)" prompt when not yet unlocked
+				if str(lp.get("instance", "")) == World.LOCKER:
+					snap["locker_portal"] = {"x": lp["x"], "y": lp["y"]}
+					break
 		# self stat block for the character sheet (P3) — only the recipient's own APPLIED (capped, post-
 		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
 		snap["self"] = {
 			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
 			"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
+			"locker_unlocked": bool(s.get("locker_unlocked", false)),   # Builder Mode: drives the Home portal "Purchase (10,000)" vs "Enter" state (P3)
 			"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
 			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 			"procs": (s.get("procs", []) as Array).duplicate(),

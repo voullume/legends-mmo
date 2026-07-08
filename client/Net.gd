@@ -179,6 +179,12 @@ func recv_shop_info(info: Dictionary) -> void:
 	if client != null:
 		client.recv_shop_info(info)
 
+# Builder Mode (P3): the Build Shop catalog + caps + unlock cost, pushed on auth (like recv_shop_info)
+@rpc("authority", "call_remote", "reliable")
+func recv_build_info(info: Dictionary) -> void:
+	if client != null:
+		client.recv_build_info(info)
+
 # ---- Camp Circuit (endgame): enter at a chosen Intensity; server notifies on a clear (unlock + reward) ----
 @rpc("any_peer", "call_remote", "reliable")
 func enter_camp(intensity: int) -> void:
@@ -216,6 +222,37 @@ func equip_cosmetic(dye_id: String) -> void:
 func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 	if client != null:
 		client.recv_cosmetics_changed(owned, equipped)
+
+# ---- Builder Mode (P0): buy the one-time Locker-Room unlock. Server re-validates credits + flips atomically;
+# it owns credits + the flag (client sends only the intent). The Home-Base portal that triggers this + the
+# unlock confirmation land in P1/P3 (credits reflect via the per-tick snapshot until then). ----
+@rpc("any_peer", "call_remote", "reliable")
+func buy_locker_room() -> void:
+	if server != null:
+		server.buy_locker_room(multiplayer.get_remote_sender_id())
+
+# ---- Builder Mode (P2): buy a build item (Home Build Shop pad) + place / move / remove it in your Locker Room.
+# Server re-validates location/ownership/caps/credits and clamps placement — clients send only intents. Grants +
+# placement echo via the existing recv_inventory_changed; the room re-renders from the server's snapshot decals. ----
+@rpc("any_peer", "call_remote", "reliable")
+func build_buy(model: String) -> void:
+	if server != null:
+		server.build_buy(multiplayer.get_remote_sender_id(), model)
+
+@rpc("any_peer", "call_remote", "reliable")
+func build_place(item_id: String, xform: Dictionary) -> void:
+	if server != null:
+		server.build_place(multiplayer.get_remote_sender_id(), item_id, xform)
+
+@rpc("any_peer", "call_remote", "reliable")
+func build_move(item_id: String, xform: Dictionary) -> void:
+	if server != null:
+		server.build_move(multiplayer.get_remote_sender_id(), item_id, xform)
+
+@rpc("any_peer", "call_remote", "reliable")
+func build_remove(item_id: String) -> void:
+	if server != null:
+		server.build_remove(multiplayer.get_remote_sender_id(), item_id)
 
 # ---- leaderboards + Two-Minute Drill (P5) ----
 @rpc("any_peer", "call_remote", "reliable")
