@@ -289,6 +289,9 @@ const PROP_FOOTPRINT := {
 	"plant_bush": 6.0, "plant_bushLarge": 8.0,
 	"chimney-small": 3.5, "chimney-medium": 3.5, "chimney-large": 4.0, "detail-tank": 5.0,
 	"bag": 9.0, "barrier": 9.0, "rack": 9.0, "log_stack": 7.0,
+	# admin-only Meshy landmarks (see client DECO_PROPS). quest_board is a THIN board → footprint sized to its
+	# depth (not width) so players can walk up to its face; the others are solid boxy structures.
+	"gear_forge": 9.5, "sideline_stand": 8.0, "power_core": 7.5, "quest_board": 2.8,
 }
 const DECAL_COLLIDE_MIN_R := 4.0
 const DECAL_COLLIDE_MAX_R := 130.0

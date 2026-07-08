@@ -356,7 +356,11 @@ func _make_character(f: Dictionary) -> Dictionary:
 		if not rk.is_empty():
 			return rk
 		return _capsule_kit(str(def.get("color", "#cccccc")))
-	if def.get("isCore", false):                              # power core — a procedural glowing crystal (no GLB)
+	if def.get("isCore", false):                              # power core — real GLB if present, else procedural crystal
+		if def.has("model") and ResourceLoader.exists("res://models/meshy/mobs/%s.glb" % str(def.get("model", ""))):
+			var ck := _make_mob_character(f, def)             # loads the GLB + keeps the "core" float/spin/pulse (def.anim)
+			if not ck.is_empty():
+				return ck
 		return _make_core_kit(def)
 	if def.get("mob", false) and def.has("model"):
 		var mk := _make_mob_character(f, def)
@@ -648,6 +652,7 @@ const DECO_PROPS := [
 	"building-a", "building-c", "building-e", "building-h", "building-k", "building-n", "building-q", "building-t",
 	"chimney-small", "chimney-medium", "chimney-large", "detail-tank",
 	"bag", "barrier", "rack", "stadium",
+	"gear_forge", "quest_board", "sideline_stand", "power_core",   # admin-only Meshy landmarks (not in BUILD_CATALOG)
 ]
 
 # decal source for a map, priority: live editor working copy → data/decals/<map>.json → World.DECALS const.
