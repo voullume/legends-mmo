@@ -3169,6 +3169,12 @@ func _build_item_tile(it: Dictionary) -> Button:
 func _locker_build_available() -> bool:
 	return str(_state.get("map", "")) == World.LOCKER and _locker_unlocked()
 
+# the WORLD/map decorator (F4 outside your Locker Room) is GAME-MASTER ONLY on the live server (recv_admin, gated
+# by the service-role admins table). Non-admins pressing F4 in the world get nothing; their Locker Room build
+# editor still works (that's _locker_build_available, above). Overrides Client._world_build_allowed().
+func _world_build_allowed() -> bool:
+	return _is_admin
+
 func _locker_build_toggle() -> void:
 	if _lb_on:
 		_lb_set_on(false)

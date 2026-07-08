@@ -721,8 +721,8 @@ func _input(e: InputEvent) -> void:
 			# overrides the two hooks to route F4 (and its own editor input, via _extra_input) into the locker editor.
 			if _locker_build_available():
 				_locker_build_toggle()
-			else:
-				_toggle_deco()
+			elif _world_build_allowed():
+				_toggle_deco()                          # the world/map decorator — GATED to admins on the live server
 			get_viewport().set_input_as_handled()
 			return
 		if _extra_input(e):                             # subclass input hook (the Locker Room build editor when active)
@@ -742,6 +742,10 @@ func _locker_build_toggle() -> void:
 	pass
 func _extra_input(_e: InputEvent) -> bool:
 	return false
+# may this client use the WORLD/map decorator (F4 outside your Locker Room)? The base is the local single-player
+# sandbox (map authoring is the whole point) → yes. NetClient overrides it to admin-only on the live server.
+func _world_build_allowed() -> bool:
+	return true
 
 func _deco_input(e: InputEvent) -> bool:
 	if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:

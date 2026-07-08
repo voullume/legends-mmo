@@ -31,7 +31,7 @@ static func is_instance_template(map: String) -> bool:
 	return INSTANCE_MAPS.has(map)
 
 # Spawn / arrival points per world (the fixed login spawn for safe maps; the portal drop-point for the rest).
-const HOME_SPAWN := Vector2(480, 300)        # players appear / return here in the home base
+const HOME_SPAWN := Vector2(900, 780)        # players appear / return in the plaza (south of the fountain centerpiece)
 const GY1_SPAWN := Vector2(200, 425)         # the Home→Glitchyard portal drops you here (west, clear of camps)
 const GY2_SPAWN := Vector2(200, 450)
 const GY3_SPAWN := Vector2(220, 490)
@@ -50,7 +50,7 @@ const LOCKER_SPAWN := Vector2(350, 380)      # Locker Room: arrive lower-center,
 # (true for the Arena — free-for-all); spawn = login/arrival point. The Glitchyard zones grow in size
 # along the gradient so later zones have more room for their tougher, cover-heavy fights.
 const MAPS := {
-	HOME:  {"type": "safe",   "w": 960,  "h": 540,  "regen": 0.12,  "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": HOME_SPAWN},
+	HOME:  {"type": "safe",   "w": 1800, "h": 1200, "regen": 0.12,  "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": HOME_SPAWN},
 	GY1:   {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY1_SPAWN},
 	GY2:   {"type": "combat", "w": 1650, "h": 900,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY2_SPAWN},
 	GY3:   {"type": "combat", "w": 1800, "h": 980,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": GY3_SPAWN},
@@ -67,18 +67,18 @@ const MAPS := {
 	LOCKER: {"type": "safe", "w": 700, "h": 460, "regen": 0.12, "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": LOCKER_SPAWN},
 }
 
-const DUMMY_POS := Vector2(660, 300)         # the training dummy (home only)
+const DUMMY_POS := Vector2(1240, 790)         # the training dummy (home only)
 const DUMMY_CLASS := "linebacker"            # a tanky punching bag
 const PORTAL_RADIUS := 42.0                  # stepping this close to a pad teleports you
-const SHOP_POS := Vector2(700, 145)          # the shop pad (home base only) — stand near it to open the shop
+const SHOP_POS := Vector2(1240, 420)          # the shop pad (home base only) — stand near it to open the shop
 const SHOP_RADIUS := 80.0
-const FORGE_POS := Vector2(445, 125)         # the forge pad (home base only) — upgrade/salvage gear here
+const FORGE_POS := Vector2(560, 600)         # the forge pad (home base only) — upgrade/salvage gear here
 const FORGE_RADIUS := 80.0
-const QUESTGIVER_POS := Vector2(175, 140)    # the quest giver (home base only) — stand near it to accept/turn in quests
+const QUESTGIVER_POS := Vector2(560, 420)    # the quest giver (home base only) — stand near it to accept/turn in quests
 const QUESTGIVER_RADIUS := 80.0
-const PRACTICE_POS := Vector2(150, 310)      # the Practice Vendor (home base only) — spend Practice Tokens on the Rookie Camp set
+const PRACTICE_POS := Vector2(560, 790)      # the Practice Vendor (home base only) — spend Practice Tokens on the Rookie Camp set
 const PRACTICE_RADIUS := 80.0
-const BUILD_SHOP_POS := Vector2(800, 225)    # Builder Mode: the Build Shop pad (home base only) — buy furniture/props (right column, above the Locker portal)
+const BUILD_SHOP_POS := Vector2(1240, 600)    # Builder Mode: the Build Shop pad (home base only) — buy furniture/props (right column, above the Locker portal)
 const BUILD_SHOP_RADIUS := 80.0
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
@@ -87,18 +87,21 @@ const BUILD_SHOP_RADIUS := 80.0
 # clear of its forward pad (> PORTAL_RADIUS) so you don't instantly bounce back.
 const PORTALS := {
 	HOME: [
-		{"x": 300.0,  "y": 380.0, "to": GY1,   "tx": 200.0,  "ty": 425.0, "label": "▶ Glitchyard"},
-		{"x": 770.0,  "y": 475.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
+		# Founders Commons town hub (1800×1200): a central fountain plaza (spawn), vendors flanking W/E, adventure
+		# gates along the NORTH edge, and Arena + Locker Room anchoring the SOUTH. Adventure gates (north):
+		{"x": 600.0,  "y": 200.0, "to": GY1,   "tx": 200.0,  "ty": 425.0, "label": "▶ Glitchyard"},
 		# INSTANCE entry: no static `to` — the server spins up (or rejoins) the player's private Camp instance.
-		{"x": 510.0,  "y": 475.0, "instance": CAMP, "label": "▶ Camp Circuit"},
+		{"x": 900.0,  "y": 200.0, "instance": CAMP, "label": "▶ Camp Circuit"},
 		# walk-on instance entry (`auto`) → drop straight into a fresh Two-Minute Drill (no tier selection)
-		{"x": 215.0,  "y": 475.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
+		{"x": 1180.0, "y": 200.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
+		# south anchors: the PvP Arena (fronting a stadium) + your private Locker Room (fronting a house).
+		{"x": 720.0,  "y": 1040.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
 		# Builder Mode: walk on to enter your PRIVATE Locker Room. Per-CHARACTER instance (keyed by char_id). The
 		# server gates entry on locker_unlocked — the pad is inert (and P3 shows "Purchase (10,000)") until you own it.
-		{"x": 800.0,  "y": 385.0, "instance": LOCKER, "auto": true, "label": "▶ Locker Room"},
+		{"x": 1080.0, "y": 1040.0, "instance": LOCKER, "auto": true, "label": "▶ Locker Room"},
 	],
 	GY1: [
-		{"x": 120.0,  "y": 425.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
+		{"x": 120.0,  "y": 425.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "▶ Home Base"},
 		{"x": 1420.0, "y": 425.0,  "to": GY2,  "tx": 200.0,  "ty": 450.0, "label": "▶ Agility Grid"},
 	],
 	GY2: [
@@ -134,19 +137,19 @@ const PORTALS := {
 		{"x": 80.0,   "y": 460.0,  "to": GY_BOSS, "tx": 980.0, "ty": 410.0, "label": "◀ Head Coach Arena"},
 	],
 	ARENA: [
-		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "▶ Home Base"},
+		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "▶ Home Base"},
 	],
 	# Camp instance exit (resolved by TEMPLATE — every "camp#<owner>" instance shares this exit back to home).
 	CAMP: [
-		{"x": 120.0,  "y": 420.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ Leave Camp"},
+		{"x": 120.0,  "y": 420.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ Leave Camp"},
 	],
 	# Drill exit (a west-corner bail — walking here ends the run; you also end by dying).
 	DRILL: [
-		{"x": 90.0,   "y": 400.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ End Drill"},
+		{"x": 90.0,   "y": 400.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ End Drill"},
 	],
 	# Locker Room exit (resolved by TEMPLATE — every "locker_room#<char>" instance shares this exit back to home).
 	LOCKER: [
-		{"x": 80.0,   "y": 380.0,  "to": HOME, "tx": 480.0,  "ty": 300.0, "label": "◀ Leave Locker Room"},
+		{"x": 80.0,   "y": 380.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ Leave Locker Room"},
 	],
 }
 
