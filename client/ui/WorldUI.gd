@@ -7,6 +7,8 @@ extends RefCounted
 
 # Label3D sizing (promoted from the magic numbers scattered through _spawn + the pad renderers)
 const PLATE_FONT := 56
+const PLATE_NAME := 46        # player character-name line (prominent, sits above the bar)
+const PLATE_LEVEL := 30       # player level line — deliberately small, tucked under the name
 const PLATE_PIXEL := 0.0016
 const PLATE_OUTLINE := 16
 const PAD_FONT := 52

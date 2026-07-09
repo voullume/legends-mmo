@@ -30,6 +30,7 @@ const SIM_DT := 1.0 / 30.0
 const BAR_W := 2.2
 const BAR_H := 0.26
 const UI_Y := 3.6
+const PLAYER_UI_Y := 4.6                      # players sit their plate higher than mobs (clear name + level + bar above the head)
 const DMG_NUM_Y := 4.4
 const HIT_Y := 1.7
 const SHAKE_MAX := 1.1                      # camera screen-shake cap (world units of jitter)
@@ -1173,8 +1174,9 @@ func _spawn(f: Dictionary) -> void:
 
 	var ui := Node3D.new()
 	var udef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
-	# lift the nameplate/scoreboard clear above tall mobs (e.g. the 4.6-tall boss) instead of overlapping them
-	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) + 0.8) if bool(udef.get("mob", false)) else UI_Y
+	# lift the nameplate/scoreboard clear above tall mobs (e.g. the 4.6-tall boss) instead of overlapping them;
+	# players sit higher (PLAYER_UI_Y) so their name + level + bar clear the character's head
+	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) + 0.8) if bool(udef.get("mob", false)) else PLAYER_UI_Y
 	holder.add_child(ui)
 	ui.add_child(_quad(BAR_W + 0.08, BAR_H + 0.08, Color(0, 0, 0, 0.6)))
 	var fill := _quad(BAR_W, BAR_H, Color(0.3, 0.85, 0.4))
@@ -1190,6 +1192,19 @@ func _spawn(f: Dictionary) -> void:
 	label.outline_modulate = WorldUI.OUTLINE_COLOR
 	label.position.y = BAR_H + 0.32
 	ui.add_child(label)
+
+	# a second, prominent line ABOVE the level line: the player's character name (hidden for mobs)
+	var nameLabel := Label3D.new()
+	nameLabel.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	nameLabel.no_depth_test = true
+	nameLabel.fixed_size = true
+	nameLabel.pixel_size = WorldUI.PLATE_PIXEL
+	nameLabel.font_size = WorldUI.PLATE_NAME
+	nameLabel.outline_size = WorldUI.PLATE_OUTLINE
+	nameLabel.outline_modulate = WorldUI.OUTLINE_COLOR
+	nameLabel.position.y = BAR_H + 0.92
+	nameLabel.visible = false
+	ui.add_child(nameLabel)
 
 	var aura = null                               # P3: a core-shielded boss gets a toggleable protective aura
 	if float(udef.get("coreShield", 0.0)) > 0.0:
@@ -1213,7 +1228,7 @@ func _spawn(f: Dictionary) -> void:
 		holder.add_child(aura)
 	_nodes[f["id"]] = {
 		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"], "mscale": msc,
-		"ui": ui, "fill": fill, "label": label, "aura": aura, "last": holder.position, "vel": Vector2.ZERO,
+		"ui": ui, "fill": fill, "label": label, "name": nameLabel, "aura": aura, "last": holder.position, "vel": Vector2.ZERO,
 		# pcds primed from the live cds: cooldowns already ticking when this fighter entered view are
 		# NOT fresh casts — an empty dict would phantom-fire every one of them as a cast tell.
 		"pcds": (f.get("cds", {}) as Dictionary).duplicate(),
@@ -2036,6 +2051,9 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	fill.position.x = -BAR_W / 2.0 * (1.0 - frac)
 	(fill.material_override as StandardMaterial3D).albedo_color = WorldUI.hp_color(frac)   # 3-stop ramp
 	var label: Label3D = n["label"]
+	var nameLabel: Label3D = n["name"]
+	nameLabel.visible = false                 # default: mobs have no name line; label carries their tier/level
+	label.font_size = WorldUI.PLATE_FONT      # default mob/plate size; players shrink it below
 	if f.get("dummy", false):
 		label.text = "Training Dummy"
 		label.modulate = WorldUI.DUMMY
@@ -2071,10 +2089,16 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	elif f.has("level"):
 		var lpf = _find_fighter(_player_id)
 		var hostile: bool = lpf != null and _hostile_pair(lpf, f)
-		var mark := "  ◆" if f.get("resident", false) else ""   # RP0: subtle AI-resident marker
-		label.text = (("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))) + mark
 		# hostile players stay red (a threat cue); friendly plates read in their class color for identity
-		label.modulate = WorldUI.HOSTILE if hostile else WorldUI.friendly_plate(_class_vfx_color(str(f["classId"])))
+		var plate_col: Color = WorldUI.HOSTILE if hostile else WorldUI.friendly_plate(_class_vfx_color(str(f["classId"])))
+		var nm := str(f.get("name", ""))
+		if nm != "":                              # character name on top (prominent), resident marker rides it
+			nameLabel.text = nm + ("  ◆" if f.get("resident", false) else "")
+			nameLabel.modulate = plate_col
+			nameLabel.visible = true
+		label.font_size = WorldUI.PLATE_LEVEL     # level line is deliberately small, tucked under the name
+		label.text = ("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))
+		label.modulate = plate_col
 	elif label.text != "":
 		label.text = ""
 	# P3: Wobble stacks (0..4 = Sim.WOBBLE_MAX) as pips → the stumble no longer "just happens" without warning.
