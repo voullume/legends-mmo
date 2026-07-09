@@ -71,6 +71,8 @@ var _sheet_panel: Control                    # character sheet (K) — computed 
 var _sheet_label: RichTextLabel
 var _sheet_sig := 0                          # sig-guard: `self` rides the change-detected META → skip the per-snapshot rebuild
 var _inv_items := []                          # last-loaded inventory cache (for hover tooltips)
+var _gear_count := 0                          # cached count of GEAR rows (category != 'build') → near-cap warning
+var _cap_seeded := false                      # one-time seed of _inv_items/_gear_count after login
 var _inv_grid: GridContainer                  # P7: the item-tile grid
 var _inv_paperdoll: GridContainer             # P7: the equipped-slots paperdoll
 var _inv_status: Label                        # P7: "N items" / loading / empty
@@ -1059,6 +1061,37 @@ func _toggle_inventory() -> void:
 			_render_inv_tiles()
 		_load_inventory()
 
+# gear count (category != 'build') + the near-cap warning. The 50-item cap is a DB trigger; this is the
+# heads-up so a player can sell before new loot silently stops dropping.
+func _recount_gear() -> void:
+	var n := 0
+	for it in _inv_items:
+		if str((it as Dictionary).get("category", "gear")) != "build":
+			n += 1
+	_gear_count = n
+	_update_cap_warning()
+
+func _update_cap_warning() -> void:
+	if _cap_warn == null:
+		return
+	if _gear_count >= 50:
+		_cap_warn.text = "⚠  INVENTORY FULL  ·  50 / 50\nnew gear won't drop — sell items to make room"
+		_cap_warn.visible = true
+	elif _gear_count >= 45:
+		_cap_warn.text = "⚠  BAG NEARLY FULL  ·  %d / 50\nsell items — new gear stops dropping at 50" % _gear_count
+		_cap_warn.visible = true
+	else:
+		_cap_warn.visible = false
+
+# one-time after login: fetch the inventory so _gear_count (and the instant-open cache) is right immediately
+func _seed_gear_count() -> void:
+	if supa == null:
+		return
+	var r = await supa.get_inventory()
+	if r.get("ok"):
+		_inv_items = r.get("items", [])
+		_recount_gear()
+
 func _load_inventory() -> void:
 	if supa == null or _inv_grid == null:
 		return
@@ -1085,6 +1118,7 @@ func _load_inventory() -> void:
 		_rebuild_paperdoll([])
 		return
 	_inv_items = r.get("items", [])               # cache for hover comparison tooltips
+	_recount_gear()                               # refresh the near-cap warning from the authoritative fetch
 	_rebuild_paperdoll(_inv_items)
 	_render_inv_tiles()
 	if _build_shop_panel != null and _build_shop_panel.visible:   # Build Shop open → refresh its "N/cap owned" count
@@ -2510,6 +2544,8 @@ func _load_forge() -> void:
 		_forge_status.text = "couldn't load inventory"
 		return
 	_forge_items = r.get("items", [])
+	_inv_items = _forge_items                      # salvage/craft happen HERE (inv panel closed) → keep the cache + near-cap count authoritative
+	_recount_gear()
 	_render_forge()
 
 func _render_forge() -> void:
@@ -2631,6 +2667,8 @@ func _load_shop_sell() -> void:
 		_shop_sell_status.text = "SELL — couldn't load inventory"
 		return
 	_sell_items = r.get("items", [])
+	_inv_items = _sell_items                       # sell/salvage happen HERE (inv panel closed) → keep the cache + near-cap count authoritative
+	_recount_gear()
 	var present := {}                             # drop any selection whose item is gone (sold elsewhere)
 	for it in _sell_items:
 		present[str(it.get("id", ""))] = true
@@ -3948,6 +3986,8 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 	_chat_log.text = "\n".join(_chat_lines)
 	_chat_idle = 0.0                              # new line → pop the log back up
 	_chat_log.modulate.a = 1.0
+	_gear_count += 1                              # a loot drop is always a gear add → track it live for the near-cap warning
+	_update_cap_warning()
 	if _inv_panel.visible:
 		_load_inventory()
 
@@ -4653,6 +4693,9 @@ func receive_snapshot(snap: Dictionary) -> void:
 		snap[k] = _meta[k]
 	_state = snap
 	_party = snap.get("party", [])
+	if not _cap_seeded and _player_id != "":             # one-time: seed the gear count for the near-cap warning
+		_cap_seeded = true
+		_seed_gear_count()
 	if _sheet_panel != null and _sheet_panel.visible:    # keep the character sheet live while it's open
 		_render_charsheet()
 	if _locker_panel != null and _locker_panel.visible:  # keep the locker's model + header + stats live

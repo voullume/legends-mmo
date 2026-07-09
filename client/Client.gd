@@ -32,7 +32,8 @@ const BAR_H := 0.26
 const UI_Y := 3.6
 const PLAYER_UI_Y := 4.6                      # players sit their plate higher than mobs (clear name + level + bar above the head)
 const PRED_SNAP := 70.0                       # local-prediction error (sim units) → hard-snap: dash/knockback/teleport/zone change
-const PRED_RECONCILE := 8.0                   # per-second rate the prediction is pulled back toward the authoritative server pos
+const PRED_RECONCILE := 8.0                   # per-second rate the prediction is pulled back toward the authoritative server pos while MOVING
+const PRED_RECONCILE_IDLE := 22.0             # faster convergence once stopped (past the hold) → any residual settles in a few frames, no lingering slide
 const PRED_HOLD := 0.14                       # after input releases, briefly freeze prediction so the (lagged) server catches up — kills the post-stop slide
 const DMG_NUM_Y := 4.4
 const HIT_Y := 1.7
@@ -195,6 +196,7 @@ var _tray: PanelContainer                  # ◈ credits · scrap · tokens (onl
 var _tray_credits: Label
 var _tray_scrap: Label
 var _tray_tokens: Label
+var _cap_warn: Label                       # big red near-cap inventory warning, under the currency tray (online only)
 var _zone_banner: PanelContainer
 var _zone_label: Label
 var _vit_cache := {}                       # last-set texts — skip re-shaping unchanged labels every frame
@@ -615,7 +617,8 @@ func _predict_local(f: Dictionary, dt: float) -> Vector3:
 	if err.length() > PRED_SNAP:
 		_pred = srv                                                # desync too large to smooth → snap to truth
 	elif moving or _pred_hold <= 0.0:
-		_pred += err * clampf(dt * PRED_RECONCILE, 0.0, 1.0)       # reconcile while moving / after the hold
+		var rate: float = PRED_RECONCILE if moving else PRED_RECONCILE_IDLE   # gentle while moving, snappy once settled
+		_pred += err * clampf(dt * rate, 0.0, 1.0)
 	# else: within the post-release hold → freeze so the avatar stops crisply while the server catches up
 	var pad := float(GameData.ARENA_PAD)                           # mirror Geom.clamp_arena bounds
 	_pred.x = clampf(_pred.x, pad, _aw() - pad)
@@ -1379,8 +1382,17 @@ func _render_world(delta: float) -> void:
 		var flip: float = PI if MESHY_FLIP else 0.0
 		var model: Node3D = n["model"]   # scale is constant (set at spawn) — idle stands tall, run crouches, blended
 		var tgt_yaw: float = model.rotation.y
-		if moving:
-			tgt_yaw = atan2(n["vel"].x, n["vel"].y) + flip
+		var face_moving := moving
+		var face_dir: Vector2 = n["vel"]
+		if f["id"] == _player_id and _prediction_enabled():
+			# LOCAL player: face live INPUT, not the predicted velocity — the post-stop reconcile nudges `vel`
+			# backward, which used to spin the avatar to face the camera on every stop. Input holds when idle.
+			var imx := float(_player.intent.get("mx", 0.0)) if _player != null else 0.0
+			var imy := float(_player.intent.get("my", 0.0)) if _player != null else 0.0
+			face_dir = Vector2(imx, imy)
+			face_moving = face_dir.length() > 0.05
+		if face_moving:
+			tgt_yaw = atan2(face_dir.x, face_dir.y) + flip
 		else:
 			var ed := _enemy_dir(f)
 			if ed != Vector2.ZERO:
@@ -2930,6 +2942,14 @@ func _build_vitals() -> void:
 	_tray_credits = _tray_label(th, Palette.CREDITS)
 	_tray_scrap = _tray_label(th, Palette.SCRAP)
 	_tray_tokens = _tray_label(th, Palette.TOKENS)
+	# near-cap inventory warning — big red text right under the currency tray (shown within 5 of the 50-item cap)
+	_cap_warn = Label.new()
+	_cap_warn.add_theme_font_size_override("font_size", 22)
+	_cap_warn.add_theme_color_override("font_color", Color(1.0, 0.28, 0.24))
+	_cap_warn.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_cap_warn.add_theme_constant_override("outline_size", 5)
+	_cap_warn.visible = false
+	_hud_left.add_child(_cap_warn)
 	# zone banner — a top-center chip (name + PvP state)
 	var zc := CenterContainer.new()
 	zc.set_anchors_preset(Control.PRESET_TOP_WIDE)
