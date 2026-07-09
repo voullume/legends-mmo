@@ -52,6 +52,12 @@ const MOB_BOSS_DMG := 2.1             # hits hard enough that ignoring its mecha
 const MOB_BOSS_XP := 6                # ≈ 0.9 of a level at its tier — rewarding but kept under a full level
 const LEVEL_HP := 60.0                # bonus max HP per player level
 const LEVEL_CAP := 30                 # endgame P1: the level ceiling (mobs scale via Intensity, not level, past here)
+# --- gameplay-length P1: con / level-difference XP scaling + party XP share (see docs/gameplay-length-handoff.md) ---
+const XP_CON_GRACE := 4               # a mob within ±this many levels of the killer gives full XP
+const XP_CON_SPAN := 12               # levels past the grace band over which XP fades from full down to the floor
+const XP_CON_FLOOR := 0.4             # a far over/under-leveled open-world mob still gives 40% — keeps GY5 a viable backup farm for high levels until Phase 8 adds 9-28 zones (avoids a punitive cliff)
+const XP_SHARE_RANGE := 900.0         # same-zone party members within this range of the kill share the XP
+const XP_SHARE_MAX_DELTA := 8         # a party member >this many levels from the killer doesn't share (anti power-level)
 const DUMMY_HP := 500.0               # the training dummy's fixed HP (no mob scaling)
 const TP_GRACE_MS := 1500             # after a teleport/spawn, brief immunity to re-triggering a pad
 # --- AI residents (RP0): server-side AI "players" (team 0, driven by the AI brain — never marked `controlled`).
@@ -521,6 +527,8 @@ const BOSS_PAGES := 50                            # the Head Coach boss also dro
 const DRILL_WAVE_GAP_MS := 2500                  # breather between waves
 const DRILL_PAGES_PER_WAVE := 2                  # end-of-run pages = max(0, wave-2) * this (wave 3+ only; anti-farm)
 const DRILL_CREDITS_PER_WAVE := 40
+const DRILL_XP_WAVE_FRAC := 0.08                 # gameplay-length P1: end-of-run XP per wave (3+) as a fraction of a level
+const DRILL_XP_RUN_CAP_FRAC := 0.6               # a single Drill run is capped at this fraction of a level (anti power-farm)
 
 # Intensity multipliers (P1): geometric so each tier is a real power check but the ladder is unbounded.
 # hp ×1.6 / dmg ×1.13 per tier (tuned so a geared team clears its max tier, the next is a wall to grow into).
@@ -1165,6 +1173,12 @@ func _end_drill(key: String) -> void:
 		# pages only from a REAL run (wave 3+) so a fresh char can't death-farm wave 1 faster than the Circuit chase
 		_award_pages(pid, maxi(0, wave - 2) * DRILL_PAGES_PER_WAVE)
 		_award_credits(pid, wave * DRILL_CREDITS_PER_WAVE)
+		# gameplay-length P1: the endless Drill now feeds the level bar — a capped, level-relative payout
+		# (waves 3+, mirroring the pages gate) so the game's most replayable loop counts toward leveling.
+		var _need := _xp_to_next(int(s["level"]))
+		var _drill_xp := int(minf(_need * DRILL_XP_RUN_CAP_FRAC, float(maxi(0, wave - 2)) * _need * DRILL_XP_WAVE_FRAC))
+		if _drill_xp > 0:
+			_award_xp(pid, _drill_xp)
 		_submit_score(str(s["char_id"]), str(s["name"]), "drill", wave)
 		if net != null:
 			net.recv_drill_end.rpc_id(pid, wave)
@@ -2577,7 +2591,7 @@ func _award_kills() -> void:
 				_award_credits(credit_pid, _mob_credits(victim))   # credits before xp's save persists both
 				if gy:
 					_award_tokens(credit_pid, _mob_tokens(victim))
-				_award_xp(credit_pid, _mob_xp(victim))
+				_award_kill_xp(credit_pid, victim, str(mapname))
 				var drop := _roll_loot(victim)                 # roll once; solo → grant; party (≥2 real, same zone) → want/need/pass
 				if not drop.is_empty():
 					_distribute_loot(credit_pid, drop, str(mapname))
@@ -2666,11 +2680,55 @@ func _scale_mob(f) -> void:
 func _intensity_reward(mob) -> float:
 	return 1.0 + float(maxi(1, int(mob.get("intensity", 1))) - 1) * 0.5
 
-func _mob_xp(mob) -> int:
+func _mob_xp(mob, killer_lvl := 0) -> int:
 	var lvl := int(mob.get("mobLevel", 1))
 	var tier := str(mob.get("mobTier", "minion"))
 	var mult := MOB_BOSS_XP if tier == "boss" else (MOB_ELITE_XP if tier == "elite" else 1)
-	return int(MOB_XP_BASE * lvl * mult * _intensity_reward(mob))
+	# con-scaling applies to OPEN-WORLD mobs only; instanced Circuit runs (ANY tier — keyed on the "#" instance map,
+	# so the mandatory intensity==1 entry tier is covered too) are already level-gated by the Intensity ladder and
+	# keep full XP, else a high-level player would earn ~0 there. (Drill mobs never reach here; they skip the reward path.)
+	var con := 1.0 if _is_instance(str(mob.get("map", ""))) else _con_mult(killer_lvl, lvl)
+	return int(MOB_XP_BASE * lvl * mult * _intensity_reward(mob) * con)
+
+# gameplay-length P1: con / level-difference factor. Full XP within ±XP_CON_GRACE levels, fading linearly to
+# XP_CON_FLOOR over XP_CON_SPAN more levels (both a mob far BELOW you — anti trivial-farm — and far ABOVE you —
+# anti free-carry — decay). killer_lvl <= 0 disables scaling (back-compat for any unscaled caller).
+func _con_mult(actor_lvl: int, mob_lvl: int) -> float:
+	if actor_lvl <= 0:
+		return 1.0
+	var over := absi(actor_lvl - mob_lvl) - XP_CON_GRACE
+	if over <= 0:
+		return 1.0
+	return maxf(XP_CON_FLOOR, 1.0 - float(over) / float(XP_CON_SPAN) * (1.0 - XP_CON_FLOOR))
+
+# gameplay-length P1: award a mob kill's XP to the credit player AND same-zone party members near the kill,
+# each scaled by their OWN level vs the mob (con). Grouping now accelerates leveling instead of being XP-neutral;
+# the level-delta + proximity gates keep it from being a power-level shortcut. Open-world (intensity 1) only con-scales.
+func _award_kill_xp(credit_pid: int, mob, mapname: String) -> void:
+	if not _session.has(credit_pid):
+		return
+	var recipients := [credit_pid]
+	var party: Array = _session[credit_pid]["party"]
+	if party.size() >= 2:
+		var vpos := Vector2(mob["x"], mob["y"])
+		var clvl := int(_session[credit_pid]["level"])
+		for m in party:
+			if m == credit_pid or not _session.has(m):
+				continue
+			if str(_session[m]["map"]) != mapname:
+				continue
+			if absi(int(_session[m]["level"]) - clvl) > XP_SHARE_MAX_DELTA:   # anti power-level: no carrying a far-lower friend
+				continue
+			var mf = _find(_session[m]["fid"])
+			if mf == null or not mf["alive"]:
+				continue
+			if float(mf.get("noDmgT", 999.0)) > RESIDENT_ENGAGED_S:   # anti-AFK / 2-box leech: must have been hit recently (actually in this fight), same primitive as resident kill-credit
+				continue
+			if (Vector2(mf["x"], mf["y"]) - vpos).length_squared() > XP_SHARE_RANGE * XP_SHARE_RANGE:
+				continue
+			recipients.append(m)
+	for pid in recipients:
+		_award_xp(pid, _mob_xp(mob, int(_session[pid]["level"])))
 
 # roll THEN grant (used by the Circuit-clear bonus). Mob kills roll once + distribute (solo grant or party roll).
 func _grant_loot(pid: int, mob) -> void:

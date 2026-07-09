@@ -26,10 +26,24 @@ systems) is **done**, each phase built, adversarially reviewed, and hardened:
 - **Balance** — all 8 classes tuned to ~50% AI-duel win rate via `FORMAT_MODS[5]` (measured with a
   deterministic round-robin harness, not guessed; was a 61-pt spread, now ~9).
 
-## ▶ Next up (not yet built)
-**PvP** (players are all team 0 today — no friendly fire; melee↔ranged hard-counters exist but only
-matter once PvP lands), more **zones/content**, **mob variety / bosses**, quest/progression depth.
-Tackle one per chat.
+## ✅ Shipped since Phase 5 (post-original-roadmap work — all live + deployed)
+The items the old "Next up" listed as unbuilt have **all landed and deployed**: **party-based open-PvP**
+(Arena, party-key hostility model — byte-identical when `pvp=false`), the **Glitchyard** content arc
+(5-zone leveling chain → Head Coach raid → gated secret boss Head Coach PRIME), the **endgame program**
+(instanced Camp Circuit + Intensity ladder + Playbook-Pages/Master-Key attunement + **level cap 30** +
+3-category leaderboards + Two-Minute Drill), the **7-phase item system** (10 slots, 6 rarities, sets,
+uniques+procs, salvage/forge/reforge/craft — only sockets+gems P4d deferred), **AI residents** (6
+server-side companion "players"), **Builder Mode / Locker Rooms**, the **UI overhaul + DPS/HPS meter**,
+and the **combat-feel** pass. *(The live world is now 9 zones + instance templates, superseding the
+two-world layout in the Phase-1–5 summary above.)*
+
+## ▶ Now building — expand gameplay length
+Next work-stream: **make the game last longer to play.** Core flaw from the 2026-07-09 audit — the
+character build is *finished at level 1* (`create_fighter` grants the full kit; `derive()` ignores level),
+so the whole 1→30 climb adds only +1,740 HP and ~93% of it is questless grind. **Plan:
+`docs/gameplay-length-handoff.md`** — an 8-phase, owner-locked roadmap (vertical-depth-first: XP-economy
+fix → level-gated ability kits → talent trees → renewability → second biome). **Phase 1 = XP-economy fix
+(server-only, zero sim risk) is next.** Tackle one phase per chat.
 
 ## Layout
 - `shared/` — the **deterministic combat engine** (GameData, Sim, AI, Abilities, Combat, Geom, Rng)
