@@ -87,6 +87,8 @@ const CAST_DUR_MIN := 0.55      # quick floor for frequent basics
 const CAST_DUR_MAX := 1.0       # ceiling so even long-cooldown abilities (power swings/ults) stay punchy, not slow
 
 var _state: Dictionary
+var _meta := {}                            # cached quasi-static snapshot META (self sheet/portals/pads/decals),
+                                           # shipped by the server only on change → overlaid onto every snapshot
 var _meshy := {}
 var _mob_cache := {}                       # mob model basename → loaded GLB PackedScene (lazy, only spawned ones)
 var _rigged := {}                          # rigged-mob id → {base, clips{role:Animation}, render_h, foot_y}
@@ -1354,7 +1356,10 @@ func _render_world(delta: float) -> void:
 # Draw the zone's purely-visual decoration (training drill rings + traffic cones) for camp identity. Read
 # from World.DECALS for the current map (client-side, not sent over the wire); rebuilt only on a map change.
 func _render_decals() -> void:
-	var decals: Array = _state["decals"] if _state.has("decals") else _decals_for(str(_state.get("map", "")))
+	# locker build-items ride the snapshot META (change-detected + cached); gate on the LOCKER map — not mere
+	# key presence — so a META cached across a zone change can't render locker props in home/combat for ~1s.
+	var mapn := str(_state.get("map", ""))
+	var decals: Array = _state["decals"] if (mapn == World.LOCKER and _state.has("decals")) else _decals_for(mapn)
 	var sig := JSON.stringify(decals)
 	if sig == _decals_sig:
 		return

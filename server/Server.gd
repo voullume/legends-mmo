@@ -162,6 +162,9 @@ var _fseq := 0
 var _acc := 0.0
 var _save_t := 0.0
 var _snap_count := 0
+const META_HEARTBEAT := 30            # re-ship the quasi-static snapshot META at least this often (~1s) so a
+var _meta_hash := {}                  # dropped unreliable packet can't strand a client on a stale sheet/pads
+var _meta_tick := {}                  # pid → last _snap_count at which META was sent (change-detected otherwise)
 var _health_t := 0.0
 var _tick_us_peak := 0                # peak server compute time per frame this minute (CPU headroom)
 
@@ -1224,6 +1227,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_pending_ability.erase(pid)
 	_last_aseq.erase(pid)
 	_intent_age.erase(pid)
+	_meta_hash.erase(pid)
+	_meta_tick.erase(pid)
 	_chat_next.erase(pid)
 	_equipping.erase(pid)
 	_equip_next.erase(pid)
@@ -3423,35 +3428,44 @@ func _broadcast() -> void:
 		if f == null or not _worlds.has(s["map"]):
 			continue
 		var snap: Dictionary = _snapshot_for(_worlds[s["map"]], str(s["map"]), Vector2(f["x"], f["y"]), pinfo)
-		snap["portals"] = _portals_for_player(str(s["map"]), pid)   # hide gated (secret) portals until unlocked
-		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD
+		snap["party"] = _party_roster(pid)        # roster (with live HP) for the party HUD — genuinely per-tick
+		# ---- quasi-static META (portals + self sheet + zone pads + locker decals + drill counter) ----
+		# These change RARELY, but the old code re-shipped them every 30 Hz tick — the bulk of the snapshot
+		# bloat that overflowed client receive buffers ("Buffer full") → rubber-banding. Now: build once,
+		# hash it, and ship it ONLY when it changes (or every META_HEARTBEAT ticks so a dropped unreliable
+		# packet can't strand a client on a stale sheet/pads). The client caches + overlays it. Pure presentation.
+		var meta := {"portals": _portals_for_player(str(s["map"]), pid),   # hide gated (secret) portals until unlocked
+			# self stat block: the recipient's own APPLIED (capped, post-FORMAT_MODS) finals + capped equip_bonus
+			"self": {
+				"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
+				"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
+				"locker_unlocked": bool(s.get("locker_unlocked", false)),   # Builder Mode: drives the Home portal "Purchase (10,000)" vs "Enter" state (P3)
+				"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
+				"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
+				"procs": (s.get("procs", []) as Array).duplicate(),
+				"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
+				"ms": float(f["ms"]), "cdr": float(f["cdr"]), "clutchDmg": float(f["clutchDmg"]), "clutchDR": float(f["clutchDR"]),
+				"equip_bonus": (s.get("equip_bonus", {}) as Dictionary).duplicate(),
+			}}
 		if _is_instance(str(s["map"])) and str((_instances.get(str(s["map"]), {}) as Dictionary).get("mode", "")) == "drill":
-			snap["drillWave"] = int((_instances[str(s["map"])] as Dictionary).get("wave", 0))   # Two-Minute Drill HUD counter
+			meta["drillWave"] = int((_instances[str(s["map"])] as Dictionary).get("wave", 0))   # Two-Minute Drill HUD counter
 		if _template(str(s["map"])) == World.LOCKER:  # Builder Mode: the owner's placed build items → server decals (client _render_decals prefers these)
-			snap["decals"] = (_instances.get(str(s["map"]), {}) as Dictionary).get("decals", [])
+			meta["decals"] = (_instances.get(str(s["map"]), {}) as Dictionary).get("decals", [])
 		if str(s["map"]) == World.HOME:           # the shop / forge pads + quest giver only exist in the home base
-			snap["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
-			snap["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}
-			snap["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
-			snap["practice"] = {"x": World.PRACTICE_POS.x, "y": World.PRACTICE_POS.y}   # the Practice Vendor (reward loop)
-			snap["build_shop"] = {"x": World.BUILD_SHOP_POS.x, "y": World.BUILD_SHOP_POS.y}   # Builder Mode: buy furniture (P3)
+			meta["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
+			meta["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}
+			meta["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
+			meta["practice"] = {"x": World.PRACTICE_POS.x, "y": World.PRACTICE_POS.y}   # the Practice Vendor (reward loop)
+			meta["build_shop"] = {"x": World.BUILD_SHOP_POS.x, "y": World.BUILD_SHOP_POS.y}   # Builder Mode: buy furniture (P3)
 			for lp in World.PORTALS.get(World.HOME, []):   # the Locker Room portal position → client's "Purchase (10,000)" prompt when not yet unlocked
 				if str(lp.get("instance", "")) == World.LOCKER:
-					snap["locker_portal"] = {"x": lp["x"], "y": lp["y"]}
+					meta["locker_portal"] = {"x": lp["x"], "y": lp["y"]}
 					break
-		# self stat block for the character sheet (P3) — only the recipient's own APPLIED (capped, post-
-		# FORMAT_MODS) finals + the capped 6-stat equip_bonus + gear score, so the sheet never overstates power.
-		snap["self"] = {
-			"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
-			"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
-			"locker_unlocked": bool(s.get("locker_unlocked", false)),   # Builder Mode: drives the Home portal "Purchase (10,000)" vs "Enter" state (P3)
-			"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
-			"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
-			"procs": (s.get("procs", []) as Array).duplicate(),
-			"maxHP": float(f["maxHP"]), "dmgMult": float(f["dmgMult"]), "crit": float(f["crit"]), "critMult": float(f["critMult"]),
-			"ms": float(f["ms"]), "cdr": float(f["cdr"]), "clutchDmg": float(f["clutchDmg"]), "clutchDR": float(f["clutchDR"]),
-			"equip_bonus": (s.get("equip_bonus", {}) as Dictionary).duplicate(),
-		}
+		var mh := str(meta).hash()                # ship META only when it changed, or on the heartbeat
+		if not _meta_hash.has(pid) or int(_meta_hash[pid]) != mh or (_snap_count - int(_meta_tick.get(pid, -9999))) >= META_HEARTBEAT:
+			snap["meta"] = meta
+			_meta_hash[pid] = mh
+			_meta_tick[pid] = _snap_count
 		net.receive_snapshot.rpc_id(pid, snap)
 	for mapname in _worlds:
 		_worlds[mapname]["events"].clear()
@@ -3534,5 +3548,5 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 	var tmpl := _template(mapname)                # client renders geometry/decals/portals by TEMPLATE name
 	return {"fighters": fs, "projectiles": ps, "zones": hz,   # cover-panel props are read client-side from World.OBSTACLES by map name
 		"events": w["events"].duplicate(true), "t": w["t"],
-		"map": tmpl, "portals": World.portals_for(tmpl), "pvp": bool(w.get("pvp", false)),
+		"map": tmpl, "pvp": bool(w.get("pvp", false)),   # portals moved to the change-detected META block (per-player, gated)
 		"arenaW": int(w.get("arenaW", GameData.ARENA_W)), "arenaH": int(w.get("arenaH", GameData.ARENA_H))}

@@ -1753,9 +1753,16 @@ func _render_qgiver() -> void:
 		out.append("[color=#7f93a8]Nothing for you right now — come back after you level up or finish a quest.[/color]")
 	_qgiver_label.text = "\n".join(out)
 
+# home-only pads (shop/forge/questgiver/practice/build_shop/locker_portal) ride the change-detected snapshot
+# META cache. Gate every read on the per-tick `map` — not the mere presence of the cached key — so a META held
+# across a zone exit (if that one packet drops) can't leave a phantom pad pillar + interact prompt in the new
+# zone. Returns null off-home, which each render/proximity fn already treats as "tear the pad down".
+func _home_pad(key: String):
+	return _state.get(key) if str(_state.get("map", "")) == World.HOME else null
+
 # the blue quest-giver marker in the home base + the "press E" proximity prompt (mirrors the shop pad)
 func _render_questgiver_pad() -> void:
-	var qg = _state.get("questgiver")
+	var qg = _home_pad("questgiver")
 	var sig := JSON.stringify(qg)
 	if sig == _qgiver_sig:
 		return
@@ -1805,7 +1812,7 @@ func _update_questgiver_proximity() -> void:
 		_qgiver_hint.modulate = Color(0.72, 0.85, 1.0)
 		_qgiver_hint.visible = false
 		_hud.add_child(_qgiver_hint)
-	var qg = _state.get("questgiver")
+	var qg = _home_pad("questgiver")
 	var pf = _find_fighter(_player_id)
 	_near_qgiver = false
 	if qg != null and pf != null:
@@ -2272,8 +2279,13 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 	# write the authoritative pushed values into self so the panel is accurate NOW (the next snapshot also
 	# carries them, but re-rendering from the ~30 Hz-old self block would show stale ownership for a frame).
 	if _state.has("self"):
-		_state["self"]["cos_owned"] = owned
-		_state["self"]["cos_dye"] = equipped
+		# _state["self"] aliases the cached _meta["self"] — copy-on-write into a fresh dict and store it in BOTH,
+		# else the next meta-less tick's overlay (snap["self"] = _meta["self"]) would restore the OLD cosmetics.
+		var me: Dictionary = (_state["self"] as Dictionary).duplicate()
+		me["cos_owned"] = owned
+		me["cos_dye"] = equipped
+		_meta["self"] = me
+		_state["self"] = me
 	if _wardrobe_panel != null and _wardrobe_panel.visible:
 		_render_wardrobe()
 	_quest_toast("[color=#8ad6ff]🎨 Wardrobe updated.[/color]")
@@ -2366,8 +2378,8 @@ func _update_drill_banner() -> void:
 		_drill_banner.modulate = Color(1.0, 0.7, 0.25)
 		_drill_banner.visible = false
 		_hud.add_child(_drill_banner)
-	if _state.has("drillWave"):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
+	if str(_state.get("map", "")) == World.DRILL and _state.has("drillWave"):   # gate on the DRILL map, not just the
+		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size           # cached META key (stale-safe across zones)
 		_drill_banner.text = "⏱  TWO-MINUTE DRILL  ·  WAVE %d" % int(_state["drillWave"])
 		_drill_banner.position = Vector2(vp.x / 2.0 - 200.0, 24.0)
 		_drill_banner.visible = true
@@ -2884,7 +2896,7 @@ func _close_sell_confirm() -> void:
 
 # the gold shop pad in the home base + the "press B" proximity prompt
 func _render_shop_pad() -> void:
-	var shop = _state.get("shop")
+	var shop = _home_pad("shop")
 	var sig := JSON.stringify(shop)
 	if sig == _shop_sig:
 		return
@@ -2934,7 +2946,7 @@ func _update_shop_proximity() -> void:
 		_shop_hint.modulate = Color(1.0, 0.88, 0.5)
 		_shop_hint.visible = false
 		_hud.add_child(_shop_hint)
-	var shop = _state.get("shop")
+	var shop = _home_pad("shop")
 	var pf = _find_fighter(_player_id)
 	_near_shop = false
 	if shop != null and pf != null:
@@ -3038,7 +3050,7 @@ func _render_build_shop_catalog() -> void:
 					net.build_buy.rpc_id(1, m)))
 
 func _render_build_shop_pad() -> void:
-	var pad = _state.get("build_shop")
+	var pad = _home_pad("build_shop")
 	var sig := JSON.stringify(pad)
 	if sig == _build_shop_sig:
 		return
@@ -3088,7 +3100,7 @@ func _update_build_shop_proximity() -> void:
 		_build_shop_hint.modulate = Color(0.7, 0.85, 1.0)
 		_build_shop_hint.visible = false
 		_hud.add_child(_build_shop_hint)
-	var pad = _state.get("build_shop")
+	var pad = _home_pad("build_shop")
 	var pf = _find_fighter(_player_id)
 	_near_build_shop = false
 	if pad != null and pf != null:
@@ -3113,7 +3125,7 @@ func _update_locker_portal_proximity() -> void:
 		_locker_portal_hint.modulate = Color(1.0, 0.85, 0.45)
 		_locker_portal_hint.visible = false
 		_hud.add_child(_locker_portal_hint)
-	var pad = _state.get("locker_portal")
+	var pad = _home_pad("locker_portal")
 	var pf = _find_fighter(_player_id)
 	_near_locker_portal = false
 	if pad != null and pf != null and not _locker_unlocked():
@@ -3738,7 +3750,7 @@ func _lb_update_del_highlight() -> void:
 
 # the Practice Vendor pad in the home base + the "press V" prompt (mirrors the shop pad, cyan)
 func _render_vendor_pad() -> void:
-	var v = _state.get("practice")
+	var v = _home_pad("practice")
 	var sig := JSON.stringify(v)
 	if sig == _vendor_sig:
 		return
@@ -3788,7 +3800,7 @@ func _update_vendor_proximity() -> void:
 		_vendor_hint.modulate = Color(0.5, 0.9, 1.0)
 		_vendor_hint.visible = false
 		_hud.add_child(_vendor_hint)
-	var v = _state.get("practice")
+	var v = _home_pad("practice")
 	var pf = _find_fighter(_player_id)
 	_near_vendor = false
 	if v != null and pf != null:
@@ -3806,7 +3818,7 @@ func _update_vendor_proximity() -> void:
 
 # the forge pad in the home base + the "press F" proximity prompt (mirrors the shop pad)
 func _render_forge_pad() -> void:
-	var forge = _state.get("forge")
+	var forge = _home_pad("forge")
 	var sig := JSON.stringify(forge)
 	if sig == _forge_sig:
 		return
@@ -3856,7 +3868,7 @@ func _update_forge_proximity() -> void:
 		_forge_hint.modulate = Color(1.0, 0.6, 0.4)
 		_forge_hint.visible = false
 		_hud.add_child(_forge_hint)
-	var forge = _state.get("forge")
+	var forge = _home_pad("forge")
 	var pf = _find_fighter(_player_id)
 	_near_forge = false
 	if forge != null and pf != null:
@@ -4620,6 +4632,12 @@ func net_error(msg: String) -> void:
 	push_warning("[netclient] " + msg)
 
 func receive_snapshot(snap: Dictionary) -> void:
+	# the server ships the quasi-static META (self sheet / portals / zone pads / locker decals) only when it
+	# changes; cache it and overlay onto every snapshot so _state always carries the current values.
+	if snap.has("meta"):
+		_meta = snap["meta"]
+	for k in _meta:
+		snap[k] = _meta[k]
 	_state = snap
 	_party = snap.get("party", [])
 	if _sheet_panel != null and _sheet_panel.visible:    # keep the character sheet live while it's open
