@@ -1970,6 +1970,7 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 	var roll := 0.0
 	var lunge := 0.0                              # local +Z offset (forward +, recoil/back -)
 	var sq := 1.0                                # uniform squash factor (1 = none)
+	var hover := 0.0                             # constant vertical lift (0 = grounded); the power core floats
 	match prof:
 		"cone":                                     # legless cone: skitter + trip-jab hop
 			hz = 6.0; amp = 0.06 + movef * 0.07
@@ -2011,9 +2012,9 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 				pitch = -0.32
 				amp = 0.11
 				sq = 1.0 + 0.10 * sin(t * 12.0)
-		"core":                                     # power core — float, slow spin, gentle pulse
+		"core":                                     # power core — hover in place + gentle pulse (NO spin)
 			hz = 1.6; amp = 0.05
-			yaw = t * 0.8
+			hover = sy * 0.45                       # float ~0.45×height off the ground (model is grounded by default)
 			sq = 1.0 + sin(t * 3.0) * 0.04
 		_:
 			hz = 2.0; amp = 0.04
@@ -2022,7 +2023,7 @@ func _drive_mob_anim(n: Dictionary, f: Dictionary) -> void:
 	pitch -= q * 0.5                                    # hit flinch back
 	roll += q * sin(t * 30.0) * 0.06                    # brief shake on hit
 	sq *= 1.0 - q * 0.12
-	tgt.position = Vector3(0.0, by + sin(t * hz * TAU) * amp * sy, lunge)
+	tgt.position = Vector3(0.0, by + hover + sin(t * hz * TAU) * amp * sy, lunge)
 	tgt.rotation = Vector3(pitch, yaw, roll)
 	tgt.scale = Vector3(sq, 1.0 + (1.0 - sq) * 0.6, sq)
 
