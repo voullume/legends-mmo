@@ -31,6 +31,8 @@ const BAR_W := 2.2
 const BAR_H := 0.26
 const UI_Y := 3.6
 const PLAYER_UI_Y := 4.6                      # players sit their plate higher than mobs (clear name + level + bar above the head)
+const PRED_SNAP := 70.0                       # local-prediction error (sim units) → hard-snap: dash/knockback/teleport/zone change
+const PRED_RECONCILE := 8.0                   # per-second rate the prediction is pulled back toward the authoritative server pos
 const DMG_NUM_Y := 4.4
 const HIT_Y := 1.7
 const SHAKE_MAX := 1.1                      # camera screen-shake cap (world units of jitter)
@@ -89,6 +91,8 @@ const CAST_DUR_MAX := 1.0       # ceiling so even long-cooldown abilities (power
 var _state: Dictionary
 var _meta := {}                            # cached quasi-static snapshot META (self sheet/portals/pads/decals),
                                            # shipped by the server only on change → overlaid onto every snapshot
+var _pred := Vector2.ZERO                   # client-side prediction: the LOCAL player's predicted sim position
+var _pred_on := false                       # seeded from a server snapshot yet? (reset on zone change)
 var _meshy := {}
 var _mob_cache := {}                       # mob model basename → loaded GLB PackedScene (lazy, only spawned ones)
 var _rigged := {}                          # rigged-mob id → {base, clips{role:Animation}, render_h, foot_y}
@@ -580,6 +584,37 @@ func _ah() -> float:
 
 func _world(f: Dictionary) -> Vector3:
 	return Vector3((f["x"] - _aw() / 2.0) * SCALE, 0.0, (f["y"] - _ah() / 2.0) * SCALE)
+
+# Client-side prediction is off in the base (offline sandbox runs the sim locally → the avatar is already
+# instant). NetClient enables it while connected: the networked avatar is otherwise drawn a full RTT behind input.
+func _prediction_enabled() -> bool:
+	return false
+
+# Client-side prediction for the LOCAL player only: integrate live WASD immediately (so movement responds
+# without the server round-trip), then reconcile toward the authoritative server position each frame — a gentle
+# continuous pull, with a hard snap on a big error (dash / knockback / teleport / zone change). The server stays
+# authoritative; this only hides input latency on the local avatar's RENDER. Returns the world-space target.
+func _predict_local(f: Dictionary, dt: float) -> Vector3:
+	var srv := Vector2(float(f["x"]), float(f["y"]))
+	if not _pred_on:
+		_pred = srv
+		_pred_on = true
+	if bool(f["alive"]) and _player != null:                       # mirror Sim._player_step: dir * ms * dt (base speed)
+		var mvx: float = float(_player.intent.get("mx", 0.0))
+		var mvy: float = float(_player.intent.get("my", 0.0))
+		var ml := Vector2(mvx, mvy).length()
+		if ml > 0.001:
+			var spd: float = float(_state.get("self", {}).get("ms", 130.0))
+			_pred += Vector2(mvx / ml, mvy / ml) * spd * dt
+	var err := srv - _pred
+	if err.length() > PRED_SNAP:
+		_pred = srv                                                # desync too large to smooth → snap to truth
+	else:
+		_pred += err * clampf(dt * PRED_RECONCILE, 0.0, 1.0)
+	var pad := float(GameData.ARENA_PAD)                           # mirror Geom.clamp_arena bounds
+	_pred.x = clampf(_pred.x, pad, _aw() - pad)
+	_pred.y = clampf(_pred.y, pad, _ah() - pad)
+	return Vector3((_pred.x - _aw() / 2.0) * SCALE, 0.0, (_pred.y - _ah() / 2.0) * SCALE)
 
 # Resize the floor when the arena (map) size changes — i.e. when you cross into the other world.
 func _resize_arena() -> void:
@@ -1282,6 +1317,8 @@ func _render_world(delta: float) -> void:
 	var pf = _find_fighter(_player_id)
 	if pf != null:
 		var tf := _world(pf)
+		if _prediction_enabled() and _pred_on:               # keep the avatar centered on its PREDICTED pos, not the lagged server pos
+			tf = Vector3((_pred.x - _aw() / 2.0) * SCALE, 0.0, (_pred.y - _ah() / 2.0) * SCALE)
 		tf.y = 1.4
 		_focus = _focus.lerp(tf, clampf(delta * 5.0, 0.0, 1.0))
 	_update_cam()
@@ -1313,11 +1350,15 @@ func _render_world(delta: float) -> void:
 			n["pflash"] = f["flash"]
 			continue
 		var holder: Node3D = n["holder"]
-		var target := _world(f)
+		var predicting: bool = f["id"] == _player_id and _prediction_enabled()
+		var target := _predict_local(f, delta) if predicting else _world(f)
 		var tvel := Vector2(target.x - n["last"].x, target.z - n["last"].z)
 		n["last"] = target
 		n["vel"] = n["vel"].lerp(tvel, clampf(delta * 7.0, 0.0, 1.0))
-		holder.position = holder.position.lerp(target, clampf(delta * 14.0, 0.0, 1.0))
+		if predicting:
+			holder.position = target                            # prediction is already smooth → set directly (no extra lerp lag)
+		else:
+			holder.position = holder.position.lerp(target, clampf(delta * 14.0, 0.0, 1.0))
 		var moving: bool = n["vel"].length() > 0.0016
 		# The run clip used to linger while the body glided to a stop (server-side momentum). Cut it sooner:
 		# a higher bar for the run animation, and for the LOCAL player gate it on live input so it stops the

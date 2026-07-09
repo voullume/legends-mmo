@@ -3187,6 +3187,10 @@ func _locker_build_available() -> bool:
 func _world_build_allowed() -> bool:
 	return _is_admin
 
+# enable local-player prediction only while networked (offline sandbox already renders the sim instantly)
+func _prediction_enabled() -> bool:
+	return net != null and _connected
+
 func _locker_build_toggle() -> void:
 	if _lb_on:
 		_lb_set_on(false)
@@ -4656,6 +4660,7 @@ func receive_snapshot(snap: Dictionary) -> void:
 			AudioManager.play_sfx("portal")
 			_trigger_zone_card(map)              # P4: "Now Entering <Zone>" card (not on the first login zone-in)
 		_last_map = map
+		_pred_on = false                         # reseed local-player prediction at the new zone's spawn (no cross-zone snap)
 		AudioManager.play_music(map)
 		if map == World.LOCKER:                  # Builder Mode: onboarding "how to build" popup on entering your Locker Room
 			_on_enter_locker()
