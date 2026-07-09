@@ -69,6 +69,7 @@ var _loot_roll_timer_lbl: Label = null
 var _inv_panel: Control
 var _sheet_panel: Control                    # character sheet (K) — computed base+gear stats + item power
 var _sheet_label: RichTextLabel
+var _sheet_sig := 0                          # sig-guard: `self` rides the change-detected META → skip the per-snapshot rebuild
 var _inv_items := []                          # last-loaded inventory cache (for hover tooltips)
 var _inv_grid: GridContainer                  # P7: the item-tile grid
 var _inv_paperdoll: GridContainer             # P7: the equipped-slots paperdoll
@@ -412,6 +413,10 @@ func _render_charsheet() -> void:
 	if _sheet_label == null:
 		return
 	var si: Dictionary = _state.get("self", {})
+	var sig := str(si).hash()                     # self changes rarely (rides the META) → skip the redundant per-snapshot rebuild
+	if sig == _sheet_sig and _sheet_label.text != "":
+		return
+	_sheet_sig = sig
 	var pf = _find_fighter(_player_id)
 	var cls_id: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
 	if cls_id == "" or not GameData.CLASSES.has(cls_id):
@@ -1049,6 +1054,9 @@ func _toggle_inventory() -> void:
 		if _quest_panel != null:                     # only one full-screen modal at a time
 			_quest_panel.visible = false
 		if _locker_panel != null: _locker_panel.visible = false
+		if not _inv_items.is_empty():                # instant open from the cached rows (no network wait) —
+			_rebuild_paperdoll(_inv_items)           # the GET below refreshes the grid in the background
+			_render_inv_tiles()
 		_load_inventory()
 
 func _load_inventory() -> void:
@@ -1058,7 +1066,8 @@ func _load_inventory() -> void:
 		_inv_pending = true
 		return
 	_inv_loading = true
-	_inv_status.text = "loading…"
+	if _inv_items.is_empty():                     # only show the blocking "loading…" on a cold first open;
+		_inv_status.text = "loading…"             # a warm open already rendered the cache instantly above
 	var r = await supa.get_inventory()
 	_inv_loading = false
 	if _inv_pending:

@@ -33,6 +33,7 @@ const UI_Y := 3.6
 const PLAYER_UI_Y := 4.6                      # players sit their plate higher than mobs (clear name + level + bar above the head)
 const PRED_SNAP := 70.0                       # local-prediction error (sim units) → hard-snap: dash/knockback/teleport/zone change
 const PRED_RECONCILE := 8.0                   # per-second rate the prediction is pulled back toward the authoritative server pos
+const PRED_HOLD := 0.14                       # after input releases, briefly freeze prediction so the (lagged) server catches up — kills the post-stop slide
 const DMG_NUM_Y := 4.4
 const HIT_Y := 1.7
 const SHAKE_MAX := 1.1                      # camera screen-shake cap (world units of jitter)
@@ -93,6 +94,7 @@ var _meta := {}                            # cached quasi-static snapshot META (
                                            # shipped by the server only on change → overlaid onto every snapshot
 var _pred := Vector2.ZERO                   # client-side prediction: the LOCAL player's predicted sim position
 var _pred_on := false                       # seeded from a server snapshot yet? (reset on zone change)
+var _pred_hold := 0.0                       # post-release freeze timer (see PRED_HOLD) — lets the server catch up
 var _meshy := {}
 var _mob_cache := {}                       # mob model basename → loaded GLB PackedScene (lazy, only spawned ones)
 var _rigged := {}                          # rigged-mob id → {base, clips{role:Animation}, render_h, foot_y}
@@ -599,18 +601,22 @@ func _predict_local(f: Dictionary, dt: float) -> Vector3:
 	if not _pred_on:
 		_pred = srv
 		_pred_on = true
+	var moving := false
 	if bool(f["alive"]) and _player != null:                       # mirror Sim._player_step: dir * ms * dt (base speed)
 		var mvx: float = float(_player.intent.get("mx", 0.0))
 		var mvy: float = float(_player.intent.get("my", 0.0))
 		var ml := Vector2(mvx, mvy).length()
 		if ml > 0.001:
+			moving = true
 			var spd: float = float(_state.get("self", {}).get("ms", 130.0))
 			_pred += Vector2(mvx / ml, mvy / ml) * spd * dt
+	_pred_hold = PRED_HOLD if moving else maxf(0.0, _pred_hold - dt)   # armed while moving, counts down once stopped
 	var err := srv - _pred
 	if err.length() > PRED_SNAP:
 		_pred = srv                                                # desync too large to smooth → snap to truth
-	else:
-		_pred += err * clampf(dt * PRED_RECONCILE, 0.0, 1.0)
+	elif moving or _pred_hold <= 0.0:
+		_pred += err * clampf(dt * PRED_RECONCILE, 0.0, 1.0)       # reconcile while moving / after the hold
+	# else: within the post-release hold → freeze so the avatar stops crisply while the server catches up
 	var pad := float(GameData.ARENA_PAD)                           # mirror Geom.clamp_arena bounds
 	_pred.x = clampf(_pred.x, pad, _aw() - pad)
 	_pred.y = clampf(_pred.y, pad, _ah() - pad)
