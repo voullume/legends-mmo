@@ -405,14 +405,17 @@ const FORMAT_MODS := {
 		"spiker": {"dmg": 0.97}, "goalkeeper": {"dmg": 0.96}, "quarterback": {"dmg": 1.05},
 		"batter": {"dmg": 1.24}, "setter": {"dmg": 1.18},
 	},
-	5: {   # the live MMO format (ZONE_TEAM_SIZE). Tuned so all 8 classes sit ~47-53% in AI duels
-	       # (was a 61-point spread: spiker 78% … setter 17%). Mods apply to players AND mobs alike.
-		"spiker": {"dmg": 0.82},
-		"striker": {"dmg": 0.86},
-		"pitcher": {"dmg": 0.93},
-		"linebacker": {"dmg": 0.93},
-		"batter": {"dmg": 1.30, "hp": 1.12},
-		"setter": {"dmg": 1.18, "hp": 1.06},
+	5: {   # the live MMO format (ZONE_TEAM_SIZE). RE-TUNED 2026-07-10: the prior mods had regressed to a ~55-pt
+	       # spread (goal 82% / sett 27%) — the sim drifted since the last tune. Re-measured with tools/bal_tune.gd
+	       # + bal_p1.gd, pulling each class toward ~50%. Mods apply to players AND mobs alike (mobs have no entry).
+		"goalkeeper": {"dmg": 0.65},
+		"quarterback": {"dmg": 0.85},
+		"batter": {"dmg": 1.20},
+		"linebacker": {"dmg": 0.97},
+		"pitcher": {"dmg": 0.97},
+		"striker": {"dmg": 0.98},
+		"spiker": {"dmg": 0.92},
+		"setter": {"dmg": 1.42, "hp": 1.10},
 	},
 }
 
@@ -434,6 +437,73 @@ const MAP_IDS := ["stadium", "rooftop", "centerfield", "sandcourt", "trenches"]
 # --- Item sets (P5): one set per sport. Every item rolls a set_id; the server grants a set bonus for
 # wearing N matching EPIC+ pieces (counts/thresholds + the SET_BONUS_CAP live in Server.gd). `stat` is the
 # set's signature stat; `th` maps a piece-count threshold → bonus to that stat (bonuses are <= SET_BONUS_CAP).
+# --- gameplay-length P4: talent / mastery trees -------------------------------------------------------------
+# One talent point per level (L1=0 → literally fixes "build complete at level 1"; L30=29). 3 branches × 3 nodes;
+# EVERY node is a bounded delta on one of the 6 stats derive() reads (PWR/PRE/SPD/END/INS/CLU) → NO Sim/Combat/AI
+# code is touched. The NUMBERS live once in TALENT_SHAPE (identical for all 8 classes → symmetry is STRUCTURAL,
+# not a convention); classes add only NAMES in TALENT_FLAVOR. Talent deltas fold into the server's gear `bonus`
+# funnel as a 3rd above-cap layer (parallel TALENT_STAT_CAP, like set bonuses) — the AI-duel harness must re-run
+# to confirm FORMAT_MODS[5] parity holds (a symmetric +power still multiplies the existing class dmg gaps).
+const TALENT_POINTS_PER_LEVEL := 1
+const TALENT_STAT_CAP := 20               # per-stat talent ceiling (parallel above EQUIP_STAT_CAP, mirrors SET_BONUS_CAP)
+const TALENT_RESPEC_CREDITS := 750        # flat-credits respec sink (tunable)
+const TALENT_BRANCH_ORDER := ["power", "guard", "tempo"]
+# node = {slot, stat, max ranks, per-rank delta, req = cumulative RANKS already spent in this branch to unlock}
+const TALENT_SHAPE := {
+	"power": {"nodes": [
+		{"slot": "a", "stat": "PWR", "max": 5, "per": 2, "req": 0},
+		{"slot": "b", "stat": "PRE", "max": 5, "per": 2, "req": 5},
+		{"slot": "c", "stat": "PWR", "max": 3, "per": 2, "req": 10, "capstone": true}]},
+	"guard": {"nodes": [
+		{"slot": "a", "stat": "END", "max": 5, "per": 2, "req": 0},
+		{"slot": "b", "stat": "CLU", "max": 5, "per": 2, "req": 5},
+		{"slot": "c", "stat": "END", "max": 3, "per": 2, "req": 10, "capstone": true}]},
+	"tempo": {"nodes": [
+		{"slot": "a", "stat": "SPD", "max": 5, "per": 2, "req": 0},
+		{"slot": "b", "stat": "INS", "max": 5, "per": 2, "req": 5},
+		{"slot": "c", "stat": "SPD", "max": 3, "per": 2, "req": 10, "capstone": true}]},
+}
+# names only — node_id = "<cls>_<branch>_<slot>"; mechanics are identical across all 8 classes
+const TALENT_FLAVOR := {
+	"pitcher":     {"tree": "Ace Command",  "power": {"name": "Velocity",   "a": "Heat",          "b": "Command",       "c": "Filthy Stuff"},   "guard": {"name": "Bullpen",    "a": "Conditioning",  "b": "Ice in the Veins", "c": "Complete Game"},  "tempo": {"name": "Tempo",      "a": "Quick Pitch",   "b": "Pitch IQ",     "c": "No-Windup"}},
+	"batter":      {"tree": "Slugger",      "power": {"name": "Power",      "a": "Bat Speed",     "b": "Contact",       "c": "Walk-Off"},        "guard": {"name": "Durability", "a": "Iron Grip",     "b": "Clutch Gene",      "c": "Extra Innings"},  "tempo": {"name": "Baserunning","a": "Jump",          "b": "Read",         "c": "Steal"}},
+	"quarterback": {"tree": "Field General","power": {"name": "Arm",        "a": "Cannon",        "b": "Accuracy",      "c": "Deep Bomb"},       "guard": {"name": "Pocket",     "a": "Presence",      "b": "Poise",            "c": "Fourth Down"},    "tempo": {"name": "Audible",    "a": "Snap Count",    "b": "Field Vision", "c": "No Huddle"}},
+	"linebacker":  {"tree": "Enforcer",     "power": {"name": "Impact",     "a": "Big Hit",       "b": "Read",          "c": "Blindside"},       "guard": {"name": "Toughness",  "a": "Brick Wall",    "b": "Grit",             "c": "Goal Line"},      "tempo": {"name": "Pursuit",    "a": "Closing Speed", "b": "Instinct",     "c": "Motor"}},
+	"setter":      {"tree": "Playmaker",    "power": {"name": "Setting",    "a": "Quick Set",     "b": "Precision",     "c": "Perfect Set"},     "guard": {"name": "Anchor",     "a": "Dig Deep",      "b": "Composure",        "c": "Fifth Set"},      "tempo": {"name": "Rotation",   "a": "Tempo",         "b": "Court Vision", "c": "Fast Break"}},
+	"spiker":      {"tree": "Attacker",     "power": {"name": "Spike",      "a": "Power Hit",     "b": "Placement",     "c": "Kill Shot"},       "guard": {"name": "Endurance",  "a": "Block Party",   "b": "Resolve",          "c": "Match Point"},    "tempo": {"name": "Approach",   "a": "Footwork",      "b": "Read",         "c": "Slide"}},
+	"striker":     {"tree": "Golden Boot",  "power": {"name": "Finishing",  "a": "Killer Instinct","b": "Placement",    "c": "Clinical Edge"},   "guard": {"name": "Stamina",    "a": "Second Wind",   "b": "Comeback",         "c": "Ninety Minutes"}, "tempo": {"name": "Footwork",   "a": "Pace",          "b": "Vision",       "c": "Nutmeg"}},
+	"goalkeeper":  {"tree": "Last Line",    "power": {"name": "Reflex",     "a": "Shot Stop",     "b": "Reads",         "c": "Point Blank"},     "guard": {"name": "Wall",       "a": "Iron Gloves",   "b": "Nerve",            "c": "Clean Sheet"},    "tempo": {"name": "Distribution","a": "Quick Release","b": "Vision",       "c": "Sweeper"}},
+}
+
+# The stat deltas from a talent allocation for a class — UNCAPPED sum (the server applies TALENT_STAT_CAP).
+# Reads only KNOWN node ids from TALENT_SHAPE, so a stored alloc with orphaned/renamed keys is ignored safely.
+static func talent_stat_deltas(talents: Dictionary, cls: String) -> Dictionary:
+	var out := {}
+	for br in TALENT_BRANCH_ORDER:
+		for n in TALENT_SHAPE[br]["nodes"]:
+			var r := mini(int(talents.get("%s_%s_%s" % [cls, br, n["slot"]], 0)), int(n["max"]))
+			if r > 0:
+				out[str(n["stat"])] = int(out.get(str(n["stat"]), 0)) + r * int(n["per"])
+	return out
+
+static func talent_points_available(level: int, talent_spent: int) -> int:
+	return maxi(0, (level - 1) * TALENT_POINTS_PER_LEVEL - talent_spent)
+
+# a node's def by node_id ("cls_branch_slot"), or {} if not a valid node for this class
+static func talent_node_def(cls: String, node_id: String) -> Dictionary:
+	for br in TALENT_BRANCH_ORDER:
+		for n in TALENT_SHAPE[br]["nodes"]:
+			if "%s_%s_%s" % [cls, br, n["slot"]] == node_id:
+				return {"branch": br, "stat": str(n["stat"]), "max": int(n["max"]), "per": int(n["per"]), "req": int(n["req"])}
+	return {}
+
+# ranks already spent in a branch (for the in-branch prerequisite gate)
+static func talent_branch_ranks(talents: Dictionary, cls: String, branch: String) -> int:
+	var tot := 0
+	for n in TALENT_SHAPE[branch]["nodes"]:
+		tot += int(talents.get("%s_%s_%s" % [cls, branch, n["slot"]], 0))
+	return tot
+
 const SET_DEFS := {
 	"baseball":   {"name": "Slugger",   "stat": "PWR", "th": {"2": 8, "4": 15}},
 	"football":   {"name": "Gridiron",  "stat": "END", "th": {"2": 8, "4": 15}},
