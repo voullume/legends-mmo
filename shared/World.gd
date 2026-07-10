@@ -122,7 +122,7 @@ const PORTALS := {
 		# GY4 has TWO elites (mid sled @980,700 + east ball @1580) — drop WEST of both, in the entry lane.
 		{"x": 120.0,  "y": 550.0,  "to": GY4,     "tx": 600.0,  "ty": 520.0, "label": "◀ Target Court"},
 		# the reserved east pad → the Head Coach arena (placed clear of the drill camp @1620,550, > AGGRO 320)
-		{"x": 1900.0, "y": 350.0,  "to": GY_BOSS, "tx": 140.0,  "ty": 410.0, "label": "▶ Head Coach Arena"},
+		{"x": 1900.0, "y": 350.0,  "to": GY_BOSS, "tx": 140.0,  "ty": 410.0, "gate": "boss_ready", "label": "▶ Head Coach Arena"},
 	],
 	GY_BOSS: [
 		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). The boss is central, far from

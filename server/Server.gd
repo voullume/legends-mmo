@@ -74,7 +74,14 @@ const RESIDENTS := [
 	{"id": "vulture", "name": "Vulture", "class": "batter",     "persona": "rude",     "home": "glitchyard_4",    "level": 8,  "tier": "high", "polite": false},
 ]
 const ROUTE_DWELL_MS := 75000         # a routing resident spends this long in each zone before moving on
-const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.6, "dmg": 1.25}, "high": {"hp": 2.6, "dmg": 1.55}}
+const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.3, "dmg": 1.1}, "high": {"hp": 1.8, "dmg": 1.25}}   # difficulty-pass v1: bots are helpers, not carries (was mid 1.6/1.25, high 2.6/1.55) — tunable
+const RESIDENT_STRIP_ULTS := true                # difficulty-pass v1: park bonded-resident ultimates (their biggest carry burst); mercy keeps her single-target heal
+const RESIDENT_ULT_LOCK := 1.0e9                 # sentinel cooldown that never decrements to 0 within a bounded fight
+# --- difficulty-pass v1: gate the first boss (Head Coach Arena) on real progression so a fresh char + bots can't cheese it ---
+const BOSS_GATE_LEVEL := 16                       # must be at least this level to enter GY_BOSS (tunable)
+const BOSS_GATE_IP := 800                         # AND at least this aggregate equipped item-power / gear score (tunable; ~top of the fresh-quester band, just below a full-rare set)
+const HIDDEN_GATES := ["secret_key", "all_quests"]   # gated portals HIDDEN in the snapshot; boss_ready stays VISIBLE-but-locked (a known goal, not a surprise)
+const GATE_PROMPT_COOLDOWN_MS := 4000             # one "sealed pad" prompt per this interval while loitering on a locked gated pad
 const RESIDENT_ASSIST_RANGE := 280.0  # a resident's kill credits a player within this range of the mob
 const RESIDENT_ENGAGED_S := 6.0       # "engaged" = took a hit within this many seconds (a real participant)
 
@@ -161,6 +168,7 @@ var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
 var _tp_next := {}                 # fighter id → earliest ms it may use a portal (grace after teleport/spawn)
+var _gate_prompt_next := {}        # pid → earliest ms for the next "sealed pad" prompt (difficulty-pass v1)
 var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
 var _equipping := {}               # peer ids with an equip() toggle in flight (race guard)
 var _equip_next := {}              # peer id → earliest ms it may equip again (rate limit)
@@ -516,6 +524,10 @@ func _scale_resident(f) -> void:
 	f["maxHP"] = (f["maxHP"] + (lvl - 1) * LEVEL_HP) * float(tier["hp"])
 	f["hp"] = f["maxHP"]
 	f["dmgMult"] *= float(tier["dmg"])
+	if RESIDENT_STRIP_ULTS:                       # difficulty-pass v1: park bonded-resident ults on a sentinel cd so the Sim's cd>0 skip never fires them.
+		for ab in GameData.CLASSES.get(str(f.get("classId", "")), {}).get("abilities", []):   # re-applied every respawn (create_fighter zeroes cds first). Don't remove without re-checking the cds handling.
+			if ab.get("ult", false):
+				(f["cds"] as Dictionary)[ab["key"]] = RESIDENT_ULT_LOCK
 
 # ---- instances (endgame P0/P1): private per-party worlds spun up on demand + torn down when empty ----
 var _instances := {}                             # instance key → {template, owner, tier, created_ms, cleared}
@@ -1242,6 +1254,7 @@ func _on_peer_disconnected(pid: int) -> void:
 	_remove_fighter(s["fid"])
 	_maybe_teardown_instance(left_map)           # last player out of a private instance → tear it down
 	_lb_next.erase(pid)
+	_gate_prompt_next.erase(pid)
 	_peers.erase(pid)
 	_session.erase(pid)
 	_move.erase(pid)
@@ -2495,7 +2508,10 @@ func _check_portals() -> void:
 						break                          # locked → inert (no teleport); P3 offers the purchase on proximity
 					continue                          # Camp: walking onto the pad only opens the client selector.
 				if portal.has("gate") and not _portal_unlocked(pid, str(portal["gate"])):
-					continue                          # gated + locked (e.g. the secret boss) — no teleport (it's also hidden in the snapshot)
+					if str(portal["gate"]) == "boss_ready" and now >= int(_gate_prompt_next.get(pid, 0)) and net != null:   # difficulty-pass v1: tell the player WHY the visible pad is sealed (throttled, existing recv_chat RPC)
+						_gate_prompt_next[pid] = now + GATE_PROMPT_COOLDOWN_MS
+						net.recv_chat.rpc_id(pid, "SYSTEM", "The Head Coach Arena is sealed — reach level %d and gear score %d to enter." % [BOSS_GATE_LEVEL, BOSS_GATE_IP])
+					continue                          # gated + locked — no teleport (secret-type gates are also hidden in the snapshot)
 				# leaving an active Drill via the exit → END the run (bank the score + reward), not a bare teleport
 				if str((_instances.get(s["map"], {}) as Dictionary).get("mode", "")) == "drill" and bool((_instances.get(s["map"], {}) as Dictionary).get("active", false)):
 					_end_drill(s["map"])
@@ -2522,6 +2538,9 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 			return _all_quests_done(pid)
 		"secret_key":                            # the secret boss: finish EVERY quest (incl. Boss1) AND forge the Master Key
 			return _all_quests_done(pid) and _has_master_key(pid)
+		"boss_ready":                            # difficulty-pass v1: the first boss needs real progression — level AND gear score
+			var s = _session.get(pid, {})
+			return int(s.get("level", 1)) >= BOSS_GATE_LEVEL and int(s.get("item_power", 0)) >= BOSS_GATE_IP
 	return true
 
 # per-player portal list for the snapshot: gated portals the player hasn't unlocked are HIDDEN (the secret
@@ -2529,8 +2548,8 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 func _portals_for_player(map: String, pid: int) -> Array:
 	var out := []
 	for p in World.PORTALS.get(_template(map), []):   # by template so instance worlds render their exit pad
-		if p.has("gate") and not _portal_unlocked(pid, str(p["gate"])):
-			continue
+		if p.has("gate") and HIDDEN_GATES.has(str(p["gate"])) and not _portal_unlocked(pid, str(p["gate"])):
+			continue                                  # difficulty-pass v1: only SECRET-type gates hide; boss_ready stays visible-but-locked
 		out.append({"x": p["x"], "y": p["y"], "label": p["label"]})
 	return out
 
