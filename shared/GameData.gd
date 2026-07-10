@@ -271,6 +271,58 @@ const CLASSES := {
 	# Power cores — inert destructible objects (team 1, the boss's side). No abilities, stationary → they just
 	# sit; players destroy them to weaken/cancel the boss's Full Camp Reset ult (mult = cores_alive/coreCount).
 	# "isCore":true → the server tags them no-loot/no-XP. They respawn like any mob, so the counterplay recurs.
+	# --- gameplay-length P3 (roster remix): new leveling-zone minions. Reuse existing GLBs (recolored via the
+	# opt-in client tint) + ONLY ability types already proven on mobs (melee/dashAttack/meleeAoe/projectile/
+	# zone/selfbuff — no new sim RNG). Seeded into GY3-5 + the Drill pool. Stats/colors are playtest-tunable.
+	"spring_cone": {
+		"name": "Spring-Loaded Cone", "sport": "", "mob": true, "model": "cone", "anim": "cone", "h": 1.5,
+		"lane": 0, "color": "#7CFF4A", "recolor": true,
+		"stats": {"PWR": 34, "PRE": 24, "SPD": 78, "END": 24, "INS": 18, "CLU": 16},
+		"abilities": [
+			{"key": "hopjab", "name": "Hop Jab", "type": "melee", "basic": true, "dmg": 30, "cd": 1.0, "range": 52},
+			{"key": "springdash", "name": "Spring Dash", "type": "dashAttack", "dmg": 30, "cd": 4.5, "dist": 165, "slow": {"amt": 0.15, "dur": 0.8}},
+		],
+	},
+	"tire_dummy": {
+		"name": "Tractor-Tire Dummy", "sport": "", "mob": true, "rig": true, "model": "foam_dummy",
+		"skins": ["foam_dummy", "foam_dummy2"], "h": 3.3,
+		"lane": 0, "color": "#8792A6", "recolor": true,
+		"stats": {"PWR": 40, "PRE": 26, "SPD": 26, "END": 58, "INS": 20, "CLU": 18},
+		"abilities": [
+			{"key": "tireroll", "name": "Tire Roll", "type": "melee", "basic": true, "dmg": 38, "cd": 1.4, "range": 60, "cast": 0.3},
+			{"key": "brace", "name": "Brace", "type": "selfbuff", "cd": 10.0, "buff": {"dr": 0.30, "dur": 2.2}},
+			{"key": "tirebump", "name": "Tire Bump", "type": "melee", "dmg": 28, "cd": 6.5, "range": 62, "cast": 0.3, "knockback": 55},
+		],
+	},
+	"chalk_liner": {
+		"name": "Chalk-Line Marker", "sport": "", "mob": true, "model": "shooting_dummy",
+		"skins": ["shooting_dummy", "shooting_dummy2"], "anim": "turret", "h": 3.2,
+		"lane": 2, "color": "#EDEDED", "recolor": true, "stationary": true,
+		"stats": {"PWR": 40, "PRE": 38, "SPD": 8, "END": 34, "INS": 24, "CLU": 18},
+		"abilities": [
+			{"key": "chalkshot", "name": "Chalk Shot", "type": "projectile", "basic": true, "dmg": 34, "cd": 1.3, "range": 290, "speed": 410},
+			{"key": "dustline", "name": "Dust Line", "type": "zone", "cd": 9.0, "dur": 4.0, "radius": 110, "dmg": 6, "slow": {"amt": 0.25, "dur": 0.5}},
+		],
+	},
+	"whistle_cone": {
+		"name": "Whistle Cone", "sport": "", "mob": true, "model": "cone", "anim": "cone", "h": 1.5,
+		"lane": 0, "color": "#FFE04A", "recolor": true,
+		"stats": {"PWR": 38, "PRE": 28, "SPD": 64, "END": 26, "INS": 20, "CLU": 16},
+		"abilities": [
+			{"key": "conenip", "name": "Cone Nip", "type": "melee", "basic": true, "dmg": 30, "cd": 1.1, "range": 54},
+			{"key": "whistle", "name": "Whistle Blast", "type": "melee", "dmg": 18, "cd": 7.0, "range": 60, "stun": 0.9},
+		],
+	},
+	"pop_dummy": {
+		"name": "Pop-Up Dummy", "sport": "", "mob": true, "rig": true, "model": "foam_dummy",
+		"skins": ["foam_dummy2", "foam_dummy"], "h": 3.3,
+		"lane": 0, "color": "#E8564A", "recolor": true,
+		"stats": {"PWR": 46, "PRE": 26, "SPD": 30, "END": 40, "INS": 20, "CLU": 18},
+		"abilities": [
+			{"key": "popswing", "name": "Pop Swing", "type": "melee", "basic": true, "dmg": 38, "cd": 1.35, "range": 60, "cast": 0.35},
+			{"key": "popburst", "name": "Pop Burst", "type": "meleeAoe", "dmg": 34, "cd": 7.0, "radius": 90, "cast": 0.4},
+		],
+	},
 	"power_core": {
 		"name": "Power Core", "sport": "", "mob": true, "model": "power_core", "anim": "core", "h": 2.0,
 		"lane": 1, "color": "#33CCFF", "stationary": true, "isCore": true,

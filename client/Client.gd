@@ -1287,6 +1287,10 @@ func _spawn(f: Dictionary) -> void:
 			"t": 0.0, "atk": 0.0, "atkType": "", "hit": 0.0, "death": 0.0,
 			"pcds": (f.get("cds", {}) as Dictionary).duplicate(),   # primed — same spawn-phantom guard
 		}
+	var _rcdef: Dictionary = GameData.CLASSES.get(str(f.get("classId", "")), {})   # gameplay-length P3: recolor a reused-GLB
+	if _rcdef.get("recolor", false):                        # remix variant via the DYE channel, so the hit-flash restore
+		_nodes[f["id"]]["dye_applied"] = str(_rcdef.get("color", ""))   # re-applies it (not a one-shot overlay the flash wipes)
+		_apply_dye(model, str(_rcdef.get("color", "")))
 
 # ============================================================ main loop
 func _process(delta: float) -> void:

@@ -1115,7 +1115,7 @@ func _spawn_drill_wave(key: String, wave: int) -> void:
 	if w == null:
 		return
 	var count := clampi(2 + wave, 2, 10)
-	var pool := ["cone_swarmer", "foam_dummy", "shooting_dummy", "tackle_brute"]
+	var pool := ["cone_swarmer", "foam_dummy", "shooting_dummy", "tackle_brute", "spring_cone", "tire_dummy", "chalk_liner", "whistle_cone", "pop_dummy"]   # gameplay-length P3: roster remix widens the Drill variety
 	var lvl := clampi(1 + wave, 1, 20)
 	var cx := float(w.get("arenaW", GameData.ARENA_W)) * 0.5
 	var cy := float(w.get("arenaH", GameData.ARENA_H)) * 0.5

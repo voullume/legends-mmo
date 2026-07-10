@@ -77,6 +77,26 @@ content + the chase to the secret boss, then open-ended-but-repetitive Intensity
 
 ---
 
+## 3b. Difficulty & scaling — OWNER-FLAGGED 2026-07-09 (deferred, required)
+
+**Playtest bug:** a brand-new character finished all 9 quests + beat the first boss (Head Coach) just by
+party-inviting the basic AI bots. **Intended:** the first boss should need ~near-max gear + level even
+solo-with-bots, or 3-4 geared L18+ players. Diagnosed root causes (all file-cited in
+`[[legends-mmo-difficulty-scaling]]`): (1) **level gives no combat power** — `derive()` ignores level, only +HP;
+(2) **AI bots are a free geared full-kit party** (Phase-2 gating doesn't touch them; they follow into the boss
+arena); (3) bots hand kill/XP/quest credit to the fresh char; (4) **no gear/level gate** on the quests or the
+GY5→GY_BOSS portal; (5) **no per-party-size boss scaling**.
+
+**Levers (prioritized):** ① *[S — quick-fix for this exact bug]* block bonded residents from following into
+GY_BOSS/GY_SECRET (`_try_follow`); ② *[M]* weaken/cap resident tiers + strip bot ults; ③ *[M]* cap #bots by
+recruiter level; ④ *[L — root fix]* make level scale combat power at the fighter-stat seam (harness stays
+byte-identical); ⑤ *[M]* gear/level gate on the boss portal; ⑥ *[L]* raise boss HP/DMG + a bot-counting
+`_scale_mob` term. **Recommended combo: ①+④+⑤ (+retune ⑥).** Best sequenced as a dedicated **difficulty pass**
+(fold ④/⑤/⑥ in; per-party boss scaling overlaps Phase 8). Phase-3 leveling-zone mobs are tuned independently of
+this (they're level-appropriate, not the boss problem).
+
+---
+
 ## 4. The roadmap (8 phases)
 
 Effort: S/M/L/XL. Payoff = effect on gameplay length. Phases 1-6 front-load the highest length-per-effort
