@@ -446,22 +446,25 @@ const MAP_IDS := ["stadium", "rooftop", "centerfield", "sandcourt", "trenches"]
 # to confirm FORMAT_MODS[5] parity holds (a symmetric +power still multiplies the existing class dmg gaps).
 const TALENT_POINTS_PER_LEVEL := 1
 const TALENT_STAT_CAP := 20               # per-stat talent ceiling (parallel above EQUIP_STAT_CAP, mirrors SET_BONUS_CAP)
-const TALENT_RESPEC_CREDITS := 750        # flat-credits respec sink (tunable)
+const TALENT_RESPEC_CREDITS := 50000      # heavy flat-credits respec sink (tunable) — makes players COMMIT to a build (5x the 10k Locker unlock)
 const TALENT_BRANCH_ORDER := ["power", "guard", "tempo"]
-# node = {slot, stat, max ranks, per-rank delta, req = cumulative RANKS already spent in this branch to unlock}
+# node = {slot, stat, max ranks, per-rank delta, req = cumulative RANKS in this branch to unlock the node}.
+# req is 0 on EVERY node → the whole tree is ungated: any node can be raised at any time (only bounded by the node's
+# max ranks + your total points). This is deliberate build-diversity — no forced a→b→c spend order, so players mix
+# branches/nodes into concept builds instead of one streamlined path. (Raise a req to re-introduce a spend order.)
 const TALENT_SHAPE := {
 	"power": {"nodes": [
 		{"slot": "a", "stat": "PWR", "max": 5, "per": 2, "req": 0},
-		{"slot": "b", "stat": "PRE", "max": 5, "per": 2, "req": 5},
-		{"slot": "c", "stat": "PWR", "max": 3, "per": 2, "req": 10, "capstone": true}]},
+		{"slot": "b", "stat": "PRE", "max": 5, "per": 2, "req": 0},
+		{"slot": "c", "stat": "PWR", "max": 3, "per": 2, "req": 0, "capstone": true}]},
 	"guard": {"nodes": [
 		{"slot": "a", "stat": "END", "max": 5, "per": 2, "req": 0},
-		{"slot": "b", "stat": "CLU", "max": 5, "per": 2, "req": 5},
-		{"slot": "c", "stat": "END", "max": 3, "per": 2, "req": 10, "capstone": true}]},
+		{"slot": "b", "stat": "CLU", "max": 5, "per": 2, "req": 0},
+		{"slot": "c", "stat": "END", "max": 3, "per": 2, "req": 0, "capstone": true}]},
 	"tempo": {"nodes": [
 		{"slot": "a", "stat": "SPD", "max": 5, "per": 2, "req": 0},
-		{"slot": "b", "stat": "INS", "max": 5, "per": 2, "req": 5},
-		{"slot": "c", "stat": "SPD", "max": 3, "per": 2, "req": 10, "capstone": true}]},
+		{"slot": "b", "stat": "INS", "max": 5, "per": 2, "req": 0},
+		{"slot": "c", "stat": "SPD", "max": 3, "per": 2, "req": 0, "capstone": true}]},
 }
 # names only — node_id = "<cls>_<branch>_<slot>"; mechanics are identical across all 8 classes
 const TALENT_FLAVOR := {

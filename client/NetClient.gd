@@ -2363,7 +2363,7 @@ func _build_talents() -> void:
 	var vb: VBoxContainer = p["body"]
 	_talent_status = Widgets.status(Palette.ACCENT2)
 	vb.add_child(_talent_status)
-	vb.add_child(Widgets.hint("Earn 1 point per level. Spend into three branches — each stat is a permanent boost that stacks on top of your gear. Later nodes unlock as you invest in the branch. Respec anytime for credits."))
+	vb.add_child(Widgets.hint("Earn 1 point per level. Spend freely into any of the nine nodes — nothing is gated, so mix branches and nodes into your own concept build; each stat is a permanent boost that stacks on your gear. Respec wipes everything for a heavy fee, so commit."))
 	_talent_rows = VBoxContainer.new()
 	_talent_rows.add_theme_constant_override("separation", 4)
 	vb.add_child(_talent_rows)
