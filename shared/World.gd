@@ -219,11 +219,11 @@ const MOBS := {
 		{"class": "cone_swarmer",   "level": 5, "tier": "minion", "x": 460.0,  "y": 300.0},
 		{"class": "cone_swarmer",   "level": 5, "tier": "minion", "x": 460.0,  "y": 560.0},
 		{"class": "foam_dummy",     "level": 6, "tier": "minion", "x": 820.0,  "y": 300.0},
-		{"class": "shooting_dummy", "level": 6, "tier": "minion", "x": 820.0,  "y": 560.0},
-		{"class": "sled_juggernaut","level": 7, "tier": "elite",  "x": 1080.0, "y": 430.0},
+		{"class": "field_medic",    "level": 6, "tier": "elite",  "x": 820.0,  "y": 560.0},   # P3b: a healer — focus it or the run drags
+		{"class": "iron_sled",      "level": 7, "tier": "elite",  "x": 1080.0, "y": 430.0},   # P3b: tankier sled, flank it
 		# the CLEAR objective: killing the gatekeeper completes the run (grants the tier reward + unlocks the
 		# next Intensity). Instance mobs don't respawn, so a Circuit is a finite clear.
-		{"class": "tackle_brute",   "level": 8, "tier": "elite",  "x": 1320.0, "y": 430.0, "objective": true},
+		{"class": "tackle_captain", "level": 8, "tier": "elite",  "x": 1320.0, "y": 430.0, "objective": true},   # P3b: the clear gatekeeper (well-rounded bruiser)
 	],
 }
 

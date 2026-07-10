@@ -323,6 +323,62 @@ const CLASSES := {
 			{"key": "popburst", "name": "Pop Burst", "type": "meleeAoe", "dmg": 34, "cd": 7.0, "radius": 90, "cast": 0.4},
 		],
 	},
+	# --- gameplay-length P3b (roster remix, elites): new ELITE mob defs reusing existing GLBs (recolored) + only
+	# AI-proven/verified ability types (incl. mob support via AI.support_tick). Seeded into the Camp Circuit + Drill.
+	"iron_sled": {
+		"name": "Iron Blocking Sled", "sport": "", "mob": true, "model": "sled_juggernaut", "anim": "brute", "h": 2.9,
+		"face": 90.0,
+		"lane": 0, "color": "#6E7681", "recolor": true, "kbImmune": true, "frontalDR": 0.55,
+		"stats": {"PWR": 64, "PRE": 22, "SPD": 16, "END": 96, "INS": 20, "CLU": 20},
+		"abilities": [
+			{"key": "ironshoulder", "name": "Iron Shoulder", "type": "melee", "basic": true, "dmg": 50, "cd": 1.6, "range": 66},
+			{"key": "irondrive", "name": "Iron Drive", "type": "dashAttack", "dmg": 74, "cd": 7.5, "dist": 175, "cast": 0.45, "knockback": 95, "wallStun": 1.5},
+			{"key": "ironslam", "name": "Iron Slam", "type": "meleeAoe", "dmg": 58, "cd": 9.0, "radius": 95, "cast": 0.5, "knockback": 50},
+			{"key": "ironbrace", "name": "Iron Brace", "type": "selfbuff", "cd": 11.0, "buff": {"dr": 0.30, "dur": 2.4}},
+		],
+	},
+	"gatling_machine": {
+		"name": "Gatling Ball Machine", "sport": "", "mob": true, "model": "ball_machine", "anim": "turret", "h": 2.4,
+		"face": 90.0,
+		"lane": 2, "color": "#C43C2E", "recolor": true, "stationary": true,
+		"stats": {"PWR": 54, "PRE": 46, "SPD": 8, "END": 42, "INS": 28, "CLU": 18},
+		"abilities": [
+			{"key": "rapidfire", "name": "Rapid Fire", "type": "projectile", "basic": true, "dmg": 36, "cd": 1.0, "range": 300, "speed": 450, "wobble": 1},
+			{"key": "fanvolley", "name": "Fan Volley", "type": "spread", "dmg": 22, "count": 7, "arc": 0.9, "cd": 6.0, "range": 300, "speed": 430, "wobble": 1},
+			{"key": "carom", "name": "Carom Shot", "type": "spread", "dmg": 40, "count": 2, "arc": 0.22, "cd": 9.0, "range": 300, "speed": 430, "bounces": 2},
+		],
+	},
+	"field_medic": {
+		"name": "Camp Field Medic", "sport": "", "mob": true, "rig": true, "model": "drill_sergeant", "h": 2.9,
+		"lane": 0, "color": "#2FA79A", "recolor": true,
+		"stats": {"PWR": 40, "PRE": 40, "SPD": 30, "END": 58, "INS": 34, "CLU": 22},
+		"abilities": [
+			{"key": "medjab", "name": "Med Jab", "type": "melee", "basic": true, "dmg": 34, "cd": 1.4, "range": 60},
+			{"key": "tapeup", "name": "Tape Up", "type": "allyheal", "targetType": "ally", "healPct": 0.09, "cd": 9.0},   # P3b: conservative — % heal scales with Intensity-inflated HP, so keep it under a party's DPS (playtest-tune)
+			{"key": "extrapads", "name": "Extra Pads", "type": "allybuff", "targetType": "ally", "shieldPct": 0.13, "dur": 3.0, "cd": 10.0},
+		],
+	},
+	"blitz_captain": {
+		"name": "Blitz Captain", "sport": "", "mob": true, "rig": true, "model": "drill_sergeant", "h": 2.9,
+		"lane": 0, "color": "#E08A2E", "recolor": true, "kbImmune": true,
+		"stats": {"PWR": 50, "PRE": 32, "SPD": 30, "END": 66, "INS": 30, "CLU": 22},
+		"abilities": [
+			{"key": "captainbark", "name": "Captain's Bark", "type": "melee", "basic": true, "dmg": 42, "cd": 1.4, "range": 62},
+			{"key": "reinforce", "name": "Reinforce", "type": "summon", "mobType": "spring_cone", "count": 3, "cd": 16.0},
+			{"key": "blindsidecharge", "name": "Blindside Charge", "type": "dashAttack", "dmg": 60, "cd": 8.0, "dist": 175, "cast": 0.4, "knockback": 70},
+		],
+	},
+	"tackle_captain": {
+		"name": "Tackle Captain", "sport": "", "mob": true, "model": "tackle_brute", "anim": "brute", "h": 3.5,
+		"lane": 0, "color": "#D9A21A", "recolor": true,
+		"stats": {"PWR": 60, "PRE": 26, "SPD": 26, "END": 78, "INS": 24, "CLU": 22},
+		"abilities": [
+			{"key": "captainbash", "name": "Captain's Bash", "type": "melee", "basic": true, "dmg": 48, "cd": 1.5, "range": 64},
+			{"key": "blindside", "name": "Blindside", "type": "dashAttack", "dmg": 66, "cd": 7.5, "dist": 180, "cast": 0.45, "knockback": 80},
+			{"key": "flatten", "name": "Flatten", "type": "meleeAoe", "dmg": 44, "cd": 8.0, "radius": 95, "cast": 0.5, "knockback": 45},
+			{"key": "churn", "name": "Churn", "type": "zone", "cd": 11.0, "radius": 115, "dur": 4.5, "dmg": 8.0, "slow": {"amt": 0.30, "dur": 0.5}},
+		],
+	},
 	"power_core": {
 		"name": "Power Core", "sport": "", "mob": true, "model": "power_core", "anim": "core", "h": 2.0,
 		"lane": 1, "color": "#33CCFF", "stationary": true, "isCore": true,

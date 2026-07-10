@@ -536,6 +536,15 @@ const INTENSITY_MAX := 30                         # ceiling on the ladder (the D
 const MASTER_KEY_PAGES := 300                     # pages to forge the Master Key (the ~6h chase dial)
 const CIRCUIT_CLEAR_PAGES_BASE := 5              # a Circuit clear yields BASE + tier*PER_TIER pages
 const CIRCUIT_CLEAR_PAGES_PER_TIER := 3
+# --- gameplay-length P3b: weekly Camp Circuit AFFIX — a shared, rotating modifier stamped onto instance mobs via
+# the mob-only _scale_mob lever (exactly like the Intensity ladder) so it's deterministic + balance-safe. UTC weeks.
+const WEEK_SECS := 604800
+const AFFIX_ROTATION := [
+	{"id": "standard",   "name": "Standard Practice", "hp": 1.0,  "dmg": 1.0,  "pages": 1.0},
+	{"id": "hardened",   "name": "Hardened Pads",      "hp": 1.35, "dmg": 1.0,  "pages": 1.15},   # tankier mobs, longer clears
+	{"id": "frenzy",     "name": "Two-Minute Frenzy",  "hp": 0.85, "dmg": 1.20, "pages": 1.15},   # squishier but hit harder
+	{"id": "recruiting", "name": "Recruiting Week",     "hp": 1.0,  "dmg": 1.0,  "pages": 1.5},    # pure-reward week
+]
 const BOSS_PAGES := 50                            # the Head Coach boss also drops a page chunk
 # --- Two-Minute Drill (P5): endless wave survival → leaderboard ---
 const DRILL_WAVE_GAP_MS := 2500                  # breather between waves
@@ -556,7 +565,7 @@ func _intensity_dmg(tier: int) -> float:
 
 # spawn a template's mob roster into an already-created instance world, stamped with the instance's Intensity
 # (read by _scale_mob) + the clear-objective flag (its death completes the run).
-func _spawn_instance_actors(key: String, tmpl: String, tier: int) -> void:
+func _spawn_instance_actors(key: String, tmpl: String, tier: int, affix: Dictionary = {}) -> void:
 	for m in World.MOBS.get(tmpl, []):
 		var fid := _spawn_fighter(str(m["class"]), 1, Vector2(float(m["x"]), float(m["y"])), key)
 		var f = _find(fid)
@@ -565,6 +574,8 @@ func _spawn_instance_actors(key: String, tmpl: String, tier: int) -> void:
 		f["mobLevel"] = int(m["level"])
 		f["mobTier"] = str(m["tier"])
 		f["intensity"] = tier                    # _scale_mob reads this for the ladder multiplier
+		f["affixHp"] = float(affix.get("hp", 1.0))    # gameplay-length P3b: weekly affix, baked in here + read by _scale_mob below
+		f["affixDmg"] = float(affix.get("dmg", 1.0))
 		if bool(m.get("objective", false)):
 			f["objective"] = true                # killing it completes the Circuit (grants tier reward + unlock)
 		_scale_mob(f)
@@ -573,12 +584,19 @@ func _spawn_instance_actors(key: String, tmpl: String, tier: int) -> void:
 
 # get-or-create the instance world for (template, owner, tier). Owner = a party key or a solo fid, so
 # party-mates entering at the same tier share one instance. Idempotent: returns the existing key if live.
+# gameplay-length P3b: this week's shared Circuit affix. Function of UTC weeks (orchestration, never read by the
+# deterministic Sim) — identical for everyone in a given week, stamped onto each instance's mobs at spawn.
+func _current_affix() -> Dictionary:
+	var week := int(Time.get_unix_time_from_system() / WEEK_SECS)
+	return AFFIX_ROTATION[week % AFFIX_ROTATION.size()]
+
 func _ensure_instance(tmpl: String, owner: String, tier: int) -> String:
 	var key := "%s#%s#%d" % [tmpl, owner, tier]
 	if not _worlds.has(key):
 		_worlds[key] = _new_world(key)
-		_spawn_instance_actors(key, tmpl, tier)
-		_instances[key] = {"template": tmpl, "owner": owner, "tier": tier, "created_ms": Time.get_ticks_msec(), "cleared": false}
+		var affix := _current_affix()            # this run's affix, baked into its mobs (so a week-boundary mid-run doesn't re-roll)
+		_spawn_instance_actors(key, tmpl, tier, affix)
+		_instances[key] = {"template": tmpl, "owner": owner, "tier": tier, "created_ms": Time.get_ticks_msec(), "cleared": false, "affix": affix}
 		print("[zone] instance %s created (I%d)" % [key, tier])
 	return key
 
@@ -701,9 +719,9 @@ func _on_circuit_clear(key: String) -> void:
 				pids.append(pid)
 	print("[zone] CIRCUIT CLEAR %s (I%d) for %d player(s)" % [key, tier, pids.size()])
 	for pid in pids:
-		await _grant_circuit_clear(pid, tier)
+		await _grant_circuit_clear(pid, tier, meta.get("affix", {}))
 
-func _grant_circuit_clear(pid: int, tier: int) -> void:
+func _grant_circuit_clear(pid: int, tier: int, affix: Dictionary = {}) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]
@@ -714,7 +732,7 @@ func _grant_circuit_clear(pid: int, tier: int) -> void:
 				s["max_intensity"] = int(nm)
 				_submit_score(str(s["char_id"]), str(s["name"]), "intensity", int(nm) - 1)   # P5: highest Intensity CLEARED
 
-	await _award_pages(pid, CIRCUIT_CLEAR_PAGES_BASE + tier * CIRCUIT_CLEAR_PAGES_PER_TIER)   # attunement (P2)
+	await _award_pages(pid, int(round((CIRCUIT_CLEAR_PAGES_BASE + tier * CIRCUIT_CLEAR_PAGES_PER_TIER) * float(affix.get("pages", 1.0)))))   # attunement (P2) × this run's baked-in weekly-affix reward mult (P3b)
 	# a guaranteed Intensity-scaled bonus drop (a synthetic elite-tier roll) as the clear reward
 	if _session.has(pid):
 		await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
@@ -1127,7 +1145,7 @@ func _spawn_drill_wave(key: String, wave: int) -> void:
 	if w == null:
 		return
 	var count := clampi(2 + wave, 2, 10)
-	var pool := ["cone_swarmer", "foam_dummy", "shooting_dummy", "tackle_brute", "spring_cone", "tire_dummy", "chalk_liner", "whistle_cone", "pop_dummy"]   # gameplay-length P3: roster remix widens the Drill variety
+	var pool := ["cone_swarmer", "foam_dummy", "shooting_dummy", "tackle_brute", "spring_cone", "tire_dummy", "chalk_liner", "whistle_cone", "pop_dummy", "iron_sled", "gatling_machine", "blitz_captain", "tackle_captain"]   # gameplay-length P3/P3b: roster remix widens the Drill variety (minions + elites)
 	var lvl := clampi(1 + wave, 1, 20)
 	var cx := float(w.get("arenaW", GameData.ARENA_W)) * 0.5
 	var cy := float(w.get("arenaH", GameData.ARENA_H)) * 0.5
@@ -2478,6 +2496,9 @@ func _consume_summons(w: Dictionary, mapname: String) -> void:
 			add["isAdd"] = true
 			add["mobLevel"] = maxi(1, int(owner.get("mobLevel", 1)) - 1)
 			add["mobTier"] = "minion"
+			add["intensity"] = int(owner.get("intensity", 1))   # P3b: adds inherit the summoner's Circuit context (1 = open-world/Drill unchanged; future affixed rooms scale their adds too)
+			add["affixHp"] = float(owner.get("affixHp", 1.0))
+			add["affixDmg"] = float(owner.get("affixDmg", 1.0))
 			_scale_mob(add)
 	if had_summon:                # drop consumed summon events so the multi-sim-step catch-up loop (up to
 		var kept := []            # 5 _tick_world calls/frame, events not cleared until _broadcast) can't re-spawn them
@@ -2723,9 +2744,9 @@ func _scale_mob(f) -> void:
 	var bdef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
 	var i_hp := _intensity_hp(int(f.get("intensity", 1)))     # Camp Circuit Intensity ladder (1 = no-op for open-world mobs)
 	var i_dmg := _intensity_dmg(int(f.get("intensity", 1)))
-	f["maxHP"] = f["maxHP"] * hp_s * float(bdef.get("hpMult", 1.0)) * i_hp   # per-boss + per-instance-Intensity HP multiplier
+	f["maxHP"] = f["maxHP"] * hp_s * float(bdef.get("hpMult", 1.0)) * i_hp * float(f.get("affixHp", 1.0))   # per-boss + Intensity + weekly-affix HP mult (affix defaults 1.0 → open-world/boss unaffected)
 	f["hp"] = f["maxHP"]
-	f["dmgMult"] *= dmg_s * float(bdef.get("dmgScale", 1.0)) * i_dmg   # per-boss + per-instance-Intensity damage multiplier
+	f["dmgMult"] *= dmg_s * float(bdef.get("dmgScale", 1.0)) * i_dmg * float(f.get("affixDmg", 1.0))   # per-boss + Intensity + weekly-affix damage mult
 
 # Intensity reward factor for xp/credits (a Circuit mob at tier N is worth more): +50% per tier above 1.
 func _intensity_reward(mob) -> float:
