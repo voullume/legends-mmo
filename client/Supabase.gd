@@ -309,8 +309,10 @@ func get_progression_as(token: String) -> Dictionary:
 	# can't 400 the whole read and transiently reset the live Intensity ladder to 1 during a deploy window.
 	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/progression?select=*&limit=1", "", PackedStringArray(), token)
 	if r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0:
-		return {"ok": true, "max_intensity": int(r["data"][0].get("max_intensity", 1)), "pages": int(r["data"][0].get("playbook_pages", 0)), "has_key": bool(r["data"][0].get("has_master_key", false))}
-	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0, "has_key": false}
+		var row = r["data"][0]
+		var tal = row.get("talents", {})
+		return {"ok": true, "max_intensity": int(row.get("max_intensity", 1)), "pages": int(row.get("playbook_pages", 0)), "has_key": bool(row.get("has_master_key", false)), "talents": (tal if tal is Dictionary else {}), "talent_spent": int(row.get("talent_spent", 0))}
+	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0, "has_key": false, "talents": {}, "talent_spent": 0}
 
 # atomically add (+earn) or spend (−) Playbook Pages via progression_add_pages. Returns {ok,total}: ok=false
 # when a spend underflows (insufficient). Service-role only.
@@ -331,6 +333,25 @@ func progression_craft_key_as(char_id: String, cost: int) -> bool:
 		return false
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_craft_key", JSON.stringify({"p_char": char_id, "p_cost": cost}), PackedStringArray(), service_key)
 	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
+
+# gameplay-length P4: atomically spend `ranks` talent points into `node`, with the level budget + node cap enforced
+# in-DB (dupe-safe backstop). Returns {ok,talents}: ok=false when the spend is refused (over budget / node full /
+# bad ranks → the RPC returns null). p_budget = level-1 (point budget), p_node_max = the node's rank cap. Service-role only.
+func talents_spend_as(char_id: String, node: String, ranks: int, budget: int, node_max: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false, "talents": {}}
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_talent_spend", JSON.stringify({"p_char": char_id, "p_node": node, "p_ranks": ranks, "p_budget": budget, "p_node_max": node_max}), PackedStringArray(), service_key)
+	var val = r["data"]
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and val != null and val is Dictionary
+	return {"ok": ok, "talents": (val if ok else {})}
+
+# gameplay-length P4: atomically wipe the talent allocation (credit cost charged server-side beforehand). Returns
+# true on success. Service-role only.
+func talents_respec_as(char_id: String) -> bool:
+	if service_key == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_talent_respec", JSON.stringify({"p_char": char_id}), PackedStringArray(), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] != null
 
 # gameplay-length P1(d): rested XP. LOGIN — atomically accrue the offline pool (p_rate per hour, capped at p_cap,
 # both level-scaled by the caller), mark the character online, and return the resulting rested pool. Service-role only.

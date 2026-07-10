@@ -223,6 +223,27 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 	if client != null:
 		client.recv_cosmetics_changed(owned, equipped)
 
+# ---- talent trees (gameplay-length P4): spend/respec; server validates + atomically commits + pushes new state ----
+@rpc("any_peer", "call_remote", "reliable")
+func spend_talent(node: String, ranks: int) -> void:
+	if server != null:
+		server.spend_talent(multiplayer.get_remote_sender_id(), node, ranks)
+
+@rpc("any_peer", "call_remote", "reliable")
+func respec_talents() -> void:
+	if server != null:
+		server.respec_talents(multiplayer.get_remote_sender_id())
+
+@rpc("authority", "call_remote", "reliable")
+func recv_talents(talents: Dictionary, spent: int) -> void:
+	if client != null:
+		client.recv_talents(talents, spent)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_talent_point(level: int) -> void:
+	if client != null:
+		client.recv_talent_point(level)
+
 # ---- Builder Mode (P0): buy the one-time Locker-Room unlock. Server re-validates credits + flips atomically;
 # it owns credits + the flag (client sends only the intent). The Home-Base portal that triggers this + the
 # unlock confirmation land in P1/P3 (credits reflect via the per-tick snapshot until then). ----

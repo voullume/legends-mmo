@@ -803,6 +803,93 @@ func _do_craft_master_key(pid: int) -> void:
 		net.recv_key_crafted.rpc_id(pid, true)
 	print("[zone] %s forged the Master Key" % s["name"])
 
+# ---- talent trees (gameplay-length P4): spend/respec, dupe-safe (own-lock-before-await, atomic gated DB commit) ----
+var _tal_busy := {}                              # pid → a talent op is in flight
+var _tal_next := {}                              # pid → earliest next talent op (ms)
+
+func _tal_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_tal_busy.get(pid, false)) or now < int(_tal_next.get(pid, 0)):
+		return false
+	_tal_busy[pid] = true
+	_tal_next[pid] = now + 400
+	return true
+
+# client → server: put `ranks` points into talent `node`. The server validates node/req/slot/cap/budget; the DB fn
+# is the atomic budget+node-ceiling backstop (dupe-safe: own lock set before the await, the DB commit is one gated
+# update so a rapid double-send can't double-spend). Then re-fold talents into the stat seam + push the new state.
+func spend_talent(pid: int, node: String, ranks: int) -> void:
+	if not _tal_lock(pid):
+		return
+	await _do_spend_talent(pid, node, ranks)
+	_tal_busy.erase(pid)
+
+func _do_spend_talent(pid: int, node: String, ranks: int) -> void:
+	if not _session.has(pid) or ranks <= 0:
+		return
+	var s = _session[pid]
+	var f = _find(s["fid"])
+	if f == null:
+		return
+	var cls := str(f["classId"])
+	var nd := GameData.talent_node_def(cls, node)
+	if nd.is_empty():
+		return                                    # not a real node for this class
+	var talents: Dictionary = s.get("talents", {})
+	if int(talents.get(node, 0)) + ranks > int(nd["max"]):
+		return                                    # would overfill the node
+	if GameData.talent_branch_ranks(talents, cls, str(nd["branch"])) < int(nd["req"]):
+		return                                    # branch prerequisite (req cumulative ranks) not met
+	var level := int(s["level"])
+	if GameData.talent_points_available(level, int(s.get("talent_spent", 0))) < ranks:
+		return                                    # not enough unspent points at this level
+	var budget := (level - 1) * GameData.TALENT_POINTS_PER_LEVEL
+	var res = await supa.talents_spend_as(str(s["char_id"]), node, ranks, budget, int(nd["max"]))
+	if not _session.has(pid):
+		return
+	if not res.get("ok", false):                  # lost the atomic race / insufficient in-DB → nothing changed
+		return
+	s["talents"] = res["talents"]
+	var spent := 0                                 # derive spent from the DB-authoritative map (not a local +=ranks that could drift under a 2nd session)
+	for br in GameData.TALENT_BRANCH_ORDER:
+		spent += GameData.talent_branch_ranks(res["talents"], cls, br)
+	s["talent_spent"] = spent
+	await _apply_equipment(pid)                    # re-fold talents into the gear→derive→FORMAT_MODS seam (awaited: it re-reads inventory)
+	if net != null and _session.has(pid):
+		net.recv_talents.rpc_id(pid, s["talents"], int(s["talent_spent"]))
+
+# client → server: wipe the allocation for TALENT_RESPEC_CREDITS. Dupe-safe: own lock + deduct-before-write
+# (charge credits BEFORE the await so a double-send can't pass the affordability check twice); refund on DB failure.
+func respec_talents(pid: int) -> void:
+	if not _tal_lock(pid):
+		return
+	await _do_respec_talents(pid)
+	_tal_busy.erase(pid)
+
+func _do_respec_talents(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	if int(s.get("talent_spent", 0)) <= 0:
+		return                                    # nothing allocated → no charge
+	if int(s.get("credits", 0)) < GameData.TALENT_RESPEC_CREDITS:
+		return                                    # can't afford
+	s["credits"] = int(s["credits"]) - GameData.TALENT_RESPEC_CREDITS   # deduct-before-write
+	var ok: bool = await supa.talents_respec_as(str(s["char_id"]))
+	# ALWAYS reconcile (even if the peer left mid-await) — the captured `s` owns this op's terminal credit save, and
+	# _on_peer_disconnected skips its own save while _tal_busy is set, so this write is authoritative (mirrors buy_cosmetic).
+	if not ok:                                    # DB reset failed → refund + persist (nothing net-charged)
+		s["credits"] = int(s.get("credits", 0)) + GameData.TALENT_RESPEC_CREDITS
+		_save_one(s, _find(s["fid"]))
+		return
+	s["talents"] = {}
+	s["talent_spent"] = 0
+	if _session.has(pid):
+		await _apply_equipment(pid)               # strip the talent stat layer (peer still present)
+	_save_one(s, _find(s["fid"]))                  # persist the credit spend (paid even if the peer left)
+	if net != null and _session.has(pid):
+		net.recv_talents.rpc_id(pid, {}, 0)
+
 # ---- cosmetics (P4): buy a dye with credits (dupe-safe) + equip it (server-authoritative ownership) ----
 var _cos_busy := {}                              # pid → a cosmetics op is in flight
 var _cos_next := {}
@@ -1269,8 +1356,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
 	if supa != null:                             # gameplay-length P1(d): persist remaining rested pool + stamp offline time
 		supa.progression_rest_logout_as(str(s["char_id"]), int(s.get("rested_xp", 0)))
-	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)) and not bool(_locker_busy.get(pid, false)) and not bool(_build_busy.get(pid, false)):
-		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy / locker-unlock / build-buy owns its OWN terminal
+	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)) and not bool(_locker_busy.get(pid, false)) and not bool(_build_busy.get(pid, false)) and not bool(_tal_busy.get(pid, false)):
+		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy / locker-unlock / build-buy / talent-respec owns its OWN terminal
 												 # its OWN terminal save; saving here too would race that credit
 												 # write (a stale absolute write could clobber it). Skip it.
 	_release_residents_of(pid)                   # RP2: release any recruited companions back to their director
@@ -1298,6 +1385,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_equipping.erase(pid)
 	_equip_next.erase(pid)
 	_party_invite_next.erase(pid)
+	_tal_busy.erase(pid)
+	_tal_next.erase(pid)
 	_shop_busy.erase(pid)
 	_shop_next.erase(pid)
 	_sellmany_busy.erase(pid)
@@ -1352,7 +1441,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": "",
 		"locker_unlocked": bool(ch.get("locker_unlocked", false)),
 		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", "")),   # gameplay-length P2: pre-gating chars keep the full kit
-		"rested_xp": 0}   # gameplay-length P1(d): offline rested pool, accrued just below at login
+		"rested_xp": 0,   # gameplay-length P1(d): offline rested pool, accrued just below at login
+		"talents": {}, "talent_spent": 0}   # gameplay-length P4: talent allocation (loaded from the progression table below)
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -1370,6 +1460,9 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		_session[pid]["max_intensity"] = maxi(1, int(pr.get("max_intensity", 1)))
 		_session[pid]["pages"] = maxi(0, int(pr.get("pages", 0)))
 		_session[pid]["has_key"] = bool(pr.get("has_key", false))
+		var _tal = pr.get("talents", {})                # gameplay-length P4: load the talent allocation (existing chars default to {} → all points unspent)
+		_session[pid]["talents"] = (_tal if _tal is Dictionary else {})
+		_session[pid]["talent_spent"] = maxi(0, int(pr.get("talent_spent", 0)))
 	if _session.has(pid):                             # gameplay-length P1(d): accrue the offline rested-XP pool at login (rate/cap level-scaled)
 		var _rneed := _xp_to_next(maxi(1, int(_session[pid]["level"])))
 		var _rest = await supa.progression_rest_login_as(str(_session[pid]["char_id"]), float(_rneed) * RESTED_RATE_FRAC, int(_rneed * RESTED_CAP_FRAC))
@@ -2713,6 +2806,8 @@ func _award_xp(pid: int, amt: int) -> void:
 		if f != null:
 			f["maxHP"] += LEVEL_HP
 			f["hp"] = f["maxHP"]
+		if net != null:                          # gameplay-length P4: each level = +1 talent point (derived from level, so nothing to store) → nudge the client to open the tree
+			net.recv_talent_point.rpc_id(pid, int(s["level"]))
 	if int(s["level"]) >= LEVEL_CAP:             # at cap: park xp at a full bar (no unbounded growth)
 		s["xp"] = mini(int(s["xp"]), _xp_to_next(LEVEL_CAP))
 	_save_one(s, _find(s["fid"]))                # persist xp/level on every kill (durable progression)
@@ -3141,6 +3236,11 @@ func _apply_equipment(pid: int) -> void:
 		set_active[sid] = {"count": cnt, "bonus": sb, "stat": st}
 	for st in set_by_stat:                               # cap the aggregate set bonus per stat (cross-set)
 		bonus[st] = int(bonus.get(st, 0)) + min(int(set_by_stat[st]), SET_BONUS_CAP)
+	var _tf = _find(_session[pid]["fid"])                # gameplay-length P4: talents = a 3rd above-cap stat layer (own cap, same funnel as set bonuses → Sim stays byte-identical)
+	if _tf != null:
+		var tal_delta := GameData.talent_stat_deltas(_session[pid].get("talents", {}), str(_tf["classId"]))
+		for st in tal_delta:
+			bonus[st] = int(bonus.get(st, 0)) + min(int(tal_delta[st]), GameData.TALENT_STAT_CAP)
 	_session[pid]["equip_bonus"] = bonus                 # cache for fast re-apply on respawn
 	_session[pid]["item_power"] = ip_total               # gear score for the character sheet (P3)
 	if ip_total > int(_session[pid].get("gear_best", 0)):   # P5: submit gear score ONLY when it improves (no spam)
@@ -3584,6 +3684,7 @@ func _broadcast() -> void:
 				"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
 				"locker_unlocked": bool(s.get("locker_unlocked", false)),   # Builder Mode: drives the Home portal "Purchase (10,000)" vs "Enter" state (P3)
 				"ability_ungated": bool(s.get("ability_ungated", false)),   # gameplay-length P2: grandfathered → client hotbar shows the full kit unlocked
+				"talents": (s.get("talents", {}) as Dictionary).duplicate(), "talent_spent": int(s.get("talent_spent", 0)),   # gameplay-length P4: talent tree state (T panel; the client derives points-available from level+spent)
 				"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
 				"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 				"procs": (s.get("procs", []) as Array).duplicate(),

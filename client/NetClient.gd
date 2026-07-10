@@ -162,6 +162,11 @@ var _near_camp := false
 var _wardrobe_panel: Control = null
 var _wardrobe_rows: VBoxContainer = null
 var _wardrobe_status: Label = null
+# Talent trees (gameplay-length P4): a key-toggled (T) spend/respec panel
+var _talent_panel: Control = null
+var _talent_rows: VBoxContainer = null
+var _talent_status: Label = null
+var _talent_sig := ""                             # sig-guard so the open panel only rebuilds when a shown value changed
 # Leaderboards + Two-Minute Drill (P5)
 var _lb_panel: Control = null
 var _lb_rows: VBoxContainer = null
@@ -210,6 +215,7 @@ func _enter_mode() -> void:
 	_build_vendor()
 	_build_camp()
 	_build_wardrobe()
+	_build_talents()
 	_build_leaderboard()
 	_build_questlog()
 	_build_qgiver_dialog()
@@ -707,7 +713,7 @@ func _toggle_locker() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_locker_panel.visible = not _locker_panel.visible
 	if _locker_panel.visible:                 # full-screen opaque modal → close every other panel under it
-		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _lb_panel, _qgiver_panel, _settings_panel, _meter_panel]:
+		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _talent_panel, _lb_panel, _qgiver_panel, _settings_panel, _meter_panel]:
 			if pnl != null: pnl.visible = false
 		_locker_stat_sig = "-"                # force a fresh stat-bar rebuild on (re)open
 		_update_locker_model()
@@ -2332,6 +2338,154 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 	if _wardrobe_panel != null and _wardrobe_panel.visible:
 		_render_wardrobe()
 	_quest_toast("[color=#8ad6ff]🎨 Wardrobe updated.[/color]")
+
+# ---- Talent trees (gameplay-length P4): spend 1 point/level into a class-symmetric 3-branch stat tree ----
+const _TALENT_STAT_LABEL := {
+	"PWR": "Power (damage)", "PRE": "Precision (crit chance)", "END": "Endurance (max HP)",
+	"CLU": "Clutch (comeback edge)", "SPD": "Speed (movement)", "INS": "Insight (cooldowns)"}
+
+func _my_class() -> String:
+	return str(_state.get("self", {}).get("classId", ""))
+func _my_level_val() -> int:
+	return int(_state.get("self", {}).get("level", 1))
+func _my_talents() -> Dictionary:
+	var t = _state.get("self", {}).get("talents", {})
+	return (t if t is Dictionary else {})
+func _my_talent_spent() -> int:
+	return int(_state.get("self", {}).get("talent_spent", 0))
+func _my_talent_avail() -> int:   # derived from level + spent (never trust a stale META field)
+	return GameData.talent_points_available(_my_level_val(), _my_talent_spent())
+
+func _build_talents() -> void:
+	var p := Widgets.panel("🌳 Talents", "T / Esc", 600.0, _toggle_talents)
+	_talent_panel = p["root"]
+	_hud.add_child(_talent_panel)
+	var vb: VBoxContainer = p["body"]
+	_talent_status = Widgets.status(Palette.ACCENT2)
+	vb.add_child(_talent_status)
+	vb.add_child(Widgets.hint("Earn 1 point per level. Spend into three branches — each stat is a permanent boost that stacks on top of your gear. Later nodes unlock as you invest in the branch. Respec anytime for credits."))
+	_talent_rows = VBoxContainer.new()
+	_talent_rows.add_theme_constant_override("separation", 4)
+	vb.add_child(_talent_rows)
+
+func _toggle_talents() -> void:
+	if _talent_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_talent_panel.visible = not _talent_panel.visible
+	if _talent_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
+		_render_talents()
+
+func _render_talents() -> void:
+	if _talent_panel == null or not _talent_panel.visible or _talent_rows == null:
+		return
+	var cls := _my_class()
+	if cls == "" or not GameData.TALENT_FLAVOR.has(cls):
+		return
+	var talents := _my_talents()
+	var avail := _my_talent_avail()
+	var flavor: Dictionary = GameData.TALENT_FLAVOR[cls]
+	var credits := _my_credits_val()
+	_talent_status.text = "%s   —   %d point%s available   (Lv %d · %d spent)   ◈ %d" % [
+		str(flavor.get("tree", "Talents")), avail, ("" if avail == 1 else "s"), _my_level_val(), _my_talent_spent(), credits]
+	for c in _talent_rows.get_children():
+		c.queue_free()
+	for br in GameData.TALENT_BRANCH_ORDER:
+		var bflavor: Dictionary = flavor.get(br, {})
+		var invested := GameData.talent_branch_ranks(talents, cls, br)
+		_talent_rows.add_child(Widgets.section("%s   ·   %d invested" % [str(bflavor.get("name", br)), invested]))
+		for n in GameData.TALENT_SHAPE[br]["nodes"]:
+			_talent_rows.add_child(_talent_row(cls, br, n, bflavor, talents, invested, avail))
+	_talent_rows.add_child(HSeparator.new())
+	var rrow := HBoxContainer.new()
+	rrow.add_theme_constant_override("separation", 10)
+	var rbtn := Button.new()
+	rbtn.text = "Respec all  ◈ %d" % GameData.TALENT_RESPEC_CREDITS
+	rbtn.disabled = _my_talent_spent() <= 0 or credits < GameData.TALENT_RESPEC_CREDITS
+	rbtn.pressed.connect(_on_respec_talents)
+	rrow.add_child(rbtn)
+	var rhint := Label.new()
+	rhint.text = "Refund every point to re-spend."
+	rhint.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+	rhint.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+	rrow.add_child(rhint)
+	_talent_rows.add_child(rrow)
+
+func _talent_row(cls: String, br: String, n: Dictionary, bflavor: Dictionary, talents: Dictionary, invested: int, avail: int) -> HBoxContainer:
+	var node_id := "%s_%s_%s" % [cls, br, str(n["slot"])]
+	var cur := int(talents.get(node_id, 0))
+	var nmax := int(n["max"])
+	var per := int(n["per"])
+	var stat := str(n["stat"])
+	var req := int(n["req"])
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var nm := Label.new()
+	nm.text = "%s %s" % [str(bflavor.get(str(n["slot"]), stat)), ("★" if n.get("capstone", false) else "")]
+	nm.custom_minimum_size = Vector2(150, 0)
+	nm.add_theme_color_override("font_color", Palette.TEXT_BRIGHT if cur > 0 else Palette.TEXT)
+	row.add_child(nm)
+	var rank := Label.new()
+	rank.text = "%d / %d" % [cur, nmax]
+	rank.custom_minimum_size = Vector2(50, 0)
+	rank.add_theme_color_override("font_color", Palette.ACCENT if cur >= nmax else Palette.TEXT_DIM)
+	row.add_child(rank)
+	var desc := Label.new()
+	desc.text = "+%d %s / rank   (now +%d)" % [per, str(_TALENT_STAT_LABEL.get(stat, stat)), cur * per]
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	desc.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+	desc.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	row.add_child(desc)
+	if invested < req:                              # branch prerequisite not met
+		var lock := Label.new()
+		lock.text = "🔒 needs %d" % req
+		lock.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+		row.add_child(lock)
+	elif cur >= nmax:
+		var done := Label.new()
+		done.text = "✓ maxed"
+		done.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		row.add_child(done)
+	else:
+		var btn := Button.new()
+		btn.text = "＋"
+		btn.disabled = avail <= 0
+		btn.pressed.connect(_on_spend_talent.bind(node_id))
+		row.add_child(btn)
+	return row
+
+func _on_spend_talent(node_id: String) -> void:
+	if net != null:
+		net.spend_talent.rpc_id(1, node_id, 1)
+
+func _on_respec_talents() -> void:
+	if net != null:
+		net.respec_talents.rpc_id(1)
+
+# server → client: authoritative talent state after a spend/respec (mirror the wardrobe copy-on-write so the panel
+# is accurate immediately, not one ~30 Hz snapshot late, and the next meta-less tick's overlay can't restore the old).
+func recv_talents(talents: Dictionary, spent: int) -> void:
+	if _state.has("self"):
+		var me: Dictionary = (_state["self"] as Dictionary).duplicate()
+		me["talents"] = talents
+		me["talent_spent"] = spent
+		_meta["self"] = me
+		_state["self"] = me
+	if _talent_panel != null and _talent_panel.visible:
+		_render_talents()
+
+# server → client: leveled up → a talent point is available (points are derived from level; this is just the nudge).
+# Fold the fresh level into self NOW (copy-on-write) so an open panel counts the new point immediately, not a tick late.
+func recv_talent_point(level: int) -> void:
+	if _state.has("self"):
+		var me: Dictionary = (_state["self"] as Dictionary).duplicate()
+		me["level"] = level
+		_meta["self"] = me
+		_state["self"] = me
+	_quest_toast("[color=#9fe8a0]🌳 Talent point earned (Lv %d)![/color]  Press [b]T[/b] to spend it." % level)
+	if _talent_panel != null and _talent_panel.visible:
+		_render_talents()
 
 # ---- Leaderboards (P5) ----
 const LB_CATS := [["drill", "Two-Minute Drill (wave)"], ["gear", "Gear Score"], ["intensity", "Camp Intensity"]]
@@ -4713,6 +4867,11 @@ func receive_snapshot(snap: Dictionary) -> void:
 		_update_locker_model()
 		_update_locker_header()
 		_update_locker_stats()                           # sig-guarded → rebuilds only when a value actually changed
+	if _talent_panel != null and _talent_panel.visible:  # keep the Talents panel's credits / points / affordability live
+		var tsig := "%d|%d|%d" % [_my_level_val(), _my_talent_spent(), _my_credits_val()]
+		if tsig != _talent_sig:
+			_talent_sig = tsig
+			_render_talents()
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
@@ -4854,6 +5013,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_wardrobe_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _talent_panel != null and _talent_panel.visible:
+				_talent_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _lb_panel != null and _lb_panel.visible:
 				_lb_panel.visible = false
 				get_viewport().set_input_as_handled()
@@ -4943,6 +5106,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_G and not _chatting:
 			_toggle_wardrobe()              # the Wardrobe (cosmetic dyes) — usable anywhere
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_T and not _chatting:
+			_toggle_talents()               # the Talent tree (gameplay-length P4) — usable anywhere
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_L and not _chatting:
