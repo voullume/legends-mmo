@@ -1299,7 +1299,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"map": str(pf["map"]) if pf != null else World.HOME, "party": [], "credits": maxi(0, int(ch.get("credits", 0))),
 		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {},
 		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": "",
-		"locker_unlocked": bool(ch.get("locker_unlocked", false))}
+		"locker_unlocked": bool(ch.get("locker_unlocked", false)),
+		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", ""))}   # gameplay-length P2: pre-gating chars keep the full kit
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -2248,9 +2249,21 @@ func submit_intent(pid: int, mv: Dictionary) -> void:
 func submit_ability(pid: int, key, seq) -> void:
 	if not _session.has(pid) or typeof(key) != TYPE_STRING:
 		return
+	if not _ability_unlocked(pid, key):          # gameplay-length P2: reject a still-locked ability — intent-layer gate,
+		return                                    # so the deterministic Sim / balance harness never sees it (byte-identical)
 	if int(seq) > int(_last_aseq.get(pid, 0)):
 		_last_aseq[pid] = int(seq)
 		_pending_ability[pid] = key
+
+# gameplay-length P2: is `key` unlocked for this player? Grandfathered chars (created pre-gating) keep the full kit.
+func _ability_unlocked(pid: int, key: String) -> bool:
+	var s = _session[pid]
+	if bool(s.get("ability_ungated", false)):
+		return true
+	var f = _find(s["fid"])
+	if f == null:
+		return true                              # no fighter (shouldn't happen) → don't reject (fail-open, non-security)
+	return int(s["level"]) >= GameData.ability_unlock_level(str(f["classId"]), key)
 
 # ---- authoritative tick ----
 func _physics_process(delta: float) -> void:
@@ -3498,6 +3511,7 @@ func _broadcast() -> void:
 				"classId": str(f["classId"]), "level": int(s["level"]), "item_power": int(s.get("item_power", 0)), "scrap": int(s.get("scrap", 0)), "tokens": int(s.get("tokens", 0)),
 				"max_intensity": int(s.get("max_intensity", 1)), "pages": int(s.get("pages", 0)), "has_key": bool(s.get("has_key", false)), "key_cost": MASTER_KEY_PAGES,   # Camp Circuit ladder + Pages + Master Key (P2)
 				"locker_unlocked": bool(s.get("locker_unlocked", false)),   # Builder Mode: drives the Home portal "Purchase (10,000)" vs "Enter" state (P3)
+				"ability_ungated": bool(s.get("ability_ungated", false)),   # gameplay-length P2: grandfathered → client hotbar shows the full kit unlocked
 				"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
 				"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 				"procs": (s.get("procs", []) as Array).duplicate(),

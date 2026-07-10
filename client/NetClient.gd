@@ -4483,7 +4483,18 @@ func _roster_name(fid: String) -> String:         # party-member display name fr
 			return str(m.get("name", fid))
 	return fid
 
+# gameplay-length P2: the real level gate on the networked client, mirroring the server's submit_ability rule.
+# Grandfathered characters (ability_ungated from the self sheet) keep the full kit. Local player only.
+func _ability_locked(pf, key: String) -> bool:
+	if pf == null:
+		return false
+	if bool(_state.get("self", {}).get("ability_ungated", false)):
+		return false
+	return int(pf.get("level", 1)) < GameData.ability_unlock_level(str(pf.get("classId", "")), key)
+
 func _send_ability(key: String) -> void:
+	if _ability_locked(_find_fighter(_player_id), key):   # gameplay-length P2: locked → the greyed "Lv N" slot is the feedback; don't send
+		return
 	if _can_press(key):              # off-cd + alive as far as the client knows → show the predicted tell
 		_play_cast_sound(key)
 		_predict_cast(key)           # instant swing + hotbar depress + predicted cooldown (self-correcting)

@@ -1895,9 +1895,16 @@ func _detect_cast(n: Dictionary, f: Dictionary) -> void:
 # cooldown, alive, not stunned / mid-cast; stun/casting only exist in local-sim state, so networked
 # snapshots simply skip those checks). The server still validates for real; this only decides whether
 # to show the predicted tell.
+# gameplay-length P2: is this ability still level-locked for the local player? Base render (local sandbox) never
+# locks; the networked client overrides this to apply the real gate. Both the hotbar + input path call it.
+func _ability_locked(_pf, _key: String) -> bool:
+	return false
+
 func _can_press(key: String) -> bool:
 	var pf = _find_fighter(_player_id)
 	if pf == null or not bool(pf.get("alive", true)):
+		return false
+	if _ability_locked(pf, key):                 # gameplay-length P2: not yet unlocked → no predicted cast
 		return false
 	if float((pf.get("cds", {}) as Dictionary).get(key, 0.0)) > 0.0:
 		return false
@@ -3356,8 +3363,23 @@ func _build_hotbar(class_id: String) -> void:
 		slot.add_child(cs)
 		slot.mouse_entered.connect(_on_slot_hover.bind(i))
 		slot.mouse_exited.connect(_on_slot_unhover)
+		var lock := ColorRect.new()              # gameplay-length P2: covers a not-yet-unlocked ability
+		lock.color = Color(0.02, 0.03, 0.05, 0.82)
+		lock.position = Vector2(1, 1)
+		lock.size = Vector2(58, 58)
+		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lock.visible = false
+		var ll := Label.new()                    # the required level, centered
+		ll.text = "Lv %d" % GameData.ability_unlock_level(class_id, str(ab["key"]))
+		ll.size = Vector2(58, 58)
+		ll.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ll.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		ll.add_theme_font_size_override("font_size", 13)
+		ll.add_theme_color_override("font_color", Palette.TEXT_DIM)
+		lock.add_child(ll)
+		slot.add_child(lock)
 		_hotbar.add_child(slot)
-		_slots.append({"root": slot, "cd": cd, "cs": cs, "sb": bsb, "press": 0.0})
+		_slots.append({"root": slot, "cd": cd, "cs": cs, "sb": bsb, "press": 0.0, "lock": lock, "key": str(ab["key"])})
 
 func _slot_color(ab: Dictionary) -> Color:
 	if ab.get("ult", false): return Color(0.36, 0.30, 0.10)       # ultimate = gold-ish
@@ -3374,6 +3396,12 @@ func _update_hotbar(pf: Dictionary) -> void:
 	var dt := get_process_delta_time()
 	for i in _slots.size():
 		var ab = abilities[i]
+		var locked := _ability_locked(pf, str(ab["key"]))   # gameplay-length P2: gray a not-yet-unlocked slot
+		(_slots[i]["lock"] as ColorRect).visible = locked
+		if locked:
+			(_slots[i]["cd"] as ColorRect).size = Vector2(58.0, 0.0)   # no cooldown sweep under the lock
+			(_slots[i]["cs"] as Label).text = ""
+			continue
 		var total: float = float(ab.get("cd", 0.0))
 		var rem: float = float(pf.get("cds", {}).get(ab["key"], 0.0))
 		# predicted cooldown sweep: starts on the keypress, replaced by the server's value the moment it
@@ -3406,7 +3434,11 @@ func _on_slot_hover(i: int) -> void:
 	var pf = _find_fighter(_player_id)
 	if pf == null or i >= GameData.CLASSES[str(pf["classId"])]["abilities"].size():
 		return
-	_tt_label.text = _ability_tooltip(GameData.CLASSES[str(pf["classId"])]["abilities"][i], pf)
+	var hab: Dictionary = GameData.CLASSES[str(pf["classId"])]["abilities"][i]
+	if _ability_locked(pf, str(hab["key"])):     # gameplay-length P2: locked → show the unlock requirement, not the stat sheet
+		_tt_label.text = "[b]%s[/b]  [color=#7f93a8]%s[/color]\n[color=#ffd24d]🔒 Unlocks at Level %d[/color]" % [str(hab["name"]), str(hab["type"]), GameData.ability_unlock_level(str(pf["classId"]), str(hab["key"]))]
+	else:
+		_tt_label.text = _ability_tooltip(hab, pf)
 	_tooltip.visible = true
 	_tooltip.reset_size()
 	var sp: Vector2 = _slots[i]["root"].global_position

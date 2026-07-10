@@ -415,6 +415,38 @@ static func derive(s: Dictionary) -> Dictionary:
 	}
 
 # --- Fighter factory ---
+# --- gameplay-length P2: level-gated ability kits ---------------------------------------------------------
+# AGGRESSIVE gating (owner-locked): only the basic attack at level 1; the first special at level 2 (barren
+# window = a single level); the remaining specials + the ult drip in as you level. Enforced server-side in the
+# intent layer (Server.submit_ability) and mirrored on the client hotbar. The deterministic Sim NEVER sees this
+# gate — create_fighter still builds the full kit and the AI-duel balance harness never calls submit_ability —
+# so class balance stays byte-identical. Bands are playtest-tunable.
+const ABILITY_SPECIAL_UNLOCK := [2, 6, 10, 14]   # unlock level of the 1st/2nd/3rd/4th SPECIAL (in kit order)
+const ABILITY_ULT_UNLOCK := 18                   # the ultimate unlocks here
+# Characters created before this UTC epoch keep their full kit (grandfathered — no live player loses access);
+# characters created after it are gated. Lexicographic compare on the ISO created_at works (same fixed format).
+const ABILITY_GATE_EPOCH := "2026-07-09T22:45:00"
+
+# The level at which `key` unlocks for `cls` (1 = always available). basic → 1, ult → ABILITY_ULT_UNLOCK, each
+# special in kit order → ABILITY_SPECIAL_UNLOCK. Symmetric across classes by construction (preserves balance parity).
+static func ability_unlock_level(cls: String, key: String) -> int:
+	var c: Dictionary = CLASSES.get(cls, {})
+	var special_i := 0
+	for a in c.get("abilities", []):
+		if str(a.get("key", "")) == key:
+			if a.get("basic", false):
+				return 1
+			if a.get("ult", false):
+				return ABILITY_ULT_UNLOCK
+			return ABILITY_SPECIAL_UNLOCK[mini(special_i, ABILITY_SPECIAL_UNLOCK.size() - 1)]
+		if not a.get("basic", false) and not a.get("ult", false):
+			special_i += 1
+	return 1                                       # key not found → never gate (fail-open)
+
+# Grandfathered = created before the gating epoch → full kit regardless of level (empty/missing → grandfathered).
+static func ability_grandfathered(created_at) -> bool:
+	return str(created_at).substr(0, 19) < ABILITY_GATE_EPOCH
+
 static func create_fighter(class_id: String, team: int, slot: int, rng, team_size: int = 5) -> Dictionary:
 	if not CLASSES.has(class_id):                # defensive: an unknown id used to crash here (and the client)
 		push_error("[gamedata] unknown classId '%s' — falling back to 'striker'" % class_id)
