@@ -175,7 +175,9 @@ var _health_t := 0.0
 var _tick_us_peak := 0                # peak server compute time per frame this minute (CPU headroom)
 
 static func _xp_to_next(level: int) -> int:
-	return int(100.0 * level * (1.0 + level * 0.05))   # super-linear so the 1→30 climb stays meaningful
+	# gameplay-length P1(e): reshaped to ~the same 1→30 total (~86k XP) but FRONT-LOADED — early levels are cheaper
+	# so a new character assembles its (now level-gated, P2) kit fast, shrinking the aggressive-gating barren window.
+	return int(50.0 * level + 7.5 * level * level)
 
 func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	var peer := ENetMultiplayerPeer.new()
@@ -529,6 +531,9 @@ const DRILL_PAGES_PER_WAVE := 2                  # end-of-run pages = max(0, wav
 const DRILL_CREDITS_PER_WAVE := 40
 const DRILL_XP_WAVE_FRAC := 0.08                 # gameplay-length P1: end-of-run XP per wave (3+) as a fraction of a level
 const DRILL_XP_RUN_CAP_FRAC := 0.6               # a single Drill run is capped at this fraction of a level (anti power-farm)
+const RESTED_BONUS := 0.5                        # gameplay-length P1(d): rested XP tops up each earned award by this fraction, drawn from the pool
+const RESTED_CAP_FRAC := 1.5                     # rested pool cap = this many of the CURRENT level's xp-to-next
+const RESTED_RATE_FRAC := 0.06                   # rested accrues this fraction of a level per HOUR offline (~fills the cap in ~25h)
 
 # Intensity multipliers (P1): geometric so each tier is a real power check but the ladder is unbounded.
 # hp ×1.6 / dmg ×1.13 per tier (tuned so a geared team clears its max tier, the next is a wall to grow into).
@@ -1219,6 +1224,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
+	if supa != null:                             # gameplay-length P1(d): persist remaining rested pool + stamp offline time
+		supa.progression_rest_logout_as(str(s["char_id"]), int(s.get("rested_xp", 0)))
 	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)) and not bool(_locker_busy.get(pid, false)) and not bool(_build_busy.get(pid, false)):
 		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy / locker-unlock / build-buy owns its OWN terminal
 												 # its OWN terminal save; saving here too would race that credit
@@ -1300,7 +1307,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"scrap": 0, "tokens": maxi(0, int(ch.get("practice_tokens", 0))), "quests": {},
 		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": "",
 		"locker_unlocked": bool(ch.get("locker_unlocked", false)),
-		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", ""))}   # gameplay-length P2: pre-gating chars keep the full kit
+		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", "")),   # gameplay-length P2: pre-gating chars keep the full kit
+		"rested_xp": 0}   # gameplay-length P1(d): offline rested pool, accrued just below at login
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -1318,6 +1326,11 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		_session[pid]["max_intensity"] = maxi(1, int(pr.get("max_intensity", 1)))
 		_session[pid]["pages"] = maxi(0, int(pr.get("pages", 0)))
 		_session[pid]["has_key"] = bool(pr.get("has_key", false))
+	if _session.has(pid):                             # gameplay-length P1(d): accrue the offline rested-XP pool at login (rate/cap level-scaled)
+		var _rneed := _xp_to_next(maxi(1, int(_session[pid]["level"])))
+		var _rest = await supa.progression_rest_login_as(str(_session[pid]["char_id"]), float(_rneed) * RESTED_RATE_FRAC, int(_rneed * RESTED_CAP_FRAC))
+		if _session.has(pid):
+			_session[pid]["rested_xp"] = maxi(0, int(_rest))
 	var cos = await supa.get_cosmetics_as(access)     # load owned dyes + the equipped dye (P4 cosmetics)
 	if _session.has(pid):
 		_session[pid]["cos_owned"] = cos.get("owned", [])
@@ -2633,6 +2646,12 @@ func _award_xp(pid: int, amt: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]
+	var rested := int(s.get("rested_xp", 0))     # gameplay-length P1(d): spend the offline rested pool as a bonus on earned XP
+	if rested > 0 and amt > 0 and int(s["level"]) < LEVEL_CAP:
+		var bonus := mini(rested, int(round(float(amt) * RESTED_BONUS)))
+		if bonus > 0:
+			s["rested_xp"] = rested - bonus
+			amt += bonus
 	s["xp"] = int(s["xp"]) + amt
 	while int(s["level"]) < LEVEL_CAP and s["xp"] >= _xp_to_next(int(s["level"])):
 		s["xp"] -= _xp_to_next(int(s["level"]))

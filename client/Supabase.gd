@@ -332,6 +332,23 @@ func progression_craft_key_as(char_id: String, cost: int) -> bool:
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_craft_key", JSON.stringify({"p_char": char_id, "p_cost": cost}), PackedStringArray(), service_key)
 	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
 
+# gameplay-length P1(d): rested XP. LOGIN — atomically accrue the offline pool (p_rate per hour, capped at p_cap,
+# both level-scaled by the caller), mark the character online, and return the resulting rested pool. Service-role only.
+func progression_rest_login_as(char_id: String, rate_per_hr: float, cap: int) -> int:
+	if service_key == "":
+		return 0
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_rest_login", JSON.stringify({"p_char": char_id, "p_rate": rate_per_hr, "p_cap": cap}), PackedStringArray(), service_key)
+	var val = r["data"]
+	if val is Array and (val as Array).size() > 0:
+		val = val[0]
+	return int(val) if (r["code"] >= 200 and r["code"] < 300 and val != null) else 0
+
+# LOGOUT — persist the remaining rested pool + stamp the offline time (next login accrues from here). Service-role only.
+func progression_rest_logout_as(char_id: String, rested: int) -> void:
+	if service_key == "":
+		return
+	await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_rest_logout", JSON.stringify({"p_char": char_id, "p_rested": rested}), PackedStringArray(), service_key)
+
 # --- cosmetics (P4): dyes. Server-only writes; client READS own row. ---
 func get_cosmetics_as(token: String) -> Dictionary:
 	# select=* (resilient) — before the migration lands the table 404s → defaults, never a hard column error
