@@ -545,6 +545,7 @@ const AFFIX_ROTATION := [
 	{"id": "frenzy",     "name": "Two-Minute Frenzy",  "hp": 0.85, "dmg": 1.20, "pages": 1.15},   # squishier but hit harder
 	{"id": "recruiting", "name": "Recruiting Week",     "hp": 1.0,  "dmg": 1.0,  "pages": 1.5},    # pure-reward week
 ]
+const CIRCUIT_ROTATION := ["camp", "camp_b", "camp_c"]   # gameplay-length P3b-rooms: the Camp Circuit rotates rooms per (party, tier, week)
 const BOSS_PAGES := 50                            # the Head Coach boss also drops a page chunk
 # --- Two-Minute Drill (P5): endless wave survival → leaderboard ---
 const DRILL_WAVE_GAP_MS := 2500                  # breather between waves
@@ -589,6 +590,15 @@ func _spawn_instance_actors(key: String, tmpl: String, tier: int, affix: Diction
 func _current_affix() -> Dictionary:
 	var week := int(Time.get_unix_time_from_system() / WEEK_SECS)
 	return AFFIX_ROTATION[week % AFFIX_ROTATION.size()]
+
+# gameplay-length P3b-rooms: pick this run's Circuit room — a pure function of (owner key, tier, UTC week). Party-safe
+# for mates who enter at the SAME tier (shared owner key → same room → shared instance); the room varies by tier as you
+# climb + refreshes weekly. KNOWN LOW edge: two mates whose enter RPCs straddle the exact UTC-week flip resolve
+# different rooms (self-heals on re-entry) — a future fix would join any live (owner,tier) instance regardless of tmpl.
+func _circuit_template(owner: String, tier: int) -> String:
+	var week := int(Time.get_unix_time_from_system() / WEEK_SECS)
+	var idx := absi(("%s|%d|%d" % [owner, tier, week]).hash()) % CIRCUIT_ROTATION.size()
+	return CIRCUIT_ROTATION[idx]
 
 func _ensure_instance(tmpl: String, owner: String, tier: int) -> String:
 	var key := "%s#%s#%d" % [tmpl, owner, tier]
@@ -699,7 +709,10 @@ func enter_camp(pid: int, intensity: int) -> void:
 	if not _at_camp_pad(pid):
 		return
 	var tier := clampi(int(intensity), 1, int(_session[pid].get("max_intensity", 1)))
-	_enter_instance(pid, World.CAMP, tier)
+	var owner := _party_key(pid)                  # gameplay-length P3b-rooms: rotate the room (party-safe — same owner key → same room → shared instance)
+	if owner == "":
+		owner = str(_session[pid]["fid"])
+	_enter_instance(pid, _circuit_template(owner, tier), tier)
 
 # the Circuit's objective mob died → complete the run for EVERY player in that instance (unlock + bonus loot).
 func _on_circuit_clear(key: String) -> void:

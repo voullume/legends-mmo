@@ -23,9 +23,11 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 # per-party copy on demand (world key "<template>#<owner>"), scales it, and tears it down when empty. The
 # template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
 const CAMP := "camp"                        # the instanced Camp Circuit run (endgame grind + Intensity ladder)
+const CAMP_B := "camp_b"                     # Circuit v2 rotating room "The Gauntlet" (turret/cover-heavy)
+const CAMP_C := "camp_c"                     # Circuit v2 rotating room "The Scrimmage" (support-comp, focus-fire)
 const DRILL := "drill"                      # the instanced Two-Minute Drill (endless wave survival → leaderboard)
 const LOCKER := "locker_room"               # Builder Mode: the private per-CHARACTER Locker Room (safe, no combat)
-const INSTANCE_MAPS := ["camp", "drill", "locker_room"]    # templates that are instance-only (skipped by static-world boot)
+const INSTANCE_MAPS := ["camp", "camp_b", "camp_c", "drill", "locker_room"]    # templates that are instance-only (skipped by static-world boot)
 
 static func is_instance_template(map: String) -> bool:
 	return INSTANCE_MAPS.has(map)
@@ -41,6 +43,8 @@ const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well
 const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of Head Coach PRIME
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
+const CAMP_B_SPAWN := Vector2(180, 440)      # Circuit v2 "The Gauntlet" — arrive far west
+const CAMP_C_SPAWN := Vector2(180, 470)      # Circuit v2 "The Scrimmage" — arrive far west
 const DRILL_SPAWN := Vector2(600, 400)       # Two-Minute Drill: spawn in the arena center (waves close in)
 const LOCKER_SPAWN := Vector2(350, 380)      # Locker Room: arrive lower-center, facing into your room (clear of the west exit pad)
 
@@ -61,6 +65,8 @@ const MAPS := {
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 	# instance TEMPLATE (P0 = a single proving room; P1 expands it into the condensed multi-room Circuit)
 	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
+	CAMP_B: {"type": "combat", "w": 1600, "h": 900, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": CAMP_B_SPAWN},
+	CAMP_C: {"type": "combat", "w": 1650, "h": 950, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": CAMP_C_SPAWN},
 	# Two-Minute Drill arena (P5): no out-of-combat regen (survival), waves spawned by the server
 	DRILL: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.0,   "regen_delay": 0.0, "aggro": true,  "pvp": false, "spawn": DRILL_SPAWN},
 	# Locker Room (Builder Mode): a small SAFE private room — no mobs, no aggro, strong regen. Decorated by its owner.
@@ -143,6 +149,12 @@ const PORTALS := {
 	CAMP: [
 		{"x": 120.0,  "y": 420.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ Leave Camp"},
 	],
+	CAMP_B: [
+		{"x": 120.0,  "y": 440.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ Leave Camp"},
+	],
+	CAMP_C: [
+		{"x": 120.0,  "y": 470.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ Leave Camp"},
+	],
 	# Drill exit (a west-corner bail — walking here ends the run; you also end by dying).
 	DRILL: [
 		{"x": 90.0,   "y": 400.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ End Drill"},
@@ -224,6 +236,20 @@ const MOBS := {
 		# the CLEAR objective: killing the gatekeeper completes the run (grants the tier reward + unlocks the
 		# next Intensity). Instance mobs don't respawn, so a Circuit is a finite clear.
 		{"class": "tackle_captain", "level": 8, "tier": "elite",  "x": 1320.0, "y": 430.0, "objective": true},   # P3b: the clear gatekeeper (well-rounded bruiser)
+	],
+	CAMP_B: [  # Circuit v2 "The Gauntlet" — turret/cover: chalk hazards + a gatling turret; iron_sled gatekeeper
+		{"class": "cone_swarmer",    "level": 5, "tier": "minion", "x": 480.0,  "y": 300.0},
+		{"class": "spring_cone",     "level": 5, "tier": "minion", "x": 480.0,  "y": 640.0},
+		{"class": "chalk_liner",     "level": 6, "tier": "minion", "x": 900.0,  "y": 300.0},
+		{"class": "gatling_machine", "level": 7, "tier": "elite",  "x": 900.0,  "y": 640.0},
+		{"class": "iron_sled",       "level": 8, "tier": "elite",  "x": 1320.0, "y": 460.0, "objective": true},
+	],
+	CAMP_C: [  # Circuit v2 "The Scrimmage" — support-comp: a medic + a summoner-captain; focus the medic or it drags
+		{"class": "spring_cone",    "level": 5, "tier": "minion", "x": 480.0,  "y": 320.0},
+		{"class": "pop_dummy",      "level": 5, "tier": "minion", "x": 480.0,  "y": 660.0},
+		{"class": "field_medic",    "level": 6, "tier": "elite",  "x": 900.0,  "y": 320.0},
+		{"class": "blitz_captain",  "level": 7, "tier": "elite",  "x": 900.0,  "y": 660.0},
+		{"class": "tackle_captain", "level": 8, "tier": "elite",  "x": 1340.0, "y": 480.0, "objective": true},
 	],
 }
 
@@ -371,6 +397,15 @@ const OBSTACLES := {
 		{"x": 720.0,  "y": 300.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 720.0, "y": 560.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
 		{"x": 1300.0, "y": 300.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1300.0, "y": 560.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
+	CAMP_B: [  # The Gauntlet — cover to break the turrets' line-of-sight
+		{"x": 700.0,  "y": 320.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 700.0, "y": 600.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1080.0, "y": 460.0, "prop": "barrier", "len": 140.0, "yaw": 0.0},
+		{"x": 1380.0, "y": 320.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1380.0, "y": 600.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
+	],
+	CAMP_C: [  # The Scrimmage — lighter cover (open, to reach the medic)
+		{"x": 760.0,  "y": 340.0, "prop": "barrier", "len": 110.0, "yaw": 1.5708}, {"x": 760.0, "y": 640.0, "prop": "barrier", "len": 110.0, "yaw": 1.5708},
+		{"x": 1360.0, "y": 340.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1360.0, "y": 640.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
+	],
 }
 
 # the gate protecting ENTRY to `map` (scans portals leading to it), or "" if ungated. Lets the server
@@ -438,6 +473,14 @@ const DECALS := {
 	CAMP: [
 		{"kind": "ring", "x": 760.0, "y": 430.0, "r": 150.0}, {"kind": "ring", "x": 1300.0, "y": 430.0, "r": 100.0},
 		{"kind": "cone", "x": 520.0, "y": 300.0}, {"kind": "cone", "x": 520.0, "y": 560.0}, {"kind": "cone", "x": 1300.0, "y": 430.0},
+	],
+	CAMP_B: [
+		{"kind": "ring", "x": 1000.0, "y": 460.0, "r": 140.0}, {"kind": "ring", "x": 1420.0, "y": 460.0, "r": 100.0},
+		{"kind": "cone", "x": 500.0, "y": 320.0}, {"kind": "cone", "x": 500.0, "y": 600.0},
+	],
+	CAMP_C: [
+		{"kind": "ring", "x": 1000.0, "y": 480.0, "r": 150.0}, {"kind": "ring", "x": 1440.0, "y": 480.0, "r": 100.0},
+		{"kind": "cone", "x": 540.0, "y": 340.0}, {"kind": "cone", "x": 540.0, "y": 640.0},
 	],
 }
 
