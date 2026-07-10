@@ -507,6 +507,46 @@ static func talent_branch_ranks(talents: Dictionary, cls: String, branch: String
 		tot += int(talents.get("%s_%s_%s" % [cls, branch, n["slot"]], 0))
 	return tot
 
+# gameplay-length P5: PARAGON ("Overtime") — post-cap INFINITE progression. DATA lives here (shared client+server) so
+# the client can render the board + compute levels identically; the SERVER owns the reward-chokepoint logic. Paragon is
+# QoL-ONLY: every perk is a multiplier/chance on a SERVER reward path (loot/credits/pages/tokens/salvage), NEVER a combat
+# stat and NEVER the deterministic sim → create_fighter/derive/FORMAT_MODS + the AI-duel harness are byte-identical.
+# Level is derived closed-form (overtime_xp / OT_PER_LEVEL) → no stored level to desync or dupe.
+const PARAGON_OT_PER_LEVEL := 8250        # post-cap XP per paragon level (~1 full L30 bar; tunable)
+const PARAGON_MILESTONE_EVERY := 5        # every Nth paragon level grants a gear-bag milestone
+const PARAGON_BAG_PER_MILESTONE := 2      # +gear-inventory slots per milestone
+const PARAGON_BAG_MAX := 20               # cap the gear-bag bonus (max gear cap = base 50 + 20 = 70)
+const PARAGON_BRANCH_ORDER := ["scout", "payroll", "recruiter"]
+const PARAGON_BRANCH_NAMES := {"scout": "Scout", "payroll": "Payroll", "recruiter": "Recruiter"}
+# each perk = {branch, cap ranks, per-rank step, name, desc}. 6 perks x 5 ranks = 30 points fills the board (paragon 30).
+const PARAGON_CATALOG := {
+	"scout_drop":     {"branch": "scout",     "cap": 5, "step": 0.04, "name": "Sharp Eyes",    "desc": "+4% loot drop rate / rank"},
+	"scout_clear":    {"branch": "scout",     "cap": 5, "step": 0.08, "name": "Bird Dog",      "desc": "+8% chance of an extra Camp-clear drop / rank"},
+	"payroll_credit": {"branch": "payroll",   "cap": 5, "step": 0.05, "name": "Signing Bonus", "desc": "+5% credits from kills / rank"},
+	"payroll_scrap":  {"branch": "payroll",   "cap": 5, "step": 0.06, "name": "Scrapper",      "desc": "+6% salvage yield / rank"},
+	"recruit_pages":  {"branch": "recruiter", "cap": 5, "step": 0.05, "name": "Playbook Study","desc": "+5% Playbook Pages earned / rank"},
+	"recruit_tokens": {"branch": "recruiter", "cap": 5, "step": 0.08, "name": "Talent Scout",  "desc": "+8% Practice Tokens found / rank"},
+}
+# AUDIBLES — the repeatable Pages sink: per-run consumables re-bought forever (spends via progression_add_pages(-cost)).
+# NOTE: only SIDEGRADE affixes are buyable — "recruiting" (+50% Pages) is intentionally EXCLUDED so an Audible can never
+# out-earn its own Pages cost (that would flip the sink into a faucet, and one buyer would fund the whole party's +Pages).
+# The recruiting affix still occurs for free as the natural weekly rotation. hardened/frenzy give only +15% Pages but are
+# net-negative after the 40-Page cost at typical clear payouts, so they're paid convenience, not farming.
+const AUDIBLE_CATALOG := {
+	"affix_standard": {"cost": 40, "type": "affix", "affix": "standard", "name": "Call: Standard Practice", "desc": "Next Camp run: baseline (no affix)."},
+	"affix_hardened": {"cost": 40, "type": "affix", "affix": "hardened", "name": "Call: Hardened Pads",     "desc": "Next Camp run: tankier mobs (a steadier clear)."},
+	"affix_frenzy":   {"cost": 40, "type": "affix", "affix": "frenzy",   "name": "Call: Two-Minute Frenzy", "desc": "Next Camp run: mobs hit harder (a faster, riskier clear)."},
+	"bonus_drop":     {"cost": 30, "type": "bonus",                      "name": "Call: Extra Scouting",    "desc": "Next Camp clear: +1 guaranteed bonus drop."},
+}
+static func paragon_level(otx: int) -> int:
+	return int(otx) / PARAGON_OT_PER_LEVEL
+static func paragon_prog(otx: int) -> int:                # XP into the current paragon level (for the bar)
+	return int(otx) % PARAGON_OT_PER_LEVEL
+static func paragon_available(otx: int, spent: int) -> int:
+	return maxi(0, paragon_level(otx) - spent)
+static func paragon_gear_bonus(level: int) -> int:        # +gear slots from milestones, capped
+	return mini((level / PARAGON_MILESTONE_EVERY) * PARAGON_BAG_PER_MILESTONE, PARAGON_BAG_MAX)
+
 const SET_DEFS := {
 	"baseball":   {"name": "Slugger",   "stat": "PWR", "th": {"2": 8, "4": 15}},
 	"football":   {"name": "Gridiron",  "stat": "END", "th": {"2": 8, "4": 15}},

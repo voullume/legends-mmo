@@ -600,18 +600,18 @@ func _circuit_template(owner: String, tier: int) -> String:
 	var idx := absi(("%s|%d|%d" % [owner, tier, week]).hash()) % CIRCUIT_ROTATION.size()
 	return CIRCUIT_ROTATION[idx]
 
-func _ensure_instance(tmpl: String, owner: String, tier: int) -> String:
+func _ensure_instance(tmpl: String, owner: String, tier: int, affix_override: Dictionary = {}) -> String:
 	var key := "%s#%s#%d" % [tmpl, owner, tier]
 	if not _worlds.has(key):
 		_worlds[key] = _new_world(key)
-		var affix := _current_affix()            # this run's affix, baked into its mobs (so a week-boundary mid-run doesn't re-roll)
+		var affix := affix_override if not affix_override.is_empty() else _current_affix()   # P5 Audible: a bought affix override, else this run's weekly affix (baked in so a week-boundary mid-run doesn't re-roll)
 		_spawn_instance_actors(key, tmpl, tier, affix)
 		_instances[key] = {"template": tmpl, "owner": owner, "tier": tier, "created_ms": Time.get_ticks_msec(), "cleared": false, "affix": affix}
 		print("[zone] instance %s created (I%d)" % [key, tier])
 	return key
 
 # route a player into a private instance of `tmpl` at Intensity `tier`. Party-aware owner keying.
-func _enter_instance(pid: int, tmpl: String, tier: int) -> void:
+func _enter_instance(pid: int, tmpl: String, tier: int, affix_override: Dictionary = {}) -> void:
 	if not _session.has(pid):
 		return
 	var f = _find(_session[pid]["fid"])
@@ -620,7 +620,7 @@ func _enter_instance(pid: int, tmpl: String, tier: int) -> void:
 	var owner := _party_key(pid)
 	if owner == "":                              # solo → own the instance by fighter id
 		owner = str(_session[pid]["fid"])
-	var key := _ensure_instance(tmpl, owner, tier)
+	var key := _ensure_instance(tmpl, owner, tier, affix_override)
 	_relocate(f, _session[pid], key, World.spawn_for(tmpl))
 
 # ---- Builder Mode P1: enter your PRIVATE Locker Room. Keyed per-CHARACTER (char_id) — NOT party/fid — so the
@@ -712,7 +712,22 @@ func enter_camp(pid: int, intensity: int) -> void:
 	var owner := _party_key(pid)                  # gameplay-length P3b-rooms: rotate the room (party-safe — same owner key → same room → shared instance)
 	if owner == "":
 		owner = str(_session[pid]["fid"])
-	_enter_instance(pid, _circuit_template(owner, tier), tier)
+	var tmpl := _circuit_template(owner, tier)
+	var fresh := not _worlds.has("%s#%s#%d" % [tmpl, owner, tier])   # will THIS enter create the instance? (affix only bites on creation)
+	# P5: consume the queued Audible. The bonus flag is ALWAYS (re)set from the current pending so a stale flag from an
+	# abandoned run can't carry over. The affix override applies + is consumed ONLY on a fresh instance; joining a live
+	# instance keeps the affix queued for a future fresh run (not silently burned).
+	var pend: Dictionary = _session[pid].get("pending_audible", {})
+	var affix_ov := {}
+	var new_pend := {}
+	if str(pend.get("affix", "")) != "":
+		if fresh:
+			affix_ov = _affix_by_id(str(pend["affix"]))
+		else:
+			new_pend["affix"] = str(pend["affix"])   # keep it for the next fresh run
+	_session[pid]["run_bonus_drop"] = bool(pend.get("bonus", false))   # (re)set — clears any stale flag from an abandoned run
+	_session[pid]["pending_audible"] = new_pend
+	_enter_instance(pid, tmpl, tier, affix_ov)
 
 # the Circuit's objective mob died → complete the run for EVERY player in that instance (unlock + bonus loot).
 func _on_circuit_clear(key: String) -> void:
@@ -749,6 +764,17 @@ func _grant_circuit_clear(pid: int, tier: int, affix: Dictionary = {}) -> void:
 	# a guaranteed Intensity-scaled bonus drop (a synthetic elite-tier roll) as the clear reward
 	if _session.has(pid):
 		await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
+	# P5: an EXTRA clear drop from the Bird Dog paragon perk (chance) or a queued "Extra Scouting" Audible (guaranteed)
+	if _session.has(pid):
+		var extra := bool(s.get("run_bonus_drop", false))
+		if extra:
+			s["run_bonus_drop"] = false
+		else:
+			var cb := _par_bonus(pid, "scout_clear")   # only draw the (non-deterministic) loot rng when the perk is actually owned
+			if cb > 0.0:
+				extra = float(_loot_rng.next()) < cb
+		if extra:
+			await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
 	if net != null and _session.has(pid):
 		net.recv_circuit_clear.rpc_id(pid, tier, int(_session[pid].get("max_intensity", 1)))
 
@@ -762,6 +788,9 @@ func _has_master_key(pid: int) -> bool:
 # award Playbook Pages (Circuit clears + the boss). Atomic DB add (source of truth) → sync the session total.
 func _award_pages(pid: int, amt: int) -> void:
 	if amt <= 0 or not _session.has(pid):
+		return
+	amt = int(round(float(amt) * _par_mult(pid, "recruit_pages")))   # P5: Recruiter "Playbook Study" Bench-Board perk
+	if amt <= 0:
 		return
 	var char_id := str(_session[pid]["char_id"])
 	var r = await supa.progression_add_pages_as(char_id, amt)
@@ -889,6 +918,153 @@ func _do_respec_talents(pid: int) -> void:
 	_save_one(s, _find(s["fid"]))                  # persist the credit spend (paid even if the peer left)
 	if net != null and _session.has(pid):
 		net.recv_talents.rpc_id(pid, {}, 0)
+
+# ---- gameplay-length P5: PARAGON ("Overtime") accrual + Bench Board (SET) + Audibles (Pages sink). QoL-only, sim-safe ----
+func _paragon_available(pid: int) -> int:
+	if not _session.has(pid):
+		return 0
+	var s = _session[pid]
+	return GameData.paragon_available(int(s.get("overtime_xp", 0)), int(s.get("paragon_spent", 0)))
+
+# a Bench-Board perk MULTIPLIER (1.0 + ranks*step), read at a SERVER reward chokepoint — never the deterministic sim
+func _par_mult(pid: int, perk: String) -> float:
+	if not _session.has(pid) or not GameData.PARAGON_CATALOG.has(perk):
+		return 1.0
+	var ranks := int((_session[pid].get("paragon_perks", {}) as Dictionary).get(perk, 0))
+	return 1.0 + float(ranks) * float(GameData.PARAGON_CATALOG[perk]["step"])
+
+# the additive bonus FRACTION for a chance-based perk (ranks*step)
+func _par_bonus(pid: int, perk: String) -> float:
+	if not _session.has(pid) or not GameData.PARAGON_CATALOG.has(perk):
+		return 0.0
+	var ranks := int((_session[pid].get("paragon_perks", {}) as Dictionary).get(perk, 0))
+	return float(ranks) * float(GameData.PARAGON_CATALOG[perk]["step"])
+
+func _affix_by_id(id: String) -> Dictionary:
+	for a in AFFIX_ROTATION:
+		if str(a.get("id", "")) == id:
+			return a
+	return {}
+
+# divert post-cap XP overflow into the monotonic paragon odometer. In-session accrual is synchronous (immediate); the
+# DB flush (monotonic greatest()) fires only on a paragon-level crossing (infrequent) or at logout, so a crash between
+# flushes forfeits only sub-level progress — never a spendable point, never an over-grant.
+func _accrue_overtime(pid: int, amt: int) -> void:
+	if amt <= 0 or not _session.has(pid):
+		return
+	var s = _session[pid]
+	var before := int(s.get("overtime_xp", 0))
+	var after := before + amt
+	s["overtime_xp"] = after
+	if net != null:
+		net.recv_overtime.rpc_id(pid, after)      # keep the client paragon bar live (1 int, deliberately NOT in the hash-diffed META → guards the 382f60f anti-bloat fix)
+	var lvl_after := GameData.paragon_level(after)
+	if lvl_after > GameData.paragon_level(before):   # crossed a paragon level → durable flush + milestone
+		var bag := GameData.paragon_gear_bonus(lvl_after)
+		s["gear_bag_bonus"] = bag
+		await supa.progression_set_overtime_as(str(s["char_id"]), after, bag)
+		if net != null and _session.has(pid):
+			net.recv_paragon_level.rpc_id(pid, lvl_after, _paragon_available(pid), bag)
+		print("[zone] %s → Paragon %d (bag+%d)" % [s["name"], lvl_after, bag])
+
+# ---- Bench Board: client sends the WHOLE proposed board; server validates + idempotent budget-guarded SET ----
+var _par_busy := {}
+var _par_next := {}
+
+func _par_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_par_busy.get(pid, false)) or now < int(_par_next.get(pid, 0)):
+		return false
+	_par_busy[pid] = true
+	_par_next[pid] = now + 400
+	return true
+
+# client → server: set the whole Bench Board. Dupe-safe: own lock before the await; the DB SET is idempotent + budget-
+# guarded, so concurrent duplicates converge (respec-free reallocation, never accumulates). QoL perks → no sim/stat touch.
+func set_paragon(pid: int, perks: Dictionary) -> void:
+	if not _par_lock(pid):
+		return
+	await _do_set_paragon(pid, perks)
+	_par_busy.erase(pid)
+
+func _do_set_paragon(pid: int, perks: Dictionary) -> void:
+	if not _session.has(pid):
+		return
+	var s = _session[pid]
+	var clean := {}                               # validate: known perks, ranks in [0, cap]; compute spent
+	var spent := 0
+	for k in perks:
+		if not GameData.PARAGON_CATALOG.has(k):
+			continue
+		var ranks := clampi(int(perks[k]), 0, int(GameData.PARAGON_CATALOG[k]["cap"]))
+		if ranks > 0:
+			clean[k] = ranks
+			spent += ranks
+	var budget := GameData.paragon_level(int(s.get("overtime_xp", 0)))
+	if spent > budget:
+		return                                    # over budget (the DB SET also guards this)
+	if spent > 0:                                 # flush the (monotonic) odometer FIRST so the durable overtime backs this budget — closes the crash-window where paragon_spent could persist ahead of the durable level
+		await supa.progression_set_overtime_as(str(s["char_id"]), int(s.get("overtime_xp", 0)), int(s.get("gear_bag_bonus", 0)))
+		if not _session.has(pid):
+			return
+	var res = await supa.paragon_set_as(str(s["char_id"]), clean, spent, budget)
+	if not _session.has(pid):
+		return
+	if not res.get("ok", false):                  # lost the atomic race / over budget in-DB → nothing changed
+		return
+	s["paragon_perks"] = res["perks"]
+	var real_spent := 0                           # derive from the DB-authoritative map (not a local value that could drift)
+	for k in res["perks"]:
+		real_spent += int(res["perks"][k])
+	s["paragon_spent"] = real_spent
+	if net != null:
+		net.recv_paragon.rpc_id(pid, s["paragon_perks"], real_spent)
+
+# ---- Audibles: buy a per-run consumable with Pages (the repeatable sink), dupe-safe deduct-before-write ----
+var _aud_busy := {}
+var _aud_next := {}
+
+func _aud_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_aud_busy.get(pid, false)) or now < int(_aud_next.get(pid, 0)):
+		return false
+	_aud_busy[pid] = true
+	_aud_next[pid] = now + 400
+	return true
+
+func buy_audible(pid: int, id: String) -> void:
+	if not _aud_lock(pid):
+		return
+	await _do_buy_audible(pid, id)
+	_aud_busy.erase(pid)
+
+func _do_buy_audible(pid: int, id: String) -> void:
+	if not _session.has(pid) or not GameData.AUDIBLE_CATALOG.has(id):
+		return
+	var s = _session[pid]
+	var def: Dictionary = GameData.AUDIBLE_CATALOG[id]
+	var cur: Dictionary = s.get("pending_audible", {})   # already-queued → no-op (never charge Pages for a duplicate effect)
+	if str(def["type"]) == "affix" and str(cur.get("affix", "")) == str(def["affix"]):
+		return
+	if str(def["type"]) == "bonus" and bool(cur.get("bonus", false)):
+		return
+	var cost := int(def["cost"])
+	if int(s.get("pages", 0)) < cost:
+		return                                    # can't afford
+	var r = await supa.progression_add_pages_as(str(s["char_id"]), -cost)   # deduct-before-write: the atomic underflow-guarded Pages spend (reused, no new fn)
+	if not _session.has(pid):
+		return
+	if not r.get("ok", false):                    # lost the race / insufficient → nothing changed
+		return
+	s["pages"] = int(r["total"])
+	var pend: Dictionary = (s.get("pending_audible", {}) as Dictionary).duplicate()
+	if str(def["type"]) == "affix":
+		pend["affix"] = str(def["affix"])
+	elif str(def["type"]) == "bonus":
+		pend["bonus"] = true
+	s["pending_audible"] = pend
+	if net != null:
+		net.recv_audible.rpc_id(pid, pend, int(s["pages"]))
 
 # ---- cosmetics (P4): buy a dye with credits (dupe-safe) + equip it (server-authoritative ownership) ----
 var _cos_busy := {}                              # pid → a cosmetics op is in flight
@@ -1356,6 +1532,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
 	if supa != null:                             # gameplay-length P1(d): persist remaining rested pool + stamp offline time
 		supa.progression_rest_logout_as(str(s["char_id"]), int(s.get("rested_xp", 0)))
+	if supa != null and int(s.get("overtime_xp", 0)) > 0:   # gameplay-length P5: flush the running paragon Overtime (monotonic greatest() → safe even if a level flush already ran)
+		supa.progression_set_overtime_as(str(s["char_id"]), int(s.get("overtime_xp", 0)), int(s.get("gear_bag_bonus", 0)))
 	if not bool(_sellmany_busy.get(pid, false)) and not bool(_forge_busy.get(pid, false)) and not bool(_vendor_busy.get(pid, false)) and not bool(_shop_busy.get(pid, false)) and not bool(_cos_busy.get(pid, false)) and not bool(_locker_busy.get(pid, false)) and not bool(_build_busy.get(pid, false)) and not bool(_tal_busy.get(pid, false)):
 		_save_one(s, _find(s["fid"]))            # an in-flight bulk-sell / upgrade / vendor-buy / shop-buy / dye-buy / locker-unlock / build-buy / talent-respec owns its OWN terminal
 												 # its OWN terminal save; saving here too would race that credit
@@ -1387,6 +1565,10 @@ func _on_peer_disconnected(pid: int) -> void:
 	_party_invite_next.erase(pid)
 	_tal_busy.erase(pid)
 	_tal_next.erase(pid)
+	_par_busy.erase(pid)
+	_par_next.erase(pid)
+	_aud_busy.erase(pid)
+	_aud_next.erase(pid)
 	_shop_busy.erase(pid)
 	_shop_next.erase(pid)
 	_sellmany_busy.erase(pid)
@@ -1442,7 +1624,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"locker_unlocked": bool(ch.get("locker_unlocked", false)),
 		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", "")),   # gameplay-length P2: pre-gating chars keep the full kit
 		"rested_xp": 0,   # gameplay-length P1(d): offline rested pool, accrued just below at login
-		"talents": {}, "talent_spent": 0}   # gameplay-length P4: talent allocation (loaded from the progression table below)
+		"talents": {}, "talent_spent": 0,   # gameplay-length P4: talent allocation (loaded from the progression table below)
+		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0, "pending_audible": {}}   # gameplay-length P5: paragon + Audible state (loaded below)
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -1463,6 +1646,13 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		var _tal = pr.get("talents", {})                # gameplay-length P4: load the talent allocation (existing chars default to {} → all points unspent)
 		_session[pid]["talents"] = (_tal if _tal is Dictionary else {})
 		_session[pid]["talent_spent"] = maxi(0, int(pr.get("talent_spent", 0)))
+		var _par = pr.get("paragon_perks", {})          # gameplay-length P5: load paragon Overtime + Bench Board
+		_session[pid]["overtime_xp"] = maxi(0, int(pr.get("overtime_xp", 0)))
+		_session[pid]["paragon_perks"] = (_par if _par is Dictionary else {})
+		_session[pid]["paragon_spent"] = maxi(0, int(pr.get("paragon_spent", 0)))
+		_session[pid]["gear_bag_bonus"] = maxi(0, int(pr.get("gear_bag_bonus", 0)))
+		if net != null and int(_session[pid]["overtime_xp"]) > 0:   # seed the client paragon bar on login (live value, not in the hashed META)
+			net.recv_overtime.rpc_id(pid, int(_session[pid]["overtime_xp"]))
 	if _session.has(pid):                             # gameplay-length P1(d): accrue the offline rested-XP pool at login (rate/cap level-scaled)
 		var _rneed := _xp_to_next(maxi(1, int(_session[pid]["level"])))
 		var _rest = await supa.progression_rest_login_as(str(_session[pid]["char_id"]), float(_rneed) * RESTED_RATE_FRAC, int(_rneed * RESTED_CAP_FRAC))
@@ -2214,7 +2404,8 @@ func _do_salvage_many(pid: int, item_ids: Array) -> void:
 		if r.get("ok"):
 			# credit THIS item's scrap immediately (atomic), so a transient credit failure can lose at most
 			# ONE item's yield — never the whole batch — and it lands in the DB even if the peer has left.
-			var mr = await supa.mats_add_as(s["char_id"], int(SALVAGE_YIELD.get(str(r["rarity"]), 1)))
+			var scr := maxi(1, int(round(float(int(SALVAGE_YIELD.get(str(r["rarity"]), 1))) * _par_mult(pid, "payroll_scrap"))))   # P5: Payroll "Scrapper" perk
+			var mr = await supa.mats_add_as(s["char_id"], scr)
 			if mr.get("ok") and _session.has(pid):
 				s["scrap"] = int(mr["total"])
 		if not _session.has(pid):                             # peer left mid-loop: stop removing more items
@@ -2760,11 +2951,11 @@ func _award_kills() -> void:
 					if credit_pid < 0 and bool(killer_f.get("resPolite", true)):   # a SOLO kill (no one was fighting) → polite gifts it, the rude one hogs it
 						credit_pid = _nearest_player_pid(str(mapname), vpos, RESIDENT_ASSIST_RANGE, false)
 			if credit_pid >= 0 and _session.has(credit_pid):
-				_award_credits(credit_pid, _mob_credits(victim))   # credits before xp's save persists both
+				_award_credits(credit_pid, int(round(float(_mob_credits(victim)) * _par_mult(credit_pid, "payroll_credit"))))   # credits before xp's save persists both (P5: Payroll perk)
 				if gy:
-					_award_tokens(credit_pid, _mob_tokens(victim))
+					_award_tokens(credit_pid, int(round(float(_mob_tokens(victim)) * _par_mult(credit_pid, "recruit_tokens"))))   # P5: Recruiter "Talent Scout" perk
 				_award_kill_xp(credit_pid, victim, str(mapname))
-				var drop := _roll_loot(victim)                 # roll once; solo → grant; party (≥2 real, same zone) → want/need/pass
+				var drop := _roll_loot(victim, _par_mult(credit_pid, "scout_drop"))   # roll once; solo → grant; party (≥2 real, same zone) → want/need/pass (P5: Scout drop-rate perk)
 				if not drop.is_empty():
 					_distribute_loot(credit_pid, drop, str(mapname))
 				_quest_on_kill(credit_pid, victim)             # advance any matching kill-quest
@@ -2808,8 +2999,11 @@ func _award_xp(pid: int, amt: int) -> void:
 			f["hp"] = f["maxHP"]
 		if net != null:                          # gameplay-length P4: each level = +1 talent point (derived from level, so nothing to store) → nudge the client to open the tree
 			net.recv_talent_point.rpc_id(pid, int(s["level"]))
-	if int(s["level"]) >= LEVEL_CAP:             # at cap: park xp at a full bar (no unbounded growth)
+	if int(s["level"]) >= LEVEL_CAP:             # at cap: park xp at a full bar, divert the OVERFLOW into paragon Overtime (P5)
+		var overflow := int(s["xp"]) - _xp_to_next(LEVEL_CAP)
 		s["xp"] = mini(int(s["xp"]), _xp_to_next(LEVEL_CAP))
+		if overflow > 0:
+			_accrue_overtime(pid, overflow)     # fire-and-forget (like _save_one): in-session accrual is synchronous, the DB flush only fires on a level crossing
 	_save_one(s, _find(s["fid"]))                # persist xp/level on every kill (durable progression)
 	print("[zone] %s +%d xp → lvl %d (%d/%d)" % [s["name"], amt, s["level"], s["xp"], _xp_to_next(int(s["level"]))])
 
@@ -2914,7 +3108,7 @@ func _award_kill_xp(credit_pid: int, mob, mapname: String) -> void:
 func _grant_loot(pid: int, mob) -> void:
 	if not _session.has(pid):
 		return
-	var item := _roll_loot(mob)
+	var item := _roll_loot(mob, _par_mult(pid, "scout_drop"))   # P5: Scout drop-rate perk applies to Circuit-clear bonus rolls too
 	if not item.is_empty():
 		await _grant_item(pid, item)
 
@@ -3051,11 +3245,15 @@ func _tick_loot_rolls() -> void:
 	for drop_id in expired:
 		_resolve_loot_roll(drop_id)
 
-func _roll_loot(mob) -> Dictionary:
+func _roll_loot(mob, drop_mult: float = 1.0) -> Dictionary:
 	var tier := str(mob.get("mobTier", "minion"))
 	var lvl := int(mob.get("mobLevel", 1))
 	var intensity := int(mob.get("intensity", 1))            # Circuit Intensity (1 = open world → no change)
-	var chance := clampf(float(DROP_CHANCE.get(tier, 0.15)) + ((intensity - 1) * DROP_INTENSITY_STEP if tier == "minion" else 0.0), 0.0, 1.0)
+	# drop_mult (P5 Scout "Sharp Eyes" perk) scales the drop CHANCE. This DOES shift the shared _loot_rng stream (a higher
+	# chance passes the gate more often → more downstream rarity/slot draws) — but that is fine: _loot_rng is a separate,
+	# wall-clock-seeded ECONOMY rng, entirely distinct from the per-world deterministic Sim Rng, so create_fighter/derive/
+	# FORMAT_MODS + the AI-duel harness stay byte-identical. Do NOT feed a chance multiplier into the deterministic sim rng.
+	var chance := clampf((float(DROP_CHANCE.get(tier, 0.15)) + ((intensity - 1) * DROP_INTENSITY_STEP if tier == "minion" else 0.0)) * drop_mult, 0.0, 1.0)
 	if _loot_rng.next() > chance:
 		return {}
 	var rar := _roll_rarity(tier, intensity)
@@ -3685,6 +3883,8 @@ func _broadcast() -> void:
 				"locker_unlocked": bool(s.get("locker_unlocked", false)),   # Builder Mode: drives the Home portal "Purchase (10,000)" vs "Enter" state (P3)
 				"ability_ungated": bool(s.get("ability_ungated", false)),   # gameplay-length P2: grandfathered → client hotbar shows the full kit unlocked
 				"talents": (s.get("talents", {}) as Dictionary).duplicate(), "talent_spent": int(s.get("talent_spent", 0)),   # gameplay-length P4: talent tree state (T panel; the client derives points-available from level+spent)
+				"paragon_perks": (s.get("paragon_perks", {}) as Dictionary).duplicate(), "paragon_spent": int(s.get("paragon_spent", 0)),   # gameplay-length P5: SLOW paragon state (Bench Board B panel); LIVE overtime_xp rides recv_overtime, never this hashed block
+				"gear_bag_bonus": int(s.get("gear_bag_bonus", 0)), "pending_audible": (s.get("pending_audible", {}) as Dictionary).duplicate(),
 				"cos_owned": (s.get("cos_owned", []) as Array).duplicate(), "cos_dye": str(s.get("cos_dye", "")),   # P4 cosmetics (wardrobe panel)
 				"set_bonus": (s.get("set_bonus", {}) as Dictionary).duplicate(),
 				"procs": (s.get("procs", []) as Array).duplicate(),

@@ -311,8 +311,12 @@ func get_progression_as(token: String) -> Dictionary:
 	if r["code"] == 200 and r["data"] is Array and (r["data"] as Array).size() > 0:
 		var row = r["data"][0]
 		var tal = row.get("talents", {})
-		return {"ok": true, "max_intensity": int(row.get("max_intensity", 1)), "pages": int(row.get("playbook_pages", 0)), "has_key": bool(row.get("has_master_key", false)), "talents": (tal if tal is Dictionary else {}), "talent_spent": int(row.get("talent_spent", 0))}
-	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0, "has_key": false, "talents": {}, "talent_spent": 0}
+		var par = row.get("paragon_perks", {})
+		return {"ok": true, "max_intensity": int(row.get("max_intensity", 1)), "pages": int(row.get("playbook_pages", 0)), "has_key": bool(row.get("has_master_key", false)),
+			"talents": (tal if tal is Dictionary else {}), "talent_spent": int(row.get("talent_spent", 0)),
+			"overtime_xp": int(row.get("overtime_xp", 0)), "paragon_perks": (par if par is Dictionary else {}), "paragon_spent": int(row.get("paragon_spent", 0)), "gear_bag_bonus": int(row.get("gear_bag_bonus", 0))}
+	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0, "has_key": false, "talents": {}, "talent_spent": 0,
+		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0}
 
 # atomically add (+earn) or spend (−) Playbook Pages via progression_add_pages. Returns {ok,total}: ok=false
 # when a spend underflows (insufficient). Service-role only.
@@ -352,6 +356,27 @@ func talents_respec_as(char_id: String) -> bool:
 		return false
 	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_talent_respec", JSON.stringify({"p_char": char_id}), PackedStringArray(), service_key)
 	return r["code"] >= 200 and r["code"] < 300 and r["data"] != null
+
+# gameplay-length P5: flush the monotonic post-cap overtime odometer + the derived gear-bag bonus (greatest() in-DB, so
+# a stale/late write can never lower either). Returns the resulting overtime_xp. Service-role only.
+func progression_set_overtime_as(char_id: String, overtime: int, bag_bonus: int) -> int:
+	if service_key == "":
+		return 0
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_set_overtime", JSON.stringify({"p_char": char_id, "p_overtime": overtime, "p_bag_bonus": bag_bonus}), PackedStringArray(), service_key)
+	var val = r["data"]
+	if val is Array and (val as Array).size() > 0:
+		val = val[0]
+	return int(val) if (r["code"] >= 200 and r["code"] < 300 and val != null) else 0
+
+# gameplay-length P5: SET the whole paragon Bench Board (idempotent, budget-guarded in-DB). Returns {ok,perks}: ok=false
+# when refused (spent out of [0,budget] → RPC returns null). p_budget = paragon_level (server-derived). Service-role only.
+func paragon_set_as(char_id: String, perks: Dictionary, spent: int, budget: int) -> Dictionary:
+	if service_key == "":
+		return {"ok": false, "perks": {}}
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/progression_paragon_set", JSON.stringify({"p_char": char_id, "p_perks": perks, "p_spent": spent, "p_budget": budget}), PackedStringArray(), service_key)
+	var val = r["data"]
+	var ok: bool = r["code"] >= 200 and r["code"] < 300 and val != null and val is Dictionary
+	return {"ok": ok, "perks": (val if ok else {})}
 
 # gameplay-length P1(d): rested XP. LOGIN — atomically accrue the offline pool (p_rate per hour, capped at p_cap,
 # both level-scaled by the caller), mark the character online, and return the resulting rested pool. Service-role only.

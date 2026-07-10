@@ -244,6 +244,38 @@ func recv_talent_point(level: int) -> void:
 	if client != null:
 		client.recv_talent_point(level)
 
+# ---- paragon "Overtime" + Bench Board + Audibles (gameplay-length P5) ----
+@rpc("any_peer", "call_remote", "reliable")
+func set_paragon(perks: Dictionary) -> void:
+	if server != null:
+		server.set_paragon(multiplayer.get_remote_sender_id(), perks)
+
+@rpc("any_peer", "call_remote", "reliable")
+func buy_audible(id: String) -> void:
+	if server != null:
+		server.buy_audible(multiplayer.get_remote_sender_id(), id)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_paragon(perks: Dictionary, spent: int) -> void:
+	if client != null:
+		client.recv_paragon(perks, spent)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_audible(pending: Dictionary, pages: int) -> void:
+	if client != null:
+		client.recv_audible(pending, pages)
+
+# live post-cap Overtime odometer — deliberately its OWN RPC (not the hashed META) to keep the per-tick snapshot slim
+@rpc("authority", "call_remote", "reliable")
+func recv_overtime(overtime_xp: int) -> void:
+	if client != null:
+		client.recv_overtime(overtime_xp)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_paragon_level(level: int, available: int, bag_bonus: int) -> void:
+	if client != null:
+		client.recv_paragon_level(level, available, bag_bonus)
+
 # ---- Builder Mode (P0): buy the one-time Locker-Room unlock. Server re-validates credits + flips atomically;
 # it owns credits + the flag (client sends only the intent). The Home-Base portal that triggers this + the
 # unlock confirmation land in P1/P3 (credits reflect via the per-tick snapshot until then). ----

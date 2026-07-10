@@ -167,6 +167,13 @@ var _talent_panel: Control = null
 var _talent_rows: VBoxContainer = null
 var _talent_status: Label = null
 var _talent_sig := ""                             # sig-guard so the open panel only rebuilds when a shown value changed
+# Paragon "Overtime" Bench Board (gameplay-length P5): a key-toggled (B) allocate-then-Apply QoL board
+var _paragon_panel: Control = null
+var _paragon_rows: VBoxContainer = null
+var _paragon_status: Label = null
+var _paragon_draft := {}                          # local working allocation (perk_id → ranks) until Apply
+var _overtime_xp := 0                             # live post-cap odometer (pushed via recv_overtime, not the hashed META)
+var _paragon_sig := ""
 # Leaderboards + Two-Minute Drill (P5)
 var _lb_panel: Control = null
 var _lb_rows: VBoxContainer = null
@@ -216,6 +223,7 @@ func _enter_mode() -> void:
 	_build_camp()
 	_build_wardrobe()
 	_build_talents()
+	_build_paragon()
 	_build_leaderboard()
 	_build_questlog()
 	_build_qgiver_dialog()
@@ -713,7 +721,7 @@ func _toggle_locker() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	_locker_panel.visible = not _locker_panel.visible
 	if _locker_panel.visible:                 # full-screen opaque modal → close every other panel under it
-		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _talent_panel, _lb_panel, _qgiver_panel, _settings_panel, _meter_panel]:
+		for pnl in [_inv_panel, _sheet_panel, _quest_panel, _shop_panel, _forge_panel, _vendor_panel, _camp_panel, _wardrobe_panel, _talent_panel, _paragon_panel, _lb_panel, _qgiver_panel, _settings_panel, _meter_panel]:
 			if pnl != null: pnl.visible = false
 		_locker_stat_sig = "-"                # force a fresh stat-bar rebuild on (re)open
 		_update_locker_model()
@@ -1080,11 +1088,12 @@ func _recount_gear() -> void:
 func _update_cap_warning() -> void:
 	if _cap_warn == null:
 		return
-	if _gear_count >= 50:
-		_cap_warn.text = "⚠  INVENTORY FULL  ·  50 / 50\nnew gear won't drop — sell items to make room"
+	var cap := 50 + _my_gear_bag()               # P5: paragon gear-bag milestones raise the real cap (server trigger matches)
+	if _gear_count >= cap:
+		_cap_warn.text = "⚠  INVENTORY FULL  ·  %d / %d\nnew gear won't drop — sell items to make room" % [cap, cap]
 		_cap_warn.visible = true
-	elif _gear_count >= 45:
-		_cap_warn.text = "⚠  BAG NEARLY FULL  ·  %d / 50\nsell items — new gear stops dropping at 50" % _gear_count
+	elif _gear_count >= cap - 5:
+		_cap_warn.text = "⚠  BAG NEARLY FULL  ·  %d / %d\nsell items — new gear stops dropping at %d" % [_gear_count, cap, cap]
 		_cap_warn.visible = true
 	else:
 		_cap_warn.visible = false
@@ -2217,6 +2226,57 @@ func _render_camp() -> void:
 	khint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
 	khint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_camp_rows.add_child(khint)
+	# --- Audibles (P5): the repeatable Pages sink — per-run consumables for your NEXT Camp run ---
+	_camp_rows.add_child(HSeparator.new())
+	_camp_rows.add_child(Widgets.section("📋 Audibles — spend Pages on your next Camp run"))
+	var pend := _my_pending_audible()
+	var queued := []
+	if str(pend.get("affix", "")) != "":
+		queued.append("Affix: %s" % str(GameData.AUDIBLE_CATALOG.get("affix_%s" % str(pend["affix"]), {}).get("name", pend["affix"])).replace("Call: ", ""))
+	if bool(pend.get("bonus", false)):
+		queued.append("Extra Scouting")
+	var qlbl := Label.new()
+	qlbl.text = ("✓ Queued for next run: %s" % ", ".join(queued)) if not queued.is_empty() else "Nothing queued. Buy an Audible, then Enter a Camp run."
+	qlbl.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63) if not queued.is_empty() else Palette.TEXT_FAINT)
+	qlbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_camp_rows.add_child(qlbl)
+	for aid in GameData.AUDIBLE_CATALOG:
+		var ad: Dictionary = GameData.AUDIBLE_CATALOG[aid]
+		var arow := HBoxContainer.new()
+		arow.add_theme_constant_override("separation", 10)
+		var albl := Label.new()
+		albl.text = "%s — %s" % [str(ad["name"]).replace("Call: ", ""), str(ad["desc"])]
+		albl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		albl.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+		albl.add_theme_color_override("font_color", Palette.TEXT_DIM)
+		arow.add_child(albl)
+		var already := (str(ad.get("type", "")) == "affix" and str(pend.get("affix", "")) == str(ad.get("affix", ""))) or (str(ad.get("type", "")) == "bonus" and bool(pend.get("bonus", false)))
+		var abtn := Button.new()
+		abtn.text = "✓ Queued" if already else "◈ %d" % int(ad["cost"])
+		abtn.disabled = already or _my_pages() < int(ad["cost"])
+		abtn.pressed.connect(_on_buy_audible.bind(str(aid)))
+		arow.add_child(abtn)
+		_camp_rows.add_child(arow)
+
+func _my_pending_audible() -> Dictionary:
+	var p = _state.get("self", {}).get("pending_audible", {})
+	return (p if p is Dictionary else {})
+
+func _on_buy_audible(id: String) -> void:
+	if net != null:
+		net.buy_audible.rpc_id(1, id)
+
+# server → client: an Audible was bought (pending set, Pages spent) — refresh the camp panel live
+func recv_audible(pending: Dictionary, pages: int) -> void:
+	if _state.has("self"):
+		var me: Dictionary = (_state["self"] as Dictionary).duplicate()
+		me["pending_audible"] = pending
+		me["pages"] = pages
+		_meta["self"] = me
+		_state["self"] = me
+	_quest_toast("[color=#8ad6ff]📋 Audible queued for your next Camp run.[/color]")
+	if _camp_panel != null and _camp_panel.visible:
+		_render_camp()
 
 func _on_enter_camp(tier: int) -> void:
 	if net != null:
@@ -2486,6 +2546,183 @@ func recv_talent_point(level: int) -> void:
 	_quest_toast("[color=#9fe8a0]🌳 Talent point earned (Lv %d)![/color]  Press [b]T[/b] to spend it." % level)
 	if _talent_panel != null and _talent_panel.visible:
 		_render_talents()
+
+# ---- Paragon "Overtime" Bench Board (gameplay-length P5): post-cap QoL-only progression (allocate → Apply) ----
+func _my_paragon_perks() -> Dictionary:
+	var pp = _state.get("self", {}).get("paragon_perks", {})
+	return (pp if pp is Dictionary else {})
+func _my_paragon_spent() -> int:
+	return int(_state.get("self", {}).get("paragon_spent", 0))
+func _my_paragon_level() -> int:
+	return GameData.paragon_level(_overtime_xp)
+func _my_gear_bag() -> int:
+	return int(_state.get("self", {}).get("gear_bag_bonus", 0))
+func _draft_spent() -> int:
+	var t := 0
+	for k in _paragon_draft:
+		t += int(_paragon_draft[k])
+	return t
+func _paragon_dirty() -> bool:
+	var applied := _my_paragon_perks()
+	for perk_id in GameData.PARAGON_CATALOG:
+		if int(_paragon_draft.get(perk_id, 0)) != int(applied.get(perk_id, 0)):
+			return true
+	return false
+
+func _build_paragon() -> void:
+	var p := Widgets.panel("⭐ Paragon — Bench Board", "B / Esc", 640.0, _toggle_paragon)
+	_paragon_panel = p["root"]
+	_hud.add_child(_paragon_panel)
+	var vb: VBoxContainer = p["body"]
+	_paragon_status = Widgets.status(Palette.ACCENT2)
+	vb.add_child(_paragon_status)
+	vb.add_child(Widgets.hint("Past level 30, XP becomes Overtime — 1 Bench Board point per Paragon level. Pure quality-of-life (more loot / credits / Pages / scrap / tokens), never combat power. Reallocate freely, then Apply. Every 5 Paragon levels also grants +2 gear-inventory slots."))
+	_paragon_rows = VBoxContainer.new()
+	_paragon_rows.add_theme_constant_override("separation", 4)
+	vb.add_child(_paragon_rows)
+
+func _toggle_paragon() -> void:
+	if _paragon_panel == null:
+		return
+	if _tooltip != null: _tooltip.visible = false
+	_paragon_panel.visible = not _paragon_panel.visible
+	if _paragon_panel.visible:
+		if _locker_panel != null: _locker_panel.visible = false
+		_paragon_draft = _my_paragon_perks().duplicate()   # seed the draft from the applied board
+		_render_paragon()
+
+# just the header line (cheap) — called per-kill by recv_overtime so the live Overtime bar updates without a full row rebuild
+func _set_paragon_status() -> void:
+	if _paragon_status == null:
+		return
+	var level := _my_paragon_level()
+	var spent := _draft_spent()
+	_paragon_status.text = "Paragon %d   —   %d / %d points   (%d left)   ·   Overtime %d / %d to next   ·   +%d gear slots" % [
+		level, spent, level, maxi(0, level - spent), GameData.paragon_prog(_overtime_xp), GameData.PARAGON_OT_PER_LEVEL, _my_gear_bag()]
+
+func _render_paragon() -> void:
+	if _paragon_panel == null or not _paragon_panel.visible or _paragon_rows == null:
+		return
+	var level := _my_paragon_level()
+	var avail := level - _draft_spent()
+	_set_paragon_status()
+	for c in _paragon_rows.get_children():
+		c.queue_free()
+	for br in GameData.PARAGON_BRANCH_ORDER:
+		_paragon_rows.add_child(Widgets.section(str(GameData.PARAGON_BRANCH_NAMES.get(br, br))))
+		for perk_id in GameData.PARAGON_CATALOG:
+			var def: Dictionary = GameData.PARAGON_CATALOG[perk_id]
+			if str(def["branch"]) != br:
+				continue
+			_paragon_rows.add_child(_paragon_row(str(perk_id), def, avail))
+	_paragon_rows.add_child(HSeparator.new())
+	var arow := HBoxContainer.new()
+	arow.add_theme_constant_override("separation", 10)
+	var apply := Button.new()
+	apply.text = "Apply"
+	apply.disabled = not _paragon_dirty()
+	apply.pressed.connect(_on_paragon_apply)
+	arow.add_child(apply)
+	var reset := Button.new()
+	reset.text = "Reset"
+	reset.disabled = not _paragon_dirty()
+	reset.pressed.connect(_on_paragon_reset)
+	arow.add_child(reset)
+	if level <= 0:
+		var none := Label.new()
+		none.text = "Reach level 30, then keep earning XP to gain Paragon levels."
+		none.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+		arow.add_child(none)
+	_paragon_rows.add_child(arow)
+
+func _paragon_row(perk_id: String, def: Dictionary, avail: int) -> HBoxContainer:
+	var cur := int(_paragon_draft.get(perk_id, 0))
+	var cap := int(def["cap"])
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var nm := Label.new()
+	nm.text = str(def["name"])
+	nm.custom_minimum_size = Vector2(140, 0)
+	nm.add_theme_color_override("font_color", Palette.TEXT_BRIGHT if cur > 0 else Palette.TEXT)
+	row.add_child(nm)
+	var rank := Label.new()
+	rank.text = "%d / %d" % [cur, cap]
+	rank.custom_minimum_size = Vector2(44, 0)
+	rank.add_theme_color_override("font_color", Palette.ACCENT if cur >= cap else Palette.TEXT_DIM)
+	row.add_child(rank)
+	var desc := Label.new()
+	desc.text = str(def["desc"])
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	desc.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
+	desc.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	row.add_child(desc)
+	var minus := Button.new()
+	minus.text = "−"
+	minus.disabled = cur <= 0
+	minus.pressed.connect(_on_paragon_step.bind(perk_id, -1))
+	row.add_child(minus)
+	var plus := Button.new()
+	plus.text = "＋"
+	plus.disabled = cur >= cap or avail <= 0
+	plus.pressed.connect(_on_paragon_step.bind(perk_id, 1))
+	row.add_child(plus)
+	return row
+
+func _on_paragon_step(perk_id: String, delta: int) -> void:
+	if not GameData.PARAGON_CATALOG.has(perk_id):
+		return
+	var cap := int(GameData.PARAGON_CATALOG[perk_id]["cap"])
+	if delta > 0 and _draft_spent() >= _my_paragon_level():
+		return                                    # no points left to allocate
+	var next := clampi(int(_paragon_draft.get(perk_id, 0)) + delta, 0, cap)
+	if next <= 0:
+		_paragon_draft.erase(perk_id)
+	else:
+		_paragon_draft[perk_id] = next
+	_render_paragon()
+
+func _on_paragon_apply() -> void:
+	if net != null:
+		net.set_paragon.rpc_id(1, _paragon_draft.duplicate())
+
+func _on_paragon_reset() -> void:
+	_paragon_draft = _my_paragon_perks().duplicate()
+	_render_paragon()
+
+# server → client: live post-cap Overtime odometer (its own RPC, kept out of the hashed META)
+func recv_overtime(overtime_xp: int) -> void:
+	var crossed := GameData.paragon_level(overtime_xp) != GameData.paragon_level(_overtime_xp)
+	_overtime_xp = overtime_xp
+	if _paragon_panel != null and _paragon_panel.visible:
+		if crossed:
+			_render_paragon()                     # a level crossing changes available points → rebuild rows (rare)
+		else:
+			_set_paragon_status()                 # normal kill: just refresh the live Overtime header (no per-kill row churn)
+
+# server → client: the authoritative Bench Board after an Apply (copy-on-write into self like recv_talents)
+func recv_paragon(perks: Dictionary, spent: int) -> void:
+	if _state.has("self"):
+		var me: Dictionary = (_state["self"] as Dictionary).duplicate()
+		me["paragon_perks"] = perks
+		me["paragon_spent"] = spent
+		_meta["self"] = me
+		_state["self"] = me
+	_paragon_draft = perks.duplicate()            # re-sync the draft to what actually applied
+	_quest_toast("[color=#8ad6ff]⭐ Bench Board updated.[/color]")
+	if _paragon_panel != null and _paragon_panel.visible:
+		_render_paragon()
+
+# server → client: crossed a Paragon level (points/milestone)
+func recv_paragon_level(level: int, available: int, bag_bonus: int) -> void:
+	if _state.has("self"):                         # fold the milestone gear-bag into self immediately
+		var me: Dictionary = (_state["self"] as Dictionary).duplicate()
+		me["gear_bag_bonus"] = bag_bonus
+		_meta["self"] = me
+		_state["self"] = me
+	if available > 0:
+		_quest_toast("[color=#ffd24d]⭐ Paragon %d![/color]  A Bench Board point is ready — press [b]B[/b]." % level)
+	if _paragon_panel != null and _paragon_panel.visible:
+		_render_paragon()
 
 # ---- Leaderboards (P5) ----
 const LB_CATS := [["drill", "Two-Minute Drill (wave)"], ["gear", "Gear Score"], ["intensity", "Camp Intensity"]]
@@ -4872,6 +5109,11 @@ func receive_snapshot(snap: Dictionary) -> void:
 		if tsig != _talent_sig:
 			_talent_sig = tsig
 			_render_talents()
+	if _paragon_panel != null and _paragon_panel.visible:  # keep the Bench Board live (overtime rides recv_overtime; this catches META-driven spent/gear-bag changes)
+		var psig := "%d|%d|%d" % [_overtime_xp, _my_paragon_spent(), _my_gear_bag()]
+		if psig != _paragon_sig:
+			_paragon_sig = psig
+			_render_paragon()
 	if _player != null and _player_id != "":
 		var pf = _find_fighter(_player_id)
 		if pf != null and _player.class_id != pf["classId"]:
@@ -5017,6 +5259,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_talent_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _paragon_panel != null and _paragon_panel.visible:
+				_paragon_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _lb_panel != null and _lb_panel.visible:
 				_lb_panel.visible = false
 				get_viewport().set_input_as_handled()
@@ -5110,6 +5356,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			return
 		elif e.keycode == KEY_T and not _chatting:
 			_toggle_talents()               # the Talent tree (gameplay-length P4) — usable anywhere
+			get_viewport().set_input_as_handled()
+			return
+		elif e.keycode == KEY_B and not _chatting:
+			_toggle_paragon()               # the Paragon Bench Board (gameplay-length P5) — usable anywhere
 			get_viewport().set_input_as_handled()
 			return
 		elif e.keycode == KEY_L and not _chatting:
