@@ -47,8 +47,18 @@ const MOB_XP_BASE := 15               # mob XP = base × level × tier mult (min
 const MOB_ELITE_HP := 2.2
 const MOB_ELITE_DMG := 1.6
 const MOB_ELITE_XP := 4
-const MOB_BOSS_HP := 22.0             # a raid-style boss tuned for a full party of 5 (NOT soloable) — a long fight
+const MOB_BOSS_HP := 22.0             # a raid-style boss tuned for a full party of 5 — the BASE pool; P7c scales it DOWN for smaller groups
 const MOB_BOSS_DMG := 2.1             # hits hard enough that ignoring its mechanics (ult/adds) wipes a careless group
+
+# P7c — per-party-size boss scaling. A phased WORLD boss (Head Coach / PRIME) locks its HP pool to the engaging
+# force on its FIRST hit: a lone geared attacker faces a fraction, a full group the whole raid. HP-only (full
+# damage is kept, so a solo must still survive the mechanics). Server-only — a mob-stat lock, no FORMAT_MODS /
+# no deterministic-sim change. All three knobs are playtest-tunable. Counting a bot as ~half a real player (v1
+# nerfed them ≈ half) makes near-max-gear-solo-with-bots a tight win but a gate-minimum group a loss.
+const BOSS_SOLO_HP_FRAC := 0.30       # a lone effective attacker faces this fraction of the 5-player HP pool
+const BOSS_HP_PER_ATTACKER := 0.175   # + this per additional effective attacker, clamped to 1.0 (~5 attackers = full raid)
+const BOSS_BOT_WEIGHT := 0.5          # an AI bot counts as this fraction of a real player toward the effective count
+const BOSS_SCALE_COMMIT := 0.90       # lock only once REAL damage has driven the boss below this HP fraction (well above the 0.70 phase-1 boundary) — so the lock is anchored to an attack, not a timer; a lone tagger who leaves can't lock it (leash restores it)
 const MOB_BOSS_XP := 6                # ≈ 0.9 of a level at its tier — rewarding but kept under a full level
 const LEVEL_HP := 60.0                # bonus max HP per player level
 const LEVEL_CAP := 30                 # endgame P1: the level ceiling (mobs scale via Intensity, not level, past here)
@@ -2716,6 +2726,7 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 		w["controlled"][fid] = {"mx": mx, "my": my, "ability": _pending_ability.get(pid, ""), "target": str(mv.get("target", "")), "friend": str(mv.get("friend", ""))}
 		_pending_ability[pid] = ""
 	Sim.sim_tick(w, SIM_DT)
+	_scale_boss_party(w)                          # P7c: lock a phased world boss's HP to the engaging party on its first hit (before regen)
 	_consume_summons(w, mapname)                  # spawn any adds the sim requested this tick (summon bridge)
 	_apply_regen(w)                               # out-of-combat health regen (rate/delay per map type)
 	var instance := _is_instance(mapname)
@@ -2925,6 +2936,11 @@ func _update_mob_ai(w: Dictionary) -> void:
 			f["x"] = spawn.x                                     # disengaged → return to camp
 			f["y"] = spawn.y
 			if was:                                             # heal to full only on the engage→disengage edge
+				if is_boss:                                     # P7c: a leashed boss is a FRESH pull — restore the base 5-player HP pool + clear the party-scale lock so the next pull re-samples the real force (defeats tag-and-leave / solo-death-in-opening)
+					f["maxHP"] = float(f.get("_basePool", f["maxHP"]))
+					f["_scaleCommitted"] = false
+					f["_scaleFac"] = 1.0
+					f["_scaleEff"] = 0.0
 				f["hp"] = f["maxHP"]
 				f["phase"] = 0                                  # boss: a leashed boss re-runs its phases + re-fires threshold summons on the next pull
 				f["_threshSummoned"] = {}
@@ -3057,6 +3073,54 @@ func _scale_mob(f) -> void:
 	f["maxHP"] = f["maxHP"] * hp_s * float(bdef.get("hpMult", 1.0)) * i_hp * float(f.get("affixHp", 1.0))   # per-boss + Intensity + weekly-affix HP mult (affix defaults 1.0 → open-world/boss unaffected)
 	f["hp"] = f["maxHP"]
 	f["dmgMult"] *= dmg_s * float(bdef.get("dmgScale", 1.0)) * i_dmg * float(f.get("affixDmg", 1.0))   # per-boss + Intensity + weekly-affix damage mult
+	f["_basePool"] = f["maxHP"]           # P7c: cache the base 5-player HP pool so the leash edge can restore it + upscales measure against it
+	f["_scaleCommitted"] = false          # P7c: (re)based → the per-party hook re-samples on the next fresh pull (survives _revive: not in create_fighter)
+	f["_scaleFac"] = 1.0                   # currently-applied HP factor (1.0 = base pool)
+	f["_scaleEff"] = 0.0                   # peak attacking force seen this pull (reset here + on leash)
+
+# P7c — a phased WORLD boss scales its HP pool to the PEAK engaging force. Each tick it tracks the peak effective
+# force present (real players + bots × BOSS_BOT_WEIGHT; rises only, cleared on leash/respawn). The INITIAL lock is
+# anchored to REAL damage — it fires the first tick the force has driven the boss below BOSS_SCALE_COMMIT of its base
+# pool (well above the phase-1 boundary), scaling HP by clampf(SOLO+STEP·(peak-1),SOLO,1) frac-preservingly. Because
+# the commit is damage-anchored (not a timer/occupancy), a lone tagger who leaves never locks it — the leash edge
+# restores the base pool. After the lock, if MORE force arrives (peak rises — e.g. a staged group joins after a solo
+# tag) the boss UPSCALES, ADDING the same absolute HP as base pool it adds (damage already dealt is preserved, never
+# refunded) so staging is never a shortcut (and, via monotonic phases, is a penalty). Never downscales. HP only (full
+# damage kept). Server-only mob stat → no deterministic player sim / FORMAT_MODS change.
+func _scale_boss_party(w: Dictionary) -> void:
+	for f in w["fighters"]:
+		if int(f["team"]) != 1 or not bool(f.get("alive", false)):
+			continue
+		if not GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false):
+			continue                              # only the phased world bosses scale to the party
+		var reals := 0
+		var bots := 0
+		for a in w["fighters"]:
+			if int(a["team"]) == 0 and bool(a.get("alive", false)):
+				if bool(a.get("resident", false)):
+					bots += 1
+				else:
+					reals += 1
+		var eff: float = float(reals) + float(bots) * BOSS_BOT_WEIGHT
+		if eff > float(f.get("_scaleEff", 0.0)):
+			f["_scaleEff"] = eff                  # running PEAK force present this pull (rises only; cleared on leash/respawn)
+		var peak: float = float(f.get("_scaleEff", 0.0))
+		if peak < 1.0:
+			continue                              # no real attacking force present yet
+		var target: float = clampf(BOSS_SOLO_HP_FRAC + BOSS_HP_PER_ATTACKER * (peak - 1.0), BOSS_SOLO_HP_FRAC, 1.0)
+		if not bool(f.get("_scaleCommitted", false)):
+			if float(f["hp"]) < float(f["maxHP"]) * BOSS_SCALE_COMMIT:   # real damage done → lock to the peak (frac-preserving)
+				f["maxHP"] = float(f["maxHP"]) * target
+				f["hp"] = float(f["hp"]) * target
+				f["_scaleFac"] = target
+				f["_scaleCommitted"] = true
+				print("[boss] %s HP locked to %d%% — force eff %.1f" % [str(f.get("classId", "boss")), int(round(target * 100.0)), peak])
+		elif target > float(f.get("_scaleFac", 1.0)) + 0.0001:          # peak rose after the lock → upscale: add absolute HP (damage preserved)
+			var add: float = float(f.get("_basePool", f["maxHP"])) * (target - float(f["_scaleFac"]))
+			f["maxHP"] = float(f["maxHP"]) + add
+			f["hp"] = float(f["hp"]) + add
+			f["_scaleFac"] = target
+			print("[boss] %s HP upscaled to %d%% — force grew to eff %.1f" % [str(f.get("classId", "boss")), int(round(target * 100.0)), peak])
 
 # Intensity reward factor for xp/credits (a Circuit mob at tier N is worth more): +50% per tier above 1.
 func _intensity_reward(mob) -> float:
