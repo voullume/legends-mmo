@@ -268,6 +268,23 @@ static func _resolve_procs(state: Dictionary, src: Dictionary, tgt: Dictionary, 
 				var heal: float = dmg * float(p.get("amt", 0.0))
 				src["hp"] = min(src["maxHP"], src["hp"] + heal)
 				src["healing"] += heal
+			"SHIELD":                                     # P7b: self-shield (e.g. on_lowhp panic guard). No rng; no supportBoost (class-neutral).
+				src["shield"] += float(p.get("amt", 0.0))
+				src["shieldT"] = maxf(src["shieldT"], float(p.get("dur", 3.0)))
+			"HEAL":                                       # P7b: self-heal (e.g. on_kill sustain), capped at maxHP
+				var h: float = min(src["maxHP"] - src["hp"], float(p.get("amt", 0.0)))
+				src["hp"] += h
+				src["healing"] += h
+			"HASTE":                                      # P7b: temp move-speed (amt = bonus fraction, applied as 1+amt). Apply ONLY when the proc wins (no active ms buff, or the proc is >= the active one) so a weaker proc never weakens NOR extends a stronger ability buff (e.g. stolenbase 1.45).
+				var pms: float = 1.0 + float(p.get("amt", 0.0))
+				if src["buffs"]["msT"] <= 0.0 or pms >= src["buffs"]["ms"]:
+					src["buffs"]["ms"] = pms
+					src["buffs"]["msT"] = maxf(src["buffs"]["msT"], float(p.get("dur", 3.0)))
+			"GUARD":                                      # P7b: temp damage reduction (amt = dr fraction). Same win-only rule: never weaken NOR extend a stronger active dr buff.
+				var pdr: float = float(p.get("amt", 0.0))
+				if src["buffs"]["drT"] <= 0.0 or pdr >= src["buffs"]["dr"]:
+					src["buffs"]["dr"] = pdr
+					src["buffs"]["drT"] = maxf(src["buffs"]["drT"], float(p.get("dur", 3.0)))
 	src["_procT"] = pt
 
 # One deterministic roll in [0,1) for proc chances, hashed from (sim tick, source id, TARGET id,

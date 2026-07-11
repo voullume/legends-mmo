@@ -570,9 +570,10 @@ const RECIPES := [
 # --- Uniques & procs (P6). A proc is PURE DATA (a fixed effect enum), never a script — so the sim stays
 # deterministic. Procs draw NO rng; proc/DOT damage routes through Combat.deal_damage with opts.proc=true
 # (which skips the crit rng draw + re-proccing), so a fighter WITH procs draws the same rng as one without.
-#   effect:  "DOT" (damage/sec for dur on the target) · "FLAT" (one burst of damage) · "LIFESTEAL" (heal the
-#            owner for amt × the hit's damage)
-#   trigger: "on_hit" · "on_crit" (more added later: on_kill, on_lowhp)
+#   effect (target):  "DOT" (dmg/s for dur) · "FLAT" (one burst) · "LIFESTEAL" (heal owner for amt × hit dmg)
+#   effect (SELF, P7b, no rng/supportBoost — a class-neutral flavor edge): "SHIELD" (gain amt shield for dur) ·
+#            "HEAL" (heal amt HP) · "HASTE" (+amt move-speed fraction for dur) · "GUARD" (amt damage-reduction for dur)
+#   trigger: "on_hit" · "on_crit" · "on_kill" (fires on a killing blow) · "on_lowhp" (owner below 35% HP) [P7b]
 #   icd:     internal cooldown (s) so a proc can't fire every hit. amt scales with proc_tier (×1 .. ×2).
 #   chance:  probability the trigger actually fires (default 1.0). Rolled with Combat._proc_roll — a
 #            deterministic hash, NOT a state.rng draw, so the main stream stays byte-identical.
@@ -580,6 +581,11 @@ const PROC_CATALOG := {
 	"searing":  {"name": "Searing",  "effect": "DOT",       "trigger": "on_hit",  "amt": 5.0,  "dur": 3.0, "icd": 4.0, "chance": 0.4},
 	"crushing": {"name": "Crushing", "effect": "FLAT",      "trigger": "on_crit", "amt": 4.0,  "icd": 1.5},
 	"vampiric": {"name": "Vampiric", "effect": "LIFESTEAL", "trigger": "on_hit",  "amt": 0.04, "icd": 1.0},
+	# P7b — self-benefit procs on the reserved triggers (effects, not stats): a defensive/sustain/tempo axis
+	"bulwark":   {"name": "Bulwark",   "effect": "SHIELD", "trigger": "on_lowhp", "amt": 70.0, "dur": 4.0, "icd": 12.0},
+	"vigor":     {"name": "Vigor",     "effect": "HEAL",   "trigger": "on_kill",  "amt": 55.0, "icd": 2.0},   # icd>0 so one AoE pack-wipe heals ONCE, not per-corpse
+	"momentum":  {"name": "Momentum",  "effect": "HASTE",  "trigger": "on_kill",  "amt": 0.22, "dur": 3.0, "icd": 6.0},   # icd bounds uptime (~3s/6s) + one fire per AoE tick
+	"stonewall": {"name": "Stonewall", "effect": "GUARD",  "trigger": "on_lowhp", "amt": 0.22, "dur": 3.0, "icd": 10.0},
 }
 # Procs scale with the wearer's dmgMult, so big procs AMPLIFY the class-dmg gaps FORMAT_MODS balances →
 # they're deliberately SMALL (a flavor edge, not a power spike). PROC_DPS_CAP bounds damage procs/sec.
@@ -593,8 +599,13 @@ const UNIQUE_DEFS := {
 	"embermaw":      {"name": "Embermaw",      "slot": "main_hand", "proc_id": "searing"},
 	"skullcleaver":  {"name": "Skullcleaver",  "slot": "main_hand", "proc_id": "crushing"},
 	"sanguine_band": {"name": "Sanguine Band", "slot": "ring",      "proc_id": "vampiric"},
+	# P7b — new proc-carriers, spread across slots so they're a paperdoll-wide collection hunt
+	"aegis_core":     {"name": "Aegis Core",      "slot": "chest",    "proc_id": "bulwark"},
+	"reapers_edge":   {"name": "Reaper's Edge",   "slot": "off_hand", "proc_id": "vigor"},
+	"trailblazers":   {"name": "Trailblazers",    "slot": "feet",     "proc_id": "momentum"},
+	"ironhide_gorget":{"name": "Ironhide Gorget", "slot": "neck",     "proc_id": "stonewall"},
 }
-const UNIQUE_IDS := ["embermaw", "skullcleaver", "sanguine_band"]
+const UNIQUE_IDS := ["embermaw", "skullcleaver", "sanguine_band", "aegis_core", "reapers_edge", "trailblazers", "ironhide_gorget"]
 
 # --- Cosmetic dyes (P4): pure-prestige character tints, bought with credits (a sink). Content only — the sim
 # never reads this, so it's determinism-neutral. Client renders the color as a material overlay on the model.

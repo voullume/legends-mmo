@@ -480,6 +480,10 @@ func _render_charsheet() -> void:
 				"DOT": desc = "%d dmg/s for %.0fs" % [int(round(amt)), float(pr.get("dur", 3.0))]
 				"FLAT": desc = "+%d burst" % int(round(amt))
 				"LIFESTEAL": desc = "heal %d%% of dmg" % int(round(amt * 100.0))
+				"SHIELD": desc = "%d shield for %.0fs" % [int(round(amt)), float(pr.get("dur", 3.0))]
+				"HEAL": desc = "heal %d HP" % int(round(amt))
+				"HASTE": desc = "+%d%% move speed for %.0fs" % [int(round(amt * 100.0)), float(pr.get("dur", 3.0))]
+				"GUARD": desc = "-%d%% dmg taken for %.0fs" % [int(round(amt * 100.0)), float(pr.get("dur", 3.0))]
 			lines.append("  [color=#ffb454]✦ %s[/color] [color=#7f93a8](%s)[/color] %s" % [nm, trig, desc])
 	_sheet_label.text = "\n".join(lines)
 
@@ -2930,6 +2934,10 @@ func _proc_desc(proc_id: String, tier: int) -> String:
 		"DOT": return "%s (%s): %d dmg/s for %.0fs" % [nm, trig, int(round(amt)), float(p.get("dur", 3.0))]
 		"FLAT": return "%s (%s): +%d burst damage" % [nm, trig, int(round(amt))]
 		"LIFESTEAL": return "%s (%s): heal %d%% of damage dealt" % [nm, trig, int(round(amt * 100.0))]
+		"SHIELD": return "%s (%s): gain %d shield for %.0fs" % [nm, trig, int(round(amt)), float(p.get("dur", 3.0))]
+		"HEAL": return "%s (%s): heal %d HP" % [nm, trig, int(round(amt))]
+		"HASTE": return "%s (%s): +%d%% move speed for %.0fs" % [nm, trig, int(round(amt * 100.0)), float(p.get("dur", 3.0))]
+		"GUARD": return "%s (%s): -%d%% damage taken for %.0fs" % [nm, trig, int(round(amt * 100.0)), float(p.get("dur", 3.0))]
 		_: return nm
 
 func _upgrade_credit_cost(rarity: String, lvl: int) -> int:   # MUST match Server.gd
