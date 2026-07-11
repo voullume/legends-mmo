@@ -1592,7 +1592,7 @@ func _maybe_award_season(pid: int) -> void:
 	# re-scans + re-grants (idempotent) rather than silently skipping the char's first placement.
 	var champ := false
 	for cat in SEASONAL_CATS:                         # rank-1 on ANY seasonal board in the just-ended season = Champion
-		var rank := await supa.leaderboard_rank_as(cat, cur - 1, str(s["char_id"]))
+		var rank: int = await supa.leaderboard_rank_as(cat, cur - 1, str(s["char_id"]))   # annotate: := can't infer from an await result (CLAUDE.md gotcha)
 		if not _session.has(pid):
 			return
 		if rank == 1:
