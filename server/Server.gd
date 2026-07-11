@@ -746,6 +746,7 @@ func _on_circuit_clear(key: String) -> void:
 		return
 	meta["cleared"] = true
 	var tier := int(meta.get("tier", 1))
+	var elapsed_ms := Time.get_ticks_msec() - int(meta.get("created_ms", Time.get_ticks_msec()))   # P7d: Circuit fastest-clear time (shared by every player in this instance; monotonic ticks)
 	var w = _worlds.get(key)
 	if w == null:
 		return
@@ -757,9 +758,9 @@ func _on_circuit_clear(key: String) -> void:
 				pids.append(pid)
 	print("[zone] CIRCUIT CLEAR %s (I%d) for %d player(s)" % [key, tier, pids.size()])
 	for pid in pids:
-		await _grant_circuit_clear(pid, tier, meta.get("affix", {}))
+		await _grant_circuit_clear(pid, tier, meta.get("affix", {}), elapsed_ms)
 
-func _grant_circuit_clear(pid: int, tier: int, affix: Dictionary = {}) -> void:
+func _grant_circuit_clear(pid: int, tier: int, affix: Dictionary = {}, elapsed_ms: int = 0) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]
@@ -786,6 +787,8 @@ func _grant_circuit_clear(pid: int, tier: int, affix: Dictionary = {}) -> void:
 		if extra:
 			await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
 	_bounty_on_circuit(pid, tier)                    # gameplay-length P6b: advance any "clear the Circuit" bounty
+	if elapsed_ms > 0:                               # gameplay-length P7d: Circuit fastest-clear board (tier-agnostic MVP), inverted so greatest() keeps the fastest
+		_submit_score(str(s["char_id"]), str(s["name"]), "circuit_time", CLEAR_CAP_MS - clampi(elapsed_ms, 1, CLEAR_CAP_MS - 1))
 	if net != null and _session.has(pid):
 		net.recv_circuit_clear.rpc_id(pid, tier, int(_session[pid].get("max_intensity", 1)))
 
@@ -1101,6 +1104,8 @@ func _do_buy_cosmetic(pid: int, dye_id: String) -> void:
 	var s = _session[pid]
 	if dye_id in (s.get("cos_owned", []) as Array):
 		return                                        # already owned
+	if not bool(GameData.DYE_CATALOG[dye_id].get("buyable", true)):
+		return                                        # P7d: a grant-only cosmetic (the Season Champion tint) is never purchasable for credits (also avoids a missing-price crash)
 	var price := int(GameData.DYE_CATALOG[dye_id]["price"])
 	if int(s.get("credits", 0)) < price:
 		return
@@ -1539,10 +1544,19 @@ func _end_drill(key: String) -> void:
 # ---- leaderboards (P5): server-authoritative scores; clients read the board via an RPC ----
 var _lb_next := {}                               # pid → earliest next fetch (rate limit)
 
+# gameplay-length P7d: leaderboard SEASONS + clear-time boards.
+const SEASON_SECS := WEEK_SECS                   # a season = one UTC week (skill boards reset weekly)
+const CLEAR_CAP_MS := 3600000                    # clear-time boards store CLEAR_CAP_MS - elapsed_ms (inversion → greatest() keeps the FASTEST; a >60min run clamps to worst, not dropped)
+const SEASONAL_CATS := ["drill", "circuit_time", "boss_time"]   # reset weekly; gear/intensity stay ALL-TIME (season 0 — cumulative ceilings)
+func _current_season() -> int:
+	return int(Time.get_unix_time_from_system() / SEASON_SECS)   # orchestration time (never the deterministic sim), like _current_affix
+func _season_of(category: String) -> int:
+	return _current_season() if SEASONAL_CATS.has(category) else 0
+
 func _submit_score(char_id: String, name: String, category: String, score: int) -> void:
 	if score <= 0 or supa == null:
 		return
-	await supa.leaderboard_submit_as(category, char_id, name, score)   # keeps the personal best
+	await supa.leaderboard_submit_as(category, _season_of(category), char_id, name, score)   # season-aware; keeps the personal best
 
 func fetch_leaderboard(pid: int, category: String) -> void:
 	if not _session.has(pid):
@@ -1551,11 +1565,50 @@ func fetch_leaderboard(pid: int, category: String) -> void:
 	if now < int(_lb_next.get(pid, 0)):
 		return
 	_lb_next[pid] = now + 300                         # short enough that a normal tab-switch isn't dropped
-	if not ["drill", "gear", "intensity"].has(category):
+	if not ["drill", "gear", "intensity", "circuit_time", "boss_time"].has(category):
 		return
-	var r = await supa.leaderboard_top_as(category, 20)
+	var seas := _season_of(category)
+	var reset_unix := (seas + 1) * SEASON_SECS if SEASONAL_CATS.has(category) else 0   # P7d: next-reset epoch for the seasonal tabs (0 = all-time board)
+	var r = await supa.leaderboard_top_as(category, seas, 20)
 	if net != null and _session.has(pid):
-		net.recv_leaderboard.rpc_id(pid, category, r.get("entries", []))
+		net.recv_leaderboard.rpc_id(pid, category, r.get("entries", []), seas, reset_unix)
+
+# gameplay-length P7d: lazy weekly-Champion cosmetic. On login, if a NEW season started since this char last settled,
+# grant the Season Champion dye if it placed rank-1 on ANY seasonal board in the JUST-ended season, then advance
+# last_season (a guarded CAS so the scan runs once). Grant-then-settle: cosmetics_grant is idempotent (the real dupe
+# guard); season_claim only stops re-scanning. No cron — rides the player's login. Awards only the immediately-prior
+# season (absent for multiple weeks forfeits older placements — avoids a multi-season scan).
+func _maybe_award_season(pid: int) -> void:
+	if not _session.has(pid) or supa == null:
+		return
+	var s = _session[pid]
+	var cur := _current_season()
+	var last := int(s.get("last_season", 0))
+	if last >= cur:
+		return
+	# Scan the just-ended season for a rank-1 placement. NO special-case for last==0: a brand-new / pre-P7d char
+	# simply ranks 0 (the prior season's board is empty for them) → no reward, and merging the paths makes it
+	# self-healing — a failed first settle leaves the DB-authoritative last_season behind, so the NEXT login
+	# re-scans + re-grants (idempotent) rather than silently skipping the char's first placement.
+	var champ := false
+	for cat in SEASONAL_CATS:                         # rank-1 on ANY seasonal board in the just-ended season = Champion
+		var rank := await supa.leaderboard_rank_as(cat, cur - 1, str(s["char_id"]))
+		if not _session.has(pid):
+			return
+		if rank == 1:
+			champ = true
+			break
+	if champ:
+		var ok: bool = await supa.cosmetics_grant_as(str(s["char_id"]), "champion")
+		if ok and _session.has(pid):                 # fold into the live session + push (mirrors the quest-dye path)
+			var owned: Array = _session[pid].get("cos_owned", [])
+			if not ("champion" in owned):
+				owned.append("champion")
+			if net != null:
+				net.recv_cosmetics_changed.rpc_id(pid, owned.duplicate(), str(_session[pid].get("cos_dye", "")))
+	await supa.season_claim_as(str(s["char_id"]), cur)
+	if _session.has(pid):
+		_session[pid]["last_season"] = cur
 
 # ---- connection / auth ----
 func _on_peer_connected(pid: int) -> void:
@@ -1664,7 +1717,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"rested_xp": 0,   # gameplay-length P1(d): offline rested pool, accrued just below at login
 		"talents": {}, "talent_spent": 0,   # gameplay-length P4: talent allocation (loaded from the progression table below)
 		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0, "pending_audible": {},   # gameplay-length P5: paragon + Audible state (loaded below)
-		"bounties": {}, "bounty_claims": {}}   # gameplay-length P6b: session-only bounty progress + the durable per-period claim ledger (loaded below)
+		"bounties": {}, "bounty_claims": {}, "last_season": 0}   # gameplay-length P6b: bounty progress/ledger + P7d last-settled season (loaded below)
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -1692,6 +1745,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		_session[pid]["gear_bag_bonus"] = maxi(0, int(pr.get("gear_bag_bonus", 0)))
 		var _bc = pr.get("bounty_claims", {})           # gameplay-length P6b: load the per-period bounty claim ledger
 		_session[pid]["bounty_claims"] = (_bc if _bc is Dictionary else {})
+		_session[pid]["last_season"] = maxi(0, int(pr.get("last_season", 0)))   # gameplay-length P7d: last settled leaderboard season
 		if net != null and int(_session[pid]["overtime_xp"]) > 0:   # seed the client paragon bar on login (live value, not in the hashed META)
 			net.recv_overtime.rpc_id(pid, int(_session[pid]["overtime_xp"]))
 	if _session.has(pid):                             # gameplay-length P1(d): accrue the offline rested-XP pool at login (rate/cap level-scaled)
@@ -1703,6 +1757,7 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 	if _session.has(pid):
 		_session[pid]["cos_owned"] = cos.get("owned", [])
 		_session[pid]["cos_dye"] = str(cos.get("equipped", ""))
+	await _maybe_award_season(pid)                    # gameplay-length P7d: lazy weekly-Champion cosmetic (needs cos_owned + last_season loaded above)
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	await _load_quests(pid)                           # load + push the player's quest progress
 	# GATE RE-VALIDATION: _spawn_player restores last_map (client-writable position columns) BEFORE quests/key
@@ -2968,6 +3023,7 @@ func _update_mob_ai(w: Dictionary) -> void:
 					f["_scaleCommitted"] = false
 					f["_scaleFac"] = 1.0
 					f["_scaleEff"] = 0.0
+					f["_fightStartMs"] = 0     # P7d: a leashed boss is a fresh pull → restart the fastest-kill clock
 				f["hp"] = f["maxHP"]
 				f["phase"] = 0                                  # boss: a leashed boss re-runs its phases + re-fires threshold summons on the next pull
 				f["_threshSummoned"] = {}
@@ -3012,6 +3068,14 @@ func _award_kills() -> void:
 				_bounty_on_kill(credit_pid, victim)            # gameplay-length P6b: advance any matching kill-bounty
 				if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
 					_award_pages(credit_pid, BOSS_PAGES)
+					# gameplay-length P7d: Head Coach fastest-KILL board — the KILLING-BLOW player's fight duration (from the
+					# P7c damage-anchored commit). Killer-only on purpose: credit_pid is an engaged real player, so a bystander
+					# clipped by AoE in this SHARED arena can't leech onto the board (which would mint a free Champion tint);
+					# support players earn it on their own kills — the boss is a re-runnable 30-min event.
+					var _fs := int(victim.get("_fightStartMs", 0))
+					var _el := Time.get_ticks_msec() - _fs
+					if _fs > 0 and _el > 0 and _el < CLEAR_CAP_MS and credit_pid >= 0 and _session.has(credit_pid):
+						_submit_score(str(_session[credit_pid]["char_id"]), str(_session[credit_pid]["name"]), "boss_time", CLEAR_CAP_MS - clampi(_el, 1, CLEAR_CAP_MS - 1))
 
 func _nearest_player_pid(mapname: String, pos: Vector2, rng: float, require_engaged := false) -> int:
 	var best := -1
@@ -3104,6 +3168,7 @@ func _scale_mob(f) -> void:
 	f["_scaleCommitted"] = false          # P7c: (re)based → the per-party hook re-samples on the next fresh pull (survives _revive: not in create_fighter)
 	f["_scaleFac"] = 1.0                   # currently-applied HP factor (1.0 = base pool)
 	f["_scaleEff"] = 0.0                   # peak attacking force seen this pull (reset here + on leash)
+	f["_fightStartMs"] = 0                 # P7d: boss fastest-kill clock — restart on (re)spawn
 
 # P7c — a phased WORLD boss scales its HP pool to the PEAK engaging force. Each tick it tracks the peak effective
 # force present (real players + bots × BOSS_BOT_WEIGHT; rises only, cleared on leash/respawn). The INITIAL lock is
@@ -3141,6 +3206,7 @@ func _scale_boss_party(w: Dictionary) -> void:
 				f["hp"] = float(f["hp"]) * target
 				f["_scaleFac"] = target
 				f["_scaleCommitted"] = true
+				f["_fightStartMs"] = Time.get_ticks_msec()   # P7d: boss fastest-kill clock starts at the damage-anchored commit (90% HP — the same fair anchor for everyone; a tag-and-idle can't start it)
 				print("[boss] %s HP locked to %d%% — force eff %.1f" % [str(f.get("classId", "boss")), int(round(target * 100.0)), peak])
 		elif target > float(f.get("_scaleFac", 1.0)) + 0.0001:          # peak rose after the lock → upscale: add absolute HP (damage preserved)
 			var add: float = float(f.get("_basePool", f["maxHP"])) * (target - float(f["_scaleFac"]))

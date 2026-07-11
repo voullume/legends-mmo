@@ -180,6 +180,8 @@ var _lb_rows: VBoxContainer = null
 var _lb_status: Label = null
 var _lb_cat := "drill"
 var _lb_entries := []
+var _lb_season := 0                  # P7d: current season of the active tab (0 = all-time board)
+var _lb_reset_unix := 0              # P7d: next-reset epoch for a seasonal tab (0 = no countdown)
 var _drill_banner: Label = null
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
@@ -2419,6 +2421,10 @@ func _render_wardrobe() -> void:
 	for id in GameData.DYE_IDS:
 		var d: Dictionary = GameData.DYE_CATALOG[id]
 		_wardrobe_rows.add_child(_dye_row(str(id), str(d["name"]), str(d["color"]), owned, equipped))
+	for oid in owned:                                # P7d: grant-only cosmetics (the Season Champion tint) aren't in DYE_IDS → an Equip-only row (owned never hits the Buy branch, so no missing-price crash)
+		if not (str(oid) in GameData.DYE_IDS) and GameData.DYE_CATALOG.has(str(oid)):
+			var sd: Dictionary = GameData.DYE_CATALOG[str(oid)]
+			_wardrobe_rows.add_child(_dye_row(str(oid), "🏆 " + str(sd.get("name", oid)), str(sd.get("color", "#ffffff")), owned, equipped))
 
 func _dye_row(id: String, dye_name: String, color_hex: String, owned: Array, equipped: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -2799,7 +2805,10 @@ func recv_paragon_level(level: int, available: int, bag_bonus: int) -> void:
 		_render_paragon()
 
 # ---- Leaderboards (P5) ----
-const LB_CATS := [["drill", "Two-Minute Drill (wave)"], ["gear", "Gear Score"], ["intensity", "Camp Intensity"]]
+const LB_CATS := [["drill", "Two-Minute Drill (wave)"], ["circuit_time", "Circuit — Fastest Clear"], ["boss_time", "Head Coach — Fastest Kill"], ["gear", "Gear Score"], ["intensity", "Camp Intensity"]]
+const LB_CLEAR_CAP_MS := 3600000                 # P7d: MUST equal server CLEAR_CAP_MS — clear-time boards store CAP-elapsed; render CAP-score back to mm:ss
+const LB_TIME_CATS := ["circuit_time", "boss_time"]              # rendered as time, not a raw number
+const LB_SEASONAL_CATS := ["drill", "circuit_time", "boss_time"] # show the season + reset countdown (gear/intensity are all-time)
 func _build_leaderboard() -> void:
 	var p := Widgets.panel("🏆 Leaderboards", "L / Esc", 560.0, _toggle_leaderboard)
 	_lb_panel = p["root"]
@@ -2837,16 +2846,25 @@ func _on_lb_category(cat: String) -> void:
 	if _lb_status != null:
 		_lb_status.text = "Loading %s…" % cat
 
-func recv_leaderboard(category: String, entries: Array) -> void:
+func recv_leaderboard(category: String, entries: Array, season: int, reset_unix: int) -> void:
 	if category != _lb_cat:
 		return
 	_lb_entries = entries
+	_lb_season = season
+	_lb_reset_unix = reset_unix
 	_render_leaderboard()
+
+func _fmt_ms(ms: int) -> String:                 # P7d: clear-time boards render as mm:ss
+	var s := int(max(0, ms) / 1000.0)
+	return "%d:%02d" % [s / 60, s % 60]
 
 func _render_leaderboard() -> void:
 	if _lb_panel == null or not _lb_panel.visible or _lb_rows == null:
 		return
-	_lb_status.text = "Top %d — %s" % [_lb_entries.size(), _lb_cat]
+	if LB_SEASONAL_CATS.has(_lb_cat) and _lb_reset_unix > 0:
+		_lb_status.text = "Season %d — resets in %s   ·   Top %d" % [_lb_season, _bounty_countdown(_lb_reset_unix), _lb_entries.size()]
+	else:
+		_lb_status.text = "All-time — Top %d" % _lb_entries.size()
 	for c in _lb_rows.get_children():
 		c.queue_free()
 	if _lb_entries.is_empty():
@@ -2870,7 +2888,8 @@ func _render_leaderboard() -> void:
 		nm.custom_minimum_size = Vector2(340, 0)
 		row.add_child(nm)
 		var sc := Label.new()
-		sc.text = str(int((e as Dictionary).get("score", 0)))
+		var raw := int((e as Dictionary).get("score", 0))
+		sc.text = _fmt_ms(LB_CLEAR_CAP_MS - raw) if LB_TIME_CATS.has(_lb_cat) else str(raw)   # P7d: clear-time boards store CAP-elapsed → show the time
 		sc.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
 		row.add_child(sc)
 		_lb_rows.add_child(row)

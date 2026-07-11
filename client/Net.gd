@@ -314,9 +314,9 @@ func fetch_leaderboard(category: String) -> void:
 		server.fetch_leaderboard(multiplayer.get_remote_sender_id(), category)
 
 @rpc("authority", "call_remote", "reliable")
-func recv_leaderboard(category: String, entries: Array) -> void:
+func recv_leaderboard(category: String, entries: Array, season: int, reset_unix: int) -> void:
 	if client != null:
-		client.recv_leaderboard(category, entries)
+		client.recv_leaderboard(category, entries, season, reset_unix)
 
 @rpc("authority", "call_remote", "reliable")
 func recv_drill_end(wave: int) -> void:

@@ -618,6 +618,8 @@ const DYE_CATALOG := {
 	"ivory":    {"name": "Ivory Wash",    "price": 2200, "color": "#e8e2d0"},
 	"gold":     {"name": "Gilded",        "price": 3600, "color": "#e2b23a"},
 	"obsidian": {"name": "Obsidian",      "price": 3600, "color": "#23262c"},
+	# gameplay-length P7d: season-exclusive — granted to the weekly skill-board Champion, NEVER buyable (kept out of DYE_IDS so no shop/wardrobe/vendor lists it for purchase)
+	"champion": {"name": "Season Champion", "color": "#f6d365", "buyable": false},
 }
 const DYE_IDS := ["crimson", "azure", "emerald", "violet", "coral", "ivory", "gold", "obsidian"]
 

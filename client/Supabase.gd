@@ -314,9 +314,10 @@ func get_progression_as(token: String) -> Dictionary:
 		var par = row.get("paragon_perks", {})
 		return {"ok": true, "max_intensity": int(row.get("max_intensity", 1)), "pages": int(row.get("playbook_pages", 0)), "has_key": bool(row.get("has_master_key", false)),
 			"talents": (tal if tal is Dictionary else {}), "talent_spent": int(row.get("talent_spent", 0)),
-			"overtime_xp": int(row.get("overtime_xp", 0)), "paragon_perks": (par if par is Dictionary else {}), "paragon_spent": int(row.get("paragon_spent", 0)), "gear_bag_bonus": int(row.get("gear_bag_bonus", 0))}
+			"overtime_xp": int(row.get("overtime_xp", 0)), "paragon_perks": (par if par is Dictionary else {}), "paragon_spent": int(row.get("paragon_spent", 0)), "gear_bag_bonus": int(row.get("gear_bag_bonus", 0)),
+			"bounty_claims": (row.get("bounty_claims", {}) if row.get("bounty_claims") is Dictionary else {}), "last_season": int(row.get("last_season", 0))}   # P6b ledger (was silently dropped from this dict) + P7d season marker
 	return {"ok": r["code"] == 200, "max_intensity": 1, "pages": 0, "has_key": false, "talents": {}, "talent_spent": 0,
-		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0}
+		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0, "bounty_claims": {}, "last_season": 0}
 
 # atomically add (+earn) or spend (−) Playbook Pages via progression_add_pages. Returns {ok,total}: ok=false
 # when a spend underflows (insufficient). Service-role only.
@@ -419,11 +420,11 @@ func cosmetics_equip_as(char_id: String, dye: String) -> bool:
 	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
 
 # --- leaderboards (P5): server-authoritative. Submit keeps the personal best; the board is read server-side. ---
-func leaderboard_submit_as(category: String, char_id: String, name: String, score: int) -> void:
+func leaderboard_submit_as(category: String, season: int, char_id: String, name: String, score: int) -> void:
 	if service_key == "":
 		return
 	await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/leaderboard_submit",
-		JSON.stringify({"p_cat": category, "p_char": char_id, "p_name": name, "p_score": score}), PackedStringArray(), service_key)
+		JSON.stringify({"p_cat": category, "p_season": season, "p_char": char_id, "p_name": name, "p_score": score}), PackedStringArray(), service_key)
 
 # --- RP4: append one AI-resident playtest anomaly row (service_role; clients never touch this table) ---
 func bot_report_as(resident_id: String, resident_name: String, zone: String, kind: String, detail: String, metrics: Dictionary) -> void:
@@ -433,14 +434,30 @@ func bot_report_as(resident_id: String, resident_name: String, zone: String, kin
 		JSON.stringify({"resident_id": resident_id, "resident_name": resident_name, "zone": zone, "kind": kind, "detail": detail, "metrics": metrics}), PackedStringArray(), service_key)
 
 # top-N for a category (service_role read — clients never SELECT the table directly). Returns [{name,score}].
-func leaderboard_top_as(category: String, lim: int) -> Dictionary:
+func leaderboard_top_as(category: String, season: int, lim: int) -> Dictionary:
 	if service_key == "":
 		return {"entries": []}
-	var q := "?category=eq.%s&select=name,score&order=score.desc&limit=%d" % [category, lim]
+	var q := "?category=eq.%s&season=eq.%d&select=name,score&order=score.desc&limit=%d" % [category, season, lim]
 	var r = await _http(HTTPClient.METHOD_GET, "/rest/v1/leaderboards" + q, "", PackedStringArray(), service_key)
 	if r["code"] == 200 and r["data"] is Array:
 		return {"entries": r["data"]}
 	return {"entries": []}
+
+# gameplay-length P7d: a character's rank (1=best) in a (season, category), or 0 if unranked. Service-role only.
+func leaderboard_rank_as(category: String, season: int, char_id: String) -> int:
+	if service_key == "":
+		return 0
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/leaderboard_rank",
+		JSON.stringify({"p_cat": category, "p_season": season, "p_char": char_id}), PackedStringArray(), service_key)
+	return int(r["data"]) if (r["code"] >= 200 and r["code"] < 300 and r["data"] != null) else 0
+
+# gameplay-length P7d: advance the char's last-settled season to `season` iff strictly greater (guarded CAS). Service-role only.
+func season_claim_as(char_id: String, season: int) -> bool:
+	if service_key == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/season_claim",
+		JSON.stringify({"p_char": char_id, "p_season": season}), PackedStringArray(), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
 
 # atomic Intensity unlock via the progression_unlock rpc (ensures the row + bumps only from the cleared tier).
 # Returns the resulting max_intensity. Service-role only (clients can't self-unlock).
