@@ -1392,22 +1392,28 @@ func _do_build_remove(pid: int, item_id: String) -> void:
 		net.recv_inventory_changed.rpc_id(pid)
 
 # ---- Two-Minute Drill (P5): instanced endless wave survival → a leaderboard score ----
-# enter a fresh SOLO drill (owner = fid so scores are individual). Called from _check_portals (auto entry).
+# enter the Drill (P7d: party-keyed — party-mates share one instance/wave, each scored + rewarded individually;
+# solo owns it by fid). Called from _check_portals (auto entry on the drill pad).
 func _enter_drill(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var f = _find(_session[pid]["fid"])
 	if f == null:
 		return
-	var key := _ensure_instance(World.DRILL, str(_session[pid]["fid"]), 1)
+	var owner := _party_key(pid)                      # gameplay-length P7d: party-mates share ONE Drill instance (each is scored + rewarded individually)
+	if owner == "":
+		owner = str(_session[pid]["fid"])             # solo → own the instance by fighter id
+	var key := _ensure_instance(World.DRILL, owner, 1)
 	_relocate(f, _session[pid], key, World.spawn_for(World.DRILL))
+	f["drillEngaged"] = false                          # P7d: reset this entrant's per-run engagement flag (anti-leech gate at run end)
+	f["drillDmg0"] = float(f.get("dmgDealt", 0.0))     # P7d: snapshot lifetime dmg at entry → the gate compares a DELTA (dmgDealt is cumulative, reset only on _revive, so pre-entry damage can't forge engagement)
 	var meta = _instances.get(key)
-	if meta != null:
+	if meta != null and not bool(meta.get("active", false)):   # start a run ONLY if none is live here (fresh instance OR a prior run ended) — a mid-run party-mate just drops into the current wave, no reset
 		meta["mode"] = "drill"
 		meta["wave"] = 0
 		meta["active"] = true
 		meta["next_wave_t"] = 0
-	_advance_drill_wave(key)                          # spawn wave 1
+		_advance_drill_wave(key)                       # spawn wave 1
 
 func _advance_drill_wave(key: String) -> void:
 	var meta = _instances.get(key)
@@ -1431,7 +1437,16 @@ func _spawn_drill_wave(key: String, wave: int) -> void:
 	var w = _worlds.get(key)
 	if w == null:
 		return
-	var count := clampi(2 + wave, 2, 10)
+	var count := clampi(2 + wave, 2, 10)              # solo baseline
+	var players := 0                                  # P7d: real-player roster in this instance (bots don't inflate the wave)
+	for pf in w["fighters"]:
+		if int(pf["team"]) == 0 and not pf.get("resident", false):
+			players += 1
+	if players > 1:                                   # party → proportionally bigger waves so a group's higher waves are earned (solo is byte-identical)
+		count = clampi(count * players, count, 8 + players * 5)
+		var _pm = _instances.get(key)
+		if _pm != null:
+			_pm["party_run"] = true                    # P7d: a run that ever had 2+ real players is a PARTY run → excluded from the SOLO skill leaderboard (still gives per-member rewards)
 	var pool := ["cone_swarmer", "foam_dummy", "shooting_dummy", "tackle_brute", "spring_cone", "tire_dummy", "chalk_liner", "whistle_cone", "pop_dummy", "iron_sled", "gatling_machine", "blitz_captain", "tackle_captain"]   # gameplay-length P3/P3b: roster remix widens the Drill variety (minions + elites)
 	var lvl := clampi(1 + wave, 1, 20)
 	var cx := float(w.get("arenaW", GameData.ARENA_W)) * 0.5
@@ -1464,8 +1479,11 @@ func _tick_drills() -> void:
 		var any_player_alive := false
 		var mobs_alive := 0
 		for f in w["fighters"]:
-			if f["team"] == 0 and f["alive"]:
-				any_player_alive = true
+			if int(f["team"]) == 0 and not f.get("resident", false):   # P7d: REAL players only — a companion can't keep a run alive after all real players are down
+				if f["alive"]:
+					any_player_alive = true
+				if not bool(f.get("drillEngaged", false)) and (float(f.get("dmgDealt", 0.0)) > float(f.get("drillDmg0", 0.0)) or float(f.get("noDmgT", 999.0)) < RESIDENT_ENGAGED_S):
+					f["drillEngaged"] = true          # P7d: sticky — fought this run → eligible for the end reward (anti-leech, mirrors the party-XP engaged gate)
 			elif f["team"] == 1 and f["alive"]:
 				mobs_alive += 1
 		if not any_player_alive:                     # the player fell → end the run
@@ -1484,32 +1502,38 @@ func _end_drill(key: String) -> void:
 	meta["active"] = false
 	var wave := int(meta.get("wave", 0))
 	var w = _worlds.get(key)
-	var pid := -1
-	if w != null:
-		for f in w["fighters"]:
-			if f["team"] == 0:
-				pid = _pid_by_fid(f["id"])
-				break
-	if pid >= 0 and _session.has(pid):
+	if w == null:
+		return
+	var party_run := bool(meta.get("party_run", false))   # P7d: a run that ever had 2+ real players doesn't post to the SOLO skill board
+	var pids := []                                    # ALL real players in the instance — everyone is sent home; only ENGAGED members are rewarded
+	for f in w["fighters"]:
+		if int(f["team"]) == 0 and not f.get("resident", false):
+			var p := _pid_by_fid(str(f["id"]))
+			if p >= 0 and not pids.has(p):
+				pids.append(p)
+	for pid in pids:
+		if not _session.has(pid):
+			continue
 		var s = _session[pid]
-		# pages only from a REAL run (wave 3+) so a fresh char can't death-farm wave 1 faster than the Circuit chase
-		_award_pages(pid, maxi(0, wave - 2) * DRILL_PAGES_PER_WAVE)
-		_award_credits(pid, wave * DRILL_CREDITS_PER_WAVE)
-		# gameplay-length P1: the endless Drill now feeds the level bar — a capped, level-relative payout
-		# (waves 3+, mirroring the pages gate) so the game's most replayable loop counts toward leveling.
-		var _need := _xp_to_next(int(s["level"]))
-		var _drill_xp := int(minf(_need * DRILL_XP_RUN_CAP_FRAC, float(maxi(0, wave - 2)) * _need * DRILL_XP_WAVE_FRAC))
-		if _drill_xp > 0:
-			_award_xp(pid, _drill_xp)
-		_submit_score(str(s["char_id"]), str(s["name"]), "drill", wave)
-		_bounty_on_drill(pid, wave)                    # gameplay-length P6b: advance any "reach Drill wave N" bounty
-		if net != null:
-			net.recv_drill_end.rpc_id(pid, wave)
-		var f = _find(s["fid"])
-		if f != null:
-			_relocate(f, s, World.HOME, World.HOME_SPAWN)   # home (tears the drill down); revive on arrival
-			_respawn.erase(f["id"])
-			_revive(f)
+		var pf = _find(s["fid"])
+		if pf != null and bool(pf.get("drillEngaged", false)):   # P7d: only members who actually fought get the run rewards (anti-leech; a passive/dead alt banks nothing)
+			# pages only from a REAL run (wave 3+) so a fresh char can't death-farm wave 1 faster than the Circuit chase
+			_award_pages(pid, maxi(0, wave - 2) * DRILL_PAGES_PER_WAVE)
+			_award_credits(pid, wave * DRILL_CREDITS_PER_WAVE)
+			# gameplay-length P1: the endless Drill feeds the level bar — a capped, level-relative payout (waves 3+)
+			var _need := _xp_to_next(int(s["level"]))
+			var _drill_xp := int(minf(_need * DRILL_XP_RUN_CAP_FRAC, float(maxi(0, wave - 2)) * _need * DRILL_XP_WAVE_FRAC))
+			if _drill_xp > 0:
+				_award_xp(pid, _drill_xp)
+			if not party_run:                          # the "drill" leaderboard is a SOLO skill board — party runs give rewards but don't post a score (fairness)
+				_submit_score(str(s["char_id"]), str(s["name"]), "drill", wave)
+			_bounty_on_drill(pid, wave)                # gameplay-length P6b: advance any "reach Drill wave N" bounty
+			if net != null:
+				net.recv_drill_end.rpc_id(pid, wave)
+		if pf != null:
+			_relocate(pf, s, World.HOME, World.HOME_SPAWN)   # everyone goes home (revive on arrival) regardless of engagement
+			_respawn.erase(pf["id"])
+			_revive(pf)
 		_save_one(s, _find(s["fid"]))
 
 # ---- leaderboards (P5): server-authoritative scores; clients read the board via an RPC ----
@@ -1557,8 +1581,8 @@ func _on_peer_disconnected(pid: int) -> void:
 			_party_invites.erase(tk)
 	var left_map: String = str(s.get("map", ""))
 	var lmeta = _instances.get(left_map)         # rage-quit mid-Drill → still record the wave reached
-	if lmeta != null and str(lmeta.get("mode", "")) == "drill" and bool(lmeta.get("active", false)):
-		_submit_score(str(s["char_id"]), str(s["name"]), "drill", int(lmeta.get("wave", 0)))
+	if lmeta != null and str(lmeta.get("mode", "")) == "drill" and bool(lmeta.get("active", false)) and not bool(lmeta.get("party_run", false)):
+		_submit_score(str(s["char_id"]), str(s["name"]), "drill", int(lmeta.get("wave", 0)))   # P7d: solo runs only — a party run never posts to the solo skill board (even on rage-quit)
 	_remove_fighter(s["fid"])
 	_maybe_teardown_instance(left_map)           # last player out of a private instance → tear it down
 	_lb_next.erase(pid)
@@ -2740,6 +2764,9 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 				# the boss is a rare ~30-min event; its cones/cores + normal mobs churn at the usual rate
 				_respawn[f["id"]] = BOSS_RESPAWN_DELAY if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false) else MOB_RESPAWN_DELAY
 			else:
+				var _dmeta: Dictionary = _instances.get(mapname, {})
+				if bool(_dmeta.get("active", false)) and str(_dmeta.get("mode", "")) == "drill":
+					continue                          # P7d: no mid-run Drill battle-rez — a downed member stays down (one life per run, like solo); still rewarded at run-end if it engaged
 				_respawn[f["id"]] = RESPAWN_DELAY
 				if f.get("resident", false):          # RP4: a resident died → tally it for the playtest report (fires once per death)
 					_on_resident_death(f)
