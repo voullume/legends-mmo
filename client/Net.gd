@@ -339,6 +339,17 @@ func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void
 	if client != null:
 		client.recv_quest_update(quest_id, progress, completed)
 
+# ---- bounties (gameplay-length P6b: client → server claim; server → client per-bounty refresh/toast) ----
+@rpc("any_peer", "call_remote", "reliable")
+func bounty_action(action: String, bounty_id: String) -> void:
+	if server != null:
+		server.bounty_action(multiplayer.get_remote_sender_id(), action, bounty_id)
+
+@rpc("authority", "call_remote", "reliable")
+func recv_bounty_update(bounty_id: String, progress: int, claimed: bool) -> void:
+	if client != null:
+		client.recv_bounty_update(bounty_id, progress, claimed)
+
 # ---- server → client (only the authority may call these) ----
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:

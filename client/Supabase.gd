@@ -536,6 +536,15 @@ func quest_progress_as(char_id: String, quest_id: String, progress: int) -> Dict
 	var r = await _http(HTTPClient.METHOD_PATCH, "/rest/v1/character_quests?" + filter, JSON.stringify({"progress": progress}), PackedStringArray(["Prefer: return=minimal"]), service_key)
 	return {"ok": r["code"] >= 200 and r["code"] < 300, "code": r["code"]}
 
+# gameplay-length P6b: atomically claim a bounty for the current UTC period. Returns true iff THIS call won the
+# claim (a replay / concurrent same-character session / stale-period request matches no row → false → grant
+# nothing). p_period is the server-computed UTC day/week integer (never client-supplied). Service-role only.
+func bounty_claim_as(char_id: String, bounty_id: String, period: int) -> bool:
+	if service_key == "":
+		return false
+	var r = await _http(HTTPClient.METHOD_POST, "/rest/v1/rpc/bounty_claim", JSON.stringify({"p_char": char_id, "p_bounty": bounty_id, "p_period": period}), PackedStringArray(), service_key)
+	return r["code"] >= 200 and r["code"] < 300 and r["data"] == true
+
 func refresh_as(rtoken: String) -> Dictionary:
 	var r = await _http(HTTPClient.METHOD_POST, "/auth/v1/token?grant_type=refresh_token", JSON.stringify({"refresh_token": rtoken}))
 	if r["code"] == 200 and r["data"] is Dictionary and r["data"].has("access_token"):

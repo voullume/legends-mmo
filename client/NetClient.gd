@@ -1571,6 +1571,23 @@ func _quest_toast(line: String) -> void:
 
 func _refresh_quests() -> void:
 	_update_quest_tracker()
+
+# P6b: server → client bounty nudge (a slot became claimable, or a claim resolved). Optimistically patch the
+# cached META array so the giver panel reflects it instantly, toast, and re-render the panel if it's open.
+func recv_bounty_update(bounty_id: String, progress: int, claimed: bool) -> void:
+	var arr = _state.get("bounties", [])
+	if arr is Array:
+		for b in arr:
+			if b is Dictionary and str(b.get("id", "")) == bounty_id:
+				b["progress"] = progress
+				b["claimed"] = claimed
+				break
+	if claimed:
+		_quest_toast("[color=#ffd24d]✦ Bounty claimed![/color]")
+	elif progress > 0:
+		_quest_toast("[color=#9fe8a0]✦ Bounty complete —[/color] ready to claim [color=#7f93a8](see the Quest Giver)[/color]")
+	if _qgiver_panel != null and _qgiver_panel.visible:
+		_render_qgiver()
 	if _quest_panel != null and _quest_panel.visible:
 		_render_questlog()
 	if _qgiver_panel != null and _qgiver_panel.visible:
@@ -1593,7 +1610,7 @@ func _update_quest_tracker() -> void:
 		if c != _quest_tracker_title:
 			c.queue_free()
 	var any := false
-	for qid in Quests.order():
+	for qid in Quests.display_order():
 		if not _quests.has(qid):
 			continue
 		var st = _quests[qid]
@@ -1656,7 +1673,7 @@ func _render_questlog() -> void:
 	var avail := []
 	var locked := []
 	var done := []
-	for qid in Quests.order():
+	for qid in Quests.display_order():
 		var q = Quests.get_quest(qid)
 		if q == null:
 			continue
@@ -1723,9 +1740,15 @@ func _reward_text(q: Dictionary) -> String:
 		parts.append("[color=#9fe8a0]✦ %d XP[/color]" % int(rw["xp"]))
 	if int(rw.get("credits", 0)) > 0:
 		parts.append("[color=#ffd24d]◈ %d[/color]" % int(rw["credits"]))
+	if int(rw.get("tokens", 0)) > 0:                       # P6a: Practice Tokens
+		parts.append("[color=#8ad6ff]%d Tokens[/color]" % int(rw["tokens"]))
+	if int(rw.get("pages", 0)) > 0:                        # P6a: Playbook Pages (attunement)
+		parts.append("[color=#cdbcff]%d Pages[/color]" % int(rw["pages"]))
 	if rw.has("item"):
 		var rar := str((rw["item"] as Dictionary).get("rarity", ""))
 		parts.append("[color=%s]◆ %s item[/color]" % [RARITY_COLORS.get(rar, "#cfd6df"), rar])
+	if rw.has("dye") and str(rw["dye"]) != "":            # P6a: cosmetic dye
+		parts.append("[color=#ff9fd0]+dye[/color]")
 	return "  ".join(parts)
 
 func _prereq_name(prereq: String) -> String:
@@ -1738,6 +1761,8 @@ func _on_quest_meta(meta) -> void:
 	var p := str(meta).split("|")
 	if p.size() >= 2 and (p[0] == "accept" or p[0] == "turnin"):
 		net.quest_action.rpc_id(1, p[0], p[1])      # server re-validates you're at the home-base giver
+	elif p.size() >= 2 and p[0] == "bounty_claim":   # P6b: claim a completed bounty (co-located at the same giver)
+		net.bounty_action.rpc_id(1, "claim", p[1])
 
 # ---- quest giver (home-base NPC: the ONLY place to accept / turn in; J is a read-only journal) ----
 func _build_qgiver_dialog() -> void:
@@ -1775,7 +1800,7 @@ func _render_qgiver() -> void:
 	var ready := []
 	var avail := []
 	var active := []
-	for qid in Quests.order():
+	for qid in Quests.display_order():
 		var q = Quests.get_quest(qid)
 		if q == null:
 			continue
@@ -1807,9 +1832,54 @@ func _render_qgiver() -> void:
 	if not active.is_empty():
 		out.append("\n[b][color=#8ad6ff]In progress[/color][/b]")
 		out.append_array(active)
+	# P6b: daily/weekly bounties — server-pushed via the HOME snapshot META, claimed here at the same NPC.
+	var bounties = _state.get("bounties", [])
+	if bounties is Array and not (bounties as Array).is_empty():
+		var dlines := []
+		var wlines := []
+		var dend := 0
+		var wend := 0
+		for b in bounties:
+			if not (b is Dictionary):
+				continue
+			var bid := str(b.get("id", ""))
+			var bnm: String = _esc(str(b.get("name", "")))
+			var bcnt := int(b.get("count", 1))
+			var bprog := int(b.get("progress", 0))
+			var line := ""
+			if bool(b.get("claimed", false)):
+				line = "[color=#6b7686]✓ %s — claimed[/color]" % bnm
+			elif bprog >= bcnt:
+				line = "[url=bounty_claim|%s][color=#ffd24d][b][Claim][/b][/color][/url]  [color=#9fe8a0]%s[/color]  [color=#5a6472](%s)[/color]" % [bid, bnm, _reward_text(b)]
+			else:
+				line = "[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](%s)[/color]" % [bnm, bprog, bcnt, _esc(str(b.get("desc", ""))), _reward_text(b)]
+			if bool(b.get("weekly", false)):
+				wlines.append(line)
+				wend = int(b.get("period_end", 0))
+			else:
+				dlines.append(line)
+				dend = int(b.get("period_end", 0))
+		if not dlines.is_empty():
+			out.append("\n[b][color=#ffd24d]✦ Daily Bounties[/color][/b]  [color=#5a6472](resets in %s)[/color]" % _bounty_countdown(dend))
+			out.append_array(dlines)
+		if not wlines.is_empty():
+			out.append("\n[b][color=#cdbcff]✦ Weekly Bounty[/color][/b]  [color=#5a6472](resets in %s)[/color]" % _bounty_countdown(wend))
+			out.append_array(wlines)
 	if out.is_empty():
 		out.append("[color=#7f93a8]Nothing for you right now — come back after you level up or finish a quest.[/color]")
 	_qgiver_label.text = "\n".join(out)
+
+# P6b: a display-only countdown to the next UTC reset, from the server-pushed period_end epoch (never fed to the sim).
+func _bounty_countdown(period_end: int) -> String:
+	var rem := int(period_end) - int(Time.get_unix_time_from_system())
+	if rem < 0:
+		rem = 0
+	var d := rem / 86400
+	var h := (rem % 86400) / 3600
+	var m := (rem % 3600) / 60
+	if d > 0:
+		return "%dd %dh" % [d, h]
+	return "%dh %dm" % [h, m]
 
 # home-only pads (shop/forge/questgiver/practice/build_shop/locker_portal) ride the change-detected snapshot
 # META cache. Gate every read on the per-tick `map` — not the mere presence of the cached key — so a META held

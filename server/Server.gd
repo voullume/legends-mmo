@@ -775,6 +775,7 @@ func _grant_circuit_clear(pid: int, tier: int, affix: Dictionary = {}) -> void:
 				extra = float(_loot_rng.next()) < cb
 		if extra:
 			await _grant_loot(pid, {"mobTier": "elite", "mobLevel": 8, "intensity": maxi(1, tier)})
+	_bounty_on_circuit(pid, tier)                    # gameplay-length P6b: advance any "clear the Circuit" bounty
 	if net != null and _session.has(pid):
 		net.recv_circuit_clear.rpc_id(pid, tier, int(_session[pid].get("max_intensity", 1)))
 
@@ -1491,6 +1492,7 @@ func _end_drill(key: String) -> void:
 		if _drill_xp > 0:
 			_award_xp(pid, _drill_xp)
 		_submit_score(str(s["char_id"]), str(s["name"]), "drill", wave)
+		_bounty_on_drill(pid, wave)                    # gameplay-length P6b: advance any "reach Drill wave N" bounty
 		if net != null:
 			net.recv_drill_end.rpc_id(pid, wave)
 		var f = _find(s["fid"])
@@ -1585,6 +1587,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_craft_next.erase(pid)
 	_quest_busy.erase(pid)
 	_quest_next.erase(pid)
+	_bounty_busy.erase(pid)
+	_bounty_next.erase(pid)
 	_camp_next.erase(pid)
 	_key_busy.erase(pid)
 	_key_next.erase(pid)
@@ -1625,7 +1629,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", "")),   # gameplay-length P2: pre-gating chars keep the full kit
 		"rested_xp": 0,   # gameplay-length P1(d): offline rested pool, accrued just below at login
 		"talents": {}, "talent_spent": 0,   # gameplay-length P4: talent allocation (loaded from the progression table below)
-		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0, "pending_audible": {}}   # gameplay-length P5: paragon + Audible state (loaded below)
+		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0, "pending_audible": {},   # gameplay-length P5: paragon + Audible state (loaded below)
+		"bounties": {}, "bounty_claims": {}}   # gameplay-length P6b: session-only bounty progress + the durable per-period claim ledger (loaded below)
 	_move[pid] = {"mx": 0.0, "my": 0.0}
 	_pending_ability[pid] = ""
 	_last_aseq[pid] = 0
@@ -1651,6 +1656,8 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 		_session[pid]["paragon_perks"] = (_par if _par is Dictionary else {})
 		_session[pid]["paragon_spent"] = maxi(0, int(pr.get("paragon_spent", 0)))
 		_session[pid]["gear_bag_bonus"] = maxi(0, int(pr.get("gear_bag_bonus", 0)))
+		var _bc = pr.get("bounty_claims", {})           # gameplay-length P6b: load the per-period bounty claim ledger
+		_session[pid]["bounty_claims"] = (_bc if _bc is Dictionary else {})
 		if net != null and int(_session[pid]["overtime_xp"]) > 0:   # seed the client paragon bar on login (live value, not in the hashed META)
 			net.recv_overtime.rpc_id(pid, int(_session[pid]["overtime_xp"]))
 	if _session.has(pid):                             # gameplay-length P1(d): accrue the offline rested-XP pool at login (rate/cap level-scaled)
@@ -2959,6 +2966,7 @@ func _award_kills() -> void:
 				if not drop.is_empty():
 					_distribute_loot(credit_pid, drop, str(mapname))
 				_quest_on_kill(credit_pid, victim)             # advance any matching kill-quest
+				_bounty_on_kill(credit_pid, victim)            # gameplay-length P6b: advance any matching kill-bounty
 				if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
 					_award_pages(credit_pid, BOSS_PAGES)
 
@@ -3657,6 +3665,17 @@ func _grant_quest_rewards(pid: int, qid: String) -> void:
 	var rw: Dictionary = quest.get("rewards", {})
 	if rw.has("item"):                                    # item first: service-role write, survives a disconnect
 		await _grant_quest_item(pid, char_id, access, rw["item"])
+	if rw.has("dye") and str(rw["dye"]) != "":            # P6a: cosmetic dye — service-role + idempotent, survives a disconnect
+		var dye_id := str(rw["dye"])
+		var cok: bool = await supa.cosmetics_grant_as(char_id, dye_id)
+		if cok and _session.has(pid):                     # mirror the shop path: fold into the LIVE session + push, so it's usable THIS session (not only after relog)
+			var owned: Array = _session[pid].get("cos_owned", [])
+			if not (dye_id in owned):
+				owned.append(dye_id)
+			if net != null:
+				net.recv_cosmetics_changed.rpc_id(pid, owned.duplicate(), str(_session[pid].get("cos_dye", "")))
+	if int(rw.get("pages", 0)) > 0:                       # P6a: Playbook Pages (attunement) — atomic DB add (self-guards on session)
+		await _award_pages(pid, int(rw["pages"]))
 	if _session.has(pid):                                 # xp/credits live in the session → only while connected
 		if int(rw.get("credits", 0)) > 0:
 			_award_credits(pid, int(rw["credits"]))
@@ -3684,6 +3703,193 @@ func _grant_quest_item(pid: int, char_id: String, access: String, item: Dictiona
 	if r.get("ok") and _session.has(pid) and net != null:
 		net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
 		net.recv_inventory_changed.rpc_id(pid)
+
+# ---- BOUNTY BOARD (gameplay-length P6b: rotating daily/weekly objectives, co-located at the Quest Giver) ----
+# Content is SERVER-DEFINED (below) and pushed to the client via HOME snapshot META, so future rotations/reward-
+# tunes ship with ZERO client re-export. Progress is SESSION-ONLY (never persisted → not a dupe surface); the ONLY
+# durable state is the per-period CLAIM ledger (progression.bounty_claims), advanced by the atomic bounty_claim fn.
+# Rewards are currencies ONLY (credits/tokens/Pages) — no gear, no combat stat → determinism + FORMAT_MODS untouched.
+const DAY_SECS := 86400                            # daily-bounty UTC period (WEEK_SECS=604800 already defined above)
+const BOUNTY_DAILY_SLOTS := 3                      # how many of the daily pool rotate in each UTC day
+
+# daily pool — each ~one short session of effort. kind: "kill" (match AND-combined vs the slain-mob descriptor via
+# Quests.kill_matches, tier/map only — mobs cap ~lvl 8 so a mob min_level match would be uncompletable) / "circuit"
+# (Camp Circuit clears, optional min_tier) / "drill" (a Two-Minute Drill run reaching >= wave).
+const BOUNTY_DAILY := {
+	"d_sweep":    {"name": "Camp Sweep",     "kind": "kill",    "match": {},                                  "count": 25, "desc": "Defeat 25 opponents anywhere.",              "rewards": {"credits": 600, "pages": 30}},
+	"d_elites":   {"name": "Elite Detail",   "kind": "kill",    "match": {"tier": "elite"},                   "count": 12, "desc": "Defeat 12 elite opponents.",                 "rewards": {"credits": 500, "tokens": 25}},
+	"d_gy5":      {"name": "Tower Patrol",   "kind": "kill",    "match": {"map": "glitchyard_5"},             "count": 15, "desc": "Defeat 15 in the Command Tower (GY5).",      "rewards": {"credits": 700, "pages": 25}},
+	"d_gy5elite": {"name": "Command Cull",   "kind": "kill",    "match": {"map": "glitchyard_5", "tier": "elite"}, "count": 5, "desc": "Defeat 5 Command Tower elites (GY5).",  "rewards": {"tokens": 30, "pages": 35}},
+	"d_circuit":  {"name": "Circuit Duty",   "kind": "circuit", "min_tier": 1,                                "count": 3,  "desc": "Clear the Camp Circuit 3 times.",           "rewards": {"credits": 600, "pages": 60}},
+	"d_drill":    {"name": "Drill Grind",    "kind": "drill",   "wave": 6,                                    "count": 1,  "desc": "Reach wave 6 of a Two-Minute Drill.",       "rewards": {"credits": 500, "pages": 45}},
+}
+# weekly pool — one bigger chase (resets on the UTC week, same Thursday-00:00 boundary as the Camp affix).
+const BOUNTY_WEEKLY := {
+	"w_gauntlet": {"name": "Weekly Gauntlet","kind": "circuit", "min_tier": 1, "count": 15, "desc": "Clear the Camp Circuit 15 times this week.",  "rewards": {"credits": 4000, "pages": 220}},
+	"w_elites":   {"name": "Weekly Muster",  "kind": "kill",    "match": {"tier": "elite"}, "count": 60, "desc": "Defeat 60 elite opponents this week.", "rewards": {"tokens": 90, "pages": 240}},
+	"w_drill":    {"name": "Weekly Drills",  "kind": "drill",   "wave": 12, "count": 3, "desc": "Reach wave 12 of a Drill, 3 times this week.", "rewards": {"credits": 5000, "pages": 260}},
+}
+
+var _bounty_busy := {}                             # pid → a bounty claim is in flight
+var _bounty_next := {}                             # pid → earliest next bounty op (ms)
+
+func _bounty_day() -> int:                          # UTC day integer — orchestration only (never read by the deterministic Sim), mirrors _current_affix
+	return int(Time.get_unix_time_from_system() / DAY_SECS)
+func _bounty_week() -> int:                         # UTC week integer (identical form to _current_affix at :591)
+	return int(Time.get_unix_time_from_system() / WEEK_SECS)
+
+# the currently-active bounty ids: BOUNTY_DAILY_SLOTS distinct dailies + 1 weekly, chosen deterministically by
+# (id, period) hash (mirrors _circuit_template) so every player sees the SAME set and it rotates at the UTC boundary
+# with no scheduler. sort-then-take guarantees distinct dailies (vs a per-slot hash that could collide).
+func _daily_bounty_ids(day: int) -> Array:
+	var ids: Array = BOUNTY_DAILY.keys()
+	ids.sort_custom(func(a, b): return absi(("%s|%d" % [str(a), day]).hash()) < absi(("%s|%d" % [str(b), day]).hash()))
+	return ids.slice(0, mini(BOUNTY_DAILY_SLOTS, ids.size()))
+func _weekly_bounty_ids(week: int) -> Array:
+	var ids: Array = BOUNTY_WEEKLY.keys()
+	ids.sort_custom(func(a, b): return absi(("%s|%d" % [str(a), week]).hash()) < absi(("%s|%d" % [str(b), week]).hash()))
+	return ids.slice(0, 1)
+func _active_bounty_ids() -> Array:
+	return _daily_bounty_ids(_bounty_day()) + _weekly_bounty_ids(_bounty_week())
+
+func _bounty_def(id: String) -> Dictionary:
+	if BOUNTY_DAILY.has(id):
+		return BOUNTY_DAILY[id]
+	if BOUNTY_WEEKLY.has(id):
+		return BOUNTY_WEEKLY[id]
+	return {}
+func _bounty_is_weekly(id: String) -> bool:
+	return BOUNTY_WEEKLY.has(id)
+func _bounty_period(id: String) -> int:
+	return _bounty_week() if _bounty_is_weekly(id) else _bounty_day()
+func _bounty_period_end(id: String) -> int:         # epoch of the next reset — a fixed int per period (no per-tick META churn); the client renders the countdown
+	return (_bounty_period(id) + 1) * (WEEK_SECS if _bounty_is_weekly(id) else DAY_SECS)
+
+# has this character already claimed `id` for the CURRENT period? (in-session mirror of the durable ledger)
+func _bounty_claimed(pid: int, id: String) -> bool:
+	return _session.has(pid) and int((_session[pid].get("bounty_claims", {}) as Dictionary).get(id, -1)) >= _bounty_period(id)
+
+# ensure a session progress row for `id` stamped with the current period; a stale period (UTC rollover while online)
+# resets progress to 0. Session-only, self-healing on every read/hook — so no persisted progress + no rollover cron.
+func _bounty_touch(pid: int, id: String) -> Dictionary:
+	var b: Dictionary = _session[pid]["bounties"]
+	var period := _bounty_period(id)
+	var st = b.get(id)
+	if st == null or int((st as Dictionary).get("period", -1)) != period:
+		st = {"period": period, "progress": 0}
+		b[id] = st
+	return st
+
+# advance one bounty's progress (called by the kind-specific hooks). Never advances a claimed/complete bounty; on
+# the transition to complete, nudge the client (toast + panel refresh).
+func _bounty_bump(pid: int, id: String, def: Dictionary) -> void:
+	if not _session.has(pid) or _bounty_claimed(pid, id):
+		return
+	var st := _bounty_touch(pid, id)
+	var count := int(def.get("count", 1))
+	if int(st["progress"]) >= count:
+		return
+	st["progress"] = int(st["progress"]) + 1
+	if net != null and int(st["progress"]) >= count:     # just became claimable → nudge the panel/toast
+		net.recv_bounty_update.rpc_id(pid, id, int(st["progress"]), false)
+
+# --- progress hooks (co-located beside the existing crediting sites) ---
+func _bounty_on_kill(pid: int, victim) -> void:
+	if not _session.has(pid):
+		return
+	var v := {"tier": str(victim.get("mobTier", "minion")), "map": str(victim.get("map", "")),
+		"class": str(victim.get("classId", "")), "level": int(victim.get("mobLevel", 1))}
+	for id in _active_bounty_ids():
+		var def := _bounty_def(id)
+		if str(def.get("kind", "")) != "kill":
+			continue
+		if not Quests.kill_matches({"objective": {"type": "kill", "match": def.get("match", {})}}, v):
+			continue
+		_bounty_bump(pid, id, def)
+func _bounty_on_circuit(pid: int, tier: int) -> void:
+	if not _session.has(pid):
+		return
+	for id in _active_bounty_ids():
+		var def := _bounty_def(id)
+		if str(def.get("kind", "")) != "circuit" or tier < int(def.get("min_tier", 1)):
+			continue
+		_bounty_bump(pid, id, def)
+func _bounty_on_drill(pid: int, wave: int) -> void:    # Drill mobs are isDrill (excluded from _award_kills) → count the RUN's wave, not kills
+	if not _session.has(pid):
+		return
+	for id in _active_bounty_ids():
+		var def := _bounty_def(id)
+		if str(def.get("kind", "")) != "drill" or wave < int(def.get("wave", 1)):
+			continue
+		_bounty_bump(pid, id, def)
+
+# per-player active-bounty display array for the HOME snapshot META (id/name/desc/progress/claimed/reward/period-end).
+# _bounty_touch self-heals the period so a rollover-while-at-home reflects immediately; period_end is a fixed int per
+# period so it never churns the META hash (the client renders the live countdown locally from it).
+func _bounty_meta(pid: int) -> Array:
+	var out := []
+	for id in _active_bounty_ids():
+		var def := _bounty_def(id)
+		var st := _bounty_touch(pid, id)
+		var count := int(def.get("count", 1))
+		out.append({"id": id, "name": str(def.get("name", id)), "desc": str(def.get("desc", "")),
+			"kind": str(def.get("kind", "")), "count": count, "progress": mini(int(st["progress"]), count),
+			"claimed": _bounty_claimed(pid, id), "weekly": _bounty_is_weekly(id),
+			"rewards": def.get("rewards", {}), "period_end": _bounty_period_end(id)})
+	return out
+
+# claim is mutating + DB-backed → rate-limited AND serialized (mirrors _quest_lock). Grant-only (like the quest
+# reward path, NOT deduct-before-write) → follows the quest precedent and is NOT in the disconnect skip-list.
+func _bounty_lock(pid: int) -> bool:
+	var now := Time.get_ticks_msec()
+	if not _session.has(pid) or bool(_bounty_busy.get(pid, false)) or now < int(_bounty_next.get(pid, 0)):
+		return false
+	_bounty_busy[pid] = true
+	_bounty_next[pid] = now + 300
+	return true
+
+func bounty_action(pid: int, action: String, bounty_id: String) -> void:
+	if not _bounty_lock(pid):
+		return
+	if not _at_questgiver(pid):                    # bounties are claimed at the SAME home-base NPC as quests (co-located)
+		_bounty_busy.erase(pid)
+		return
+	if action == "claim":
+		await _do_bounty_claim(pid, bounty_id)
+	_bounty_busy.erase(pid)
+
+func _do_bounty_claim(pid: int, id: String) -> void:
+	if not _session.has(pid) or not _active_bounty_ids().has(id):   # not one of today's bounties (rotated out / forged id)
+		return
+	var def := _bounty_def(id)
+	if def.is_empty():
+		return
+	var st := _bounty_touch(pid, id)
+	if int(st["progress"]) < int(def.get("count", 1)):   # objective not finished
+		return
+	if _bounty_claimed(pid, id):                         # already claimed this period (in-session fast-path)
+		return
+	var s = _session[pid]
+	var period := _bounty_period(id)
+	# ATOMIC per-period claim FIRST (mark-before-grant): only the first caller in this period flips the ledger; a
+	# replay / concurrent same-char session / stale period matches no row (ok=false) and grants nothing. A mid-grant
+	# disconnect is a rare LOSS, never a dupe (ledger already advanced; no recovery re-fires) — the quest-path stance.
+	var ok: bool = await supa.bounty_claim_as(str(s["char_id"]), id, period)
+	if not _session.has(pid) or not ok:
+		return
+	(s["bounty_claims"] as Dictionary)[id] = period    # mirror the durable claim into the session
+	var rw: Dictionary = def.get("rewards", {})
+	if int(rw.get("credits", 0)) > 0:
+		_award_credits(pid, int(rw["credits"]))
+		_save_one(s, _find(s["fid"]))
+	if int(rw.get("tokens", 0)) > 0:
+		_award_tokens(pid, int(rw["tokens"]))
+		_save_one(s, _find(s["fid"]))
+	if int(rw.get("pages", 0)) > 0:                    # atomic DB add (self-guards on session)
+		await _award_pages(pid, int(rw["pages"]))
+	if net != null and _session.has(pid):
+		net.recv_bounty_update.rpc_id(pid, id, int(def.get("count", 1)), true)
+	print("[bounty] %s claimed '%s'" % [str(s.get("name", "?")), id])
 
 # ---- admin / god-mode (gated: only sessions flagged admin via the service-role admins table) ----
 func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
@@ -3902,6 +4108,7 @@ func _broadcast() -> void:
 			meta["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
 			meta["practice"] = {"x": World.PRACTICE_POS.x, "y": World.PRACTICE_POS.y}   # the Practice Vendor (reward loop)
 			meta["build_shop"] = {"x": World.BUILD_SHOP_POS.x, "y": World.BUILD_SHOP_POS.y}   # Builder Mode: buy furniture (P3)
+			meta["bounties"] = _bounty_meta(pid)      # gameplay-length P6b: the day's active bounties (rendered in the Quest Giver panel)
 			for lp in World.PORTALS.get(World.HOME, []):   # the Locker Room portal position → client's "Purchase (10,000)" prompt when not yet unlocked
 				if str(lp.get("instance", "")) == World.LOCKER:
 					meta["locker_portal"] = {"x": lp["x"], "y": lp["y"]}
