@@ -108,7 +108,6 @@ var _shop_sell_footer: HBoxContainer = null   # Sell-selected + clear
 var _shop_info := {}          # catalog + roll/sell prices (from recv_shop_info)
 var _shop_root: Node3D = null # the 3D shop pad visual
 var _shop_sig := ""
-var _shop_hint: Label = null  # "Press B to shop" proximity prompt
 var _near_shop := false
 # Builder Mode (P3): the Build Shop pad/panel (buy furniture) + the locked-locker "Purchase" portal prompt
 var _build_info := {}              # catalog + caps + unlock cost (from recv_build_info)
@@ -117,9 +116,7 @@ var _build_shop_status: Label = null
 var _build_shop_grid: GridContainer = null
 var _build_shop_root: Node3D = null
 var _build_shop_sig := ""
-var _build_shop_hint: Label = null
 var _near_build_shop := false
-var _locker_portal_hint: Label = null
 var _near_locker_portal := false
 var _was_locker_unlocked := false   # tracks false→true to toast "Locker Room unlocked!" once
 # Builder Mode (P3b): the in-Locker-Room build editor (F4 in your own unlocked room). Server-driven — every
@@ -146,7 +143,6 @@ var _lb_ghost: Node3D = null        # translucent preview of the to-place / bein
 var _lb_ghost_key := ""             # model+"@"+h of the current ghost (rebuild only when it changes)
 var _forge_root: Node3D = null   # the 3D forge pad visual (P4)
 var _forge_sig := ""
-var _forge_hint: Label = null
 var _near_forge := false
 var _forge_panel: Control
 var _forge_status: Label = null               # scrap + credits + hint
@@ -162,13 +158,11 @@ var _vendor_status: Label = null
 var _vendor_rows: VBoxContainer = null
 var _vendor_root: Node3D = null
 var _vendor_sig := ""
-var _vendor_hint: Label = null
 var _near_vendor := false
 # Camp Circuit (endgame): the Intensity selector at the home entry portal
 var _camp_panel: Control = null
 var _camp_rows: VBoxContainer = null
 var _camp_status: Label = null
-var _camp_hint: Label = null
 var _near_camp := false
 # Wardrobe (P4 cosmetics): a key-toggled dye panel (buy with credits + equip)
 var _wardrobe_panel: Control = null
@@ -217,7 +211,6 @@ var _qgiver_panel: Control = null           # the home-base quest-giver dialog (
 var _qgiver_label: RichTextLabel = null
 var _qgiver_root: Node3D = null             # the 3D quest-giver marker in the home base
 var _qgiver_sig := ""
-var _qgiver_hint: Label = null              # "Press E to talk" proximity prompt
 var _near_qgiver := false
 var _settings_panel: Control = null         # audio/options panel
 var _settings_reset_note: Label = null      # "UI layout reset" confirmation
@@ -248,8 +241,9 @@ func _enter_mode() -> void:
 	_build_settings()
 	_build_locker()
 	_build_disconnect_overlay()
-	_build_juice_online()
+	_build_event_banner()
 	_build_unit_frames()                          # P7: hostile target + friendly focus modules
+	_build_interact_prompt()                      # P8: the ONE proximity prompt module (7 hints unified)
 	_update_quest_tracker()                       # eager: registers the tracker module (hidden while
 	                                              # questless) so edit mode can place it pre-quests
 	_sync_party_panel()                           # eager: registers the party group module (hidden solo)
@@ -258,6 +252,9 @@ func _enter_mode() -> void:
 		_toggle_meter()
 	if "--hudedit" in ua:                         # dev-only: open HUD edit mode (pairs with --shot)
 		_hud_edit_toggle()
+	if "--bannertest" in ua:                      # dev-only: fire a demo hero banner (pure client)
+		_banner_dev = true                        # bypass the pre-snapshot suppression for the shot
+		_show_banner("Boss Event", "Head Coach Awakens", "prepare to compete", Palette.SB_ORANGE)
 	var oi := ua.find("--open")                   # dev-only: open a named panel after the first snapshot
 	if oi >= 0 and oi + 1 < ua.size():
 		_dev_open = str(ua[oi + 1])
@@ -2065,12 +2062,6 @@ func _render_questgiver_pad() -> void:
 	_qgiver_root.add_child(lbl)
 
 func _update_questgiver_proximity() -> void:
-	if _qgiver_hint == null:
-		_qgiver_hint = Label.new()
-		_qgiver_hint.add_theme_font_size_override("font_size", 18)
-		_qgiver_hint.modulate = Color(0.72, 0.85, 1.0)
-		_qgiver_hint.visible = false
-		_hud.add_child(_qgiver_hint)
 	var qg = _home_pad("questgiver")
 	var pf = _find_fighter(_player_id)
 	_near_qgiver = false
@@ -2078,12 +2069,9 @@ func _update_questgiver_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(qg["x"]), float(pf["y"]) - float(qg["y"])).length()
 		_near_qgiver = d <= World.QUESTGIVER_RADIUS
 	if _near_qgiver and (_qgiver_panel == null or not _qgiver_panel.visible):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_qgiver_hint.text = "Press [E] to talk to the Quest Giver"
-		_qgiver_hint.position = Vector2(vp.x / 2.0 - 140.0, vp.y - 180.0)
-		_qgiver_hint.visible = true
+		_interact_offer("questgiver", "E", "Talk to the Quest Giver")
 	else:
-		_qgiver_hint.visible = false
+		_interact_clear("questgiver")
 	if not _near_qgiver and _qgiver_panel != null and _qgiver_panel.visible:
 		_qgiver_panel.visible = false                  # walked away → close the dialog
 
@@ -2532,6 +2520,7 @@ func _on_craft_key() -> void:
 
 # server → client: a Circuit run completed (bonus loot already granted server-side; announce + unlock)
 func recv_circuit_clear(intensity: int, max_intensity: int) -> void:
+	_show_banner("Victory", "Circuit Clear", "Intensity %d" % intensity)   # P8 hero banner
 	_quest_toast("[color=#ffd24d]⚔ Circuit Cleared — Intensity %d![/color]  Bonus loot + Pages awarded." % intensity)
 	if max_intensity > intensity:
 		_quest_toast("[color=#9fe8a0]★ Intensity %d unlocked![/color]" % max_intensity)
@@ -3061,6 +3050,7 @@ func _render_leaderboard() -> void:
 		_lb_rows.add_child(row)
 
 func recv_drill_end(wave: int) -> void:
+	_show_banner("Drill Complete", "Wave %d" % wave, "score submitted")    # P8 hero banner
 	_quest_toast("[color=#ffd24d]⏱ Two-Minute Drill — reached WAVE %d![/color]  Score submitted to the leaderboard." % wave)
 
 # a big centered wave counter while inside the Drill (driven by the snapshot's drillWave)
@@ -3082,12 +3072,6 @@ func _update_drill_banner() -> void:
 		_drill_banner.visible = false
 
 func _update_camp_proximity() -> void:
-	if _camp_hint == null:
-		_camp_hint = Label.new()
-		_camp_hint.add_theme_font_size_override("font_size", 18)
-		_camp_hint.modulate = Color(1.0, 0.82, 0.3)
-		_camp_hint.visible = false
-		_hud.add_child(_camp_hint)
 	var portal = _camp_portal()
 	var pf = _find_fighter(_player_id)
 	_near_camp = false
@@ -3095,12 +3079,9 @@ func _update_camp_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(portal["x"]), float(pf["y"]) - float(portal["y"])).length()
 		_near_camp = d <= World.PORTAL_RADIUS + 24.0
 	if _near_camp and (_camp_panel == null or not _camp_panel.visible):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_camp_hint.text = "Press [C] to run the Camp Circuit"
-		_camp_hint.position = Vector2(vp.x / 2.0 - 130.0, vp.y - 200.0)
-		_camp_hint.visible = true
+		_interact_offer("camp", "C", "Run the Camp Circuit")
 	else:
-		_camp_hint.visible = false
+		_interact_clear("camp")
 	if not _near_camp and _camp_panel != null and _camp_panel.visible:
 		_camp_panel.visible = false                # walked away → close the selector
 
@@ -3641,12 +3622,6 @@ func _render_shop_pad() -> void:
 	_shop_root.add_child(lbl)
 
 func _update_shop_proximity() -> void:
-	if _shop_hint == null:
-		_shop_hint = Label.new()
-		_shop_hint.add_theme_font_size_override("font_size", 18)
-		_shop_hint.modulate = Color(1.0, 0.88, 0.5)
-		_shop_hint.visible = false
-		_hud.add_child(_shop_hint)
 	var shop = _home_pad("shop")
 	var pf = _find_fighter(_player_id)
 	_near_shop = false
@@ -3654,12 +3629,9 @@ func _update_shop_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(shop["x"]), float(pf["y"]) - float(shop["y"])).length()
 		_near_shop = d <= World.SHOP_RADIUS
 	if _near_shop and (_shop_panel == null or not _shop_panel.visible):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_shop_hint.text = "Press [B] to shop"
-		_shop_hint.position = Vector2(vp.x / 2.0 - 70.0, vp.y - 150.0)
-		_shop_hint.visible = true
+		_interact_offer("shop", "B", "Shop — buy & sell gear")
 	else:
-		_shop_hint.visible = false
+		_interact_clear("shop")
 	if not _near_shop and _shop_panel != null and _shop_panel.visible:
 		_shop_panel.visible = false                  # walked away → close the shop
 		_close_sell_confirm()
@@ -3795,12 +3767,6 @@ func _render_build_shop_pad() -> void:
 	_build_shop_root.add_child(lbl)
 
 func _update_build_shop_proximity() -> void:
-	if _build_shop_hint == null:
-		_build_shop_hint = Label.new()
-		_build_shop_hint.add_theme_font_size_override("font_size", 18)
-		_build_shop_hint.modulate = Color(0.7, 0.85, 1.0)
-		_build_shop_hint.visible = false
-		_hud.add_child(_build_shop_hint)
 	var pad = _home_pad("build_shop")
 	var pf = _find_fighter(_player_id)
 	_near_build_shop = false
@@ -3808,24 +3774,15 @@ func _update_build_shop_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(pad["x"]), float(pf["y"]) - float(pad["y"])).length()
 		_near_build_shop = d <= World.BUILD_SHOP_RADIUS
 	if _near_build_shop and (_build_shop_panel == null or not _build_shop_panel.visible):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_build_shop_hint.text = "Press [P] to shop for furniture"
-		_build_shop_hint.position = Vector2(vp.x / 2.0 - 110.0, vp.y - 178.0)
-		_build_shop_hint.visible = true
+		_interact_offer("build_shop", "P", "Shop for furniture")
 	else:
-		_build_shop_hint.visible = false
+		_interact_clear("build_shop")
 	if not _near_build_shop and _build_shop_panel != null and _build_shop_panel.visible:
 		_build_shop_panel.visible = false            # walked away → close
 
 # the Locker Room portal, when you don't own it yet, shows a "press [Y] to Purchase" prompt (buy_locker_room).
 # Once unlocked, walking onto the pad auto-enters (server-side), so this prompt just disappears.
 func _update_locker_portal_proximity() -> void:
-	if _locker_portal_hint == null:
-		_locker_portal_hint = Label.new()
-		_locker_portal_hint.add_theme_font_size_override("font_size", 18)
-		_locker_portal_hint.modulate = Color(1.0, 0.85, 0.45)
-		_locker_portal_hint.visible = false
-		_hud.add_child(_locker_portal_hint)
 	var pad = _home_pad("locker_portal")
 	var pf = _find_fighter(_player_id)
 	_near_locker_portal = false
@@ -3833,13 +3790,10 @@ func _update_locker_portal_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(pad["x"]), float(pf["y"]) - float(pad["y"])).length()
 		_near_locker_portal = d <= World.PORTAL_RADIUS + 26.0
 	if _near_locker_portal:
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		var cost := int(_build_info.get("unlock_cost", 10000))
-		_locker_portal_hint.text = "🔒 Your Locker Room — press [Y] to Purchase (◈ %d)" % cost
-		_locker_portal_hint.position = Vector2(vp.x / 2.0 - 180.0, vp.y - 206.0)
-		_locker_portal_hint.visible = true
+		_interact_offer("locker_portal", "Y",
+			"Unlock your Locker Room  (◈ %d)" % int(_build_info.get("unlock_cost", 10000)))
 	else:
-		_locker_portal_hint.visible = false
+		_interact_clear("locker_portal")
 
 func _buy_locker_room() -> void:
 	if _locker_unlocked():
@@ -4503,12 +4457,6 @@ func _render_vendor_pad() -> void:
 	_vendor_root.add_child(lbl)
 
 func _update_vendor_proximity() -> void:
-	if _vendor_hint == null:
-		_vendor_hint = Label.new()
-		_vendor_hint.add_theme_font_size_override("font_size", 18)
-		_vendor_hint.modulate = Color(0.5, 0.9, 1.0)
-		_vendor_hint.visible = false
-		_hud.add_child(_vendor_hint)
 	var v = _home_pad("practice")
 	var pf = _find_fighter(_player_id)
 	_near_vendor = false
@@ -4516,12 +4464,9 @@ func _update_vendor_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(v["x"]), float(pf["y"]) - float(v["y"])).length()
 		_near_vendor = d <= World.PRACTICE_RADIUS
 	if _near_vendor and (_vendor_panel == null or not _vendor_panel.visible):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_vendor_hint.text = "Press [V] for the Practice Vendor"
-		_vendor_hint.position = Vector2(vp.x / 2.0 - 110.0, vp.y - 178.0)
-		_vendor_hint.visible = true
+		_interact_offer("vendor", "V", "Browse the Practice Vendor")
 	else:
-		_vendor_hint.visible = false
+		_interact_clear("vendor")
 	if not _near_vendor and _vendor_panel != null and _vendor_panel.visible:
 		_vendor_panel.visible = false                # walked away → close the vendor
 
@@ -4571,12 +4516,6 @@ func _render_forge_pad() -> void:
 	_forge_root.add_child(lbl)
 
 func _update_forge_proximity() -> void:
-	if _forge_hint == null:
-		_forge_hint = Label.new()
-		_forge_hint.add_theme_font_size_override("font_size", 18)
-		_forge_hint.modulate = Color(1.0, 0.6, 0.4)
-		_forge_hint.visible = false
-		_hud.add_child(_forge_hint)
 	var forge = _home_pad("forge")
 	var pf = _find_fighter(_player_id)
 	_near_forge = false
@@ -4584,12 +4523,9 @@ func _update_forge_proximity() -> void:
 		var d := Vector2(float(pf["x"]) - float(forge["x"]), float(pf["y"]) - float(forge["y"])).length()
 		_near_forge = d <= World.FORGE_RADIUS
 	if _near_forge and (_forge_panel == null or not _forge_panel.visible):
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_forge_hint.text = "Press [F] to forge"
-		_forge_hint.position = Vector2(vp.x / 2.0 - 70.0, vp.y - 180.0)
-		_forge_hint.visible = true
+		_interact_offer("forge", "F", "Forge — upgrade & reforge gear")
 	else:
-		_forge_hint.visible = false
+		_interact_clear("forge")
 	if not _near_forge and _forge_panel != null and _forge_panel.visible:
 		_forge_panel.visible = false                 # walked away → close the forge
 
@@ -5386,79 +5322,187 @@ func _juice_suppressed() -> bool:
 
 # P4 online-only juice: a gold level-up flash (z=160) + a zone-transition card (z=110). The shared
 # vignette/death/toast layer is built by Client._build_hud; these two ride online-only events.
-var _level_flash: ColorRect = null
-var _flash_t := -1.0                         # ≥0 while a level-up flash plays
-var _zone_card: ColorRect = null
-var _zone_card_label: Label = null
-var _zone_card_t := -1.0                      # ≥0 while a zone card plays
+# ---- P8 event banners: ONE HERO-frame module for real states (zone arrival, level-up,
+# respawn, circuit clear, drill complete). Live Godot text over the procedural frame (nothing
+# baked); queued one-shots, one visible at a time; reduce_fx = steady-then-cut (no fades).
+# Replaces the P4 full-screen zone card + level flash. Movable/scalable/hideable — non-critical
+# celebrations only (the boss ult telegraph + disconnect overlay stay un-hideable, by design).
+const BANNER_SIZE := Vector2(560, 150)
+const BANNER_IN := 0.25
+const BANNER_HOLD := 1.7
+const BANNER_OUT := 0.45
+var _banner_root: Control = null
+var _banner_status: Label = null
+var _banner_title: Label = null
+var _banner_sub: Label = null
+var _banner_queue := []
+var _banner_t := -1.0                        # ≥0 while a banner plays
+var _banner_preview := false
+var _banner_dev := false                     # --bannertest: let the demo play pre-snapshot
+var _last_alive := true                      # respawn detection (death overlay handles the death side)
 
-func _build_juice_online() -> void:
-	_level_flash = ColorRect.new()
-	_level_flash.color = Color(1.0, 0.84, 0.32, 0.0)
-	_level_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_level_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_level_flash.z_index = 160
-	_level_flash.visible = false
-	_hud.add_child(_level_flash)
-	_zone_card = ColorRect.new()
-	_zone_card.color = Color(0.03, 0.04, 0.06, 0.0)
-	_zone_card.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_zone_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_zone_card.z_index = 110
-	_zone_card.visible = false
-	_hud.add_child(_zone_card)
+func _build_event_banner() -> void:
+	_banner_root = Control.new()
+	_banner_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner_root.custom_minimum_size = BANNER_SIZE
+	_banner_root.size = BANNER_SIZE
+	_banner_root.visible = false
+	_hud.add_child(_banner_root)
+	var frame := HudFrame.make(HudFrame.Tier.HERO, {})
+	frame.size = BANNER_SIZE
+	_banner_root.add_child(frame)
 	var cc := CenterContainer.new()
 	cc.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_zone_card.add_child(cc)
-	_zone_card_label = Label.new()
-	_zone_card_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_zone_card_label.add_theme_font_size_override("font_size", 40)
-	_zone_card_label.add_theme_color_override("font_color", Palette.ACCENT2)
-	_zone_card_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	_zone_card_label.add_theme_constant_override("outline_size", 10)
-	cc.add_child(_zone_card_label)
+	_banner_root.add_child(cc)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 2)
+	cc.add_child(vb)
+	_banner_status = HudFonts.display_label("", 15, Palette.SB_LIME, 0.26, Palette.SB_LIME)
+	vb.add_child(_banner_status)
+	_banner_title = HudFonts.display_label("", 30, Palette.TEXT_BRIGHT, 0.20)
+	vb.add_child(_banner_title)
+	_banner_sub = HudFonts.display_label("", 13, Color("#CFEFFF"), 0.24)
+	vb.add_child(_banner_sub)
+	HudLayout.register("event_banner", _banner_root, {"label": "Event Banner",
+		"defaults": {"anchor": "top_center", "oy": 170.0}, "ref_size": BANNER_SIZE,
+		"min_scale": 0.6, "max_scale": 1.4, "preview": _banner_module_preview})
 
-func _trigger_level_flash() -> void:
-	if reduce_fx or _level_flash == null:        # a bright full-screen pulse is a motion trigger → skip
+# queue an event banner (status line color = semantic accent; sub optional)
+func _show_banner(status: String, title: String, sub: String = "", col: Color = Palette.SB_LIME) -> void:
+	_banner_queue.append({"s": status, "t": title, "b": sub, "c": col})
+	if _banner_t < 0.0:
+		_banner_next()
+
+func _banner_set(l: Label, text: String, base: int, tracking: float) -> void:
+	l.text = text.to_upper()
+	l.add_theme_font_size_override("font_size", HudFonts.fit_size(text, base, tracking, 410.0))
+	l.visible = text != ""
+
+func _banner_next() -> void:
+	if _banner_queue.is_empty():
 		return
-	_flash_t = 0.0
+	var e: Dictionary = _banner_queue.pop_front()
+	_banner_set(_banner_status, str(e["s"]), 15, 0.26)
+	_banner_status.add_theme_color_override("font_color", e["c"])
+	_banner_set(_banner_title, str(e["t"]), 30, 0.20)
+	_banner_set(_banner_sub, str(e["b"]), 13, 0.24)
+	_banner_t = 0.0
 
-func _trigger_zone_card(map: String) -> void:
-	if _zone_card == null:
+# per-frame one-shot driver (in → hold → out, then the next queued banner). Called from _process.
+func _update_event_banner(dt: float) -> void:
+	if _banner_root == null:
 		return
-	_zone_card_label.text = _zone_name(map)
-	_zone_card_t = 0.0
+	if _juice_suppressed() and not _banner_dev:  # disconnect/pre-snapshot: drop pending celebrations
+		_banner_queue.clear()
+		_banner_t = -1.0
+		_banner_root.visible = false
+		return
+	if _banner_t < 0.0:
+		if _banner_preview:                      # HUD-edit: hold a sample banner steady
+			_banner_root.visible = true
+			_banner_root.modulate.a = 1.0
+		else:
+			_banner_root.visible = false
+		return
+	_banner_t += dt
+	if _banner_t >= BANNER_IN + BANNER_HOLD + BANNER_OUT:
+		_banner_t = -1.0
+		_banner_root.visible = false
+		_banner_next()
+		return
+	var a := 1.0
+	if _banner_t < BANNER_IN:
+		a = _banner_t / BANNER_IN
+	elif _banner_t > BANNER_IN + BANNER_HOLD:
+		a = 1.0 - (_banner_t - BANNER_IN - BANNER_HOLD) / BANNER_OUT
+	if reduce_fx:                                # no motion fade — steady then cut
+		a = 0.0 if _banner_t > BANNER_IN + BANNER_HOLD else 1.0
+	_banner_root.visible = a > 0.0
+	_banner_root.modulate.a = a
 
-# per-frame one-shots (level flash fade + zone card fade in/hold/out). Called from _process.
-func _update_juice_online(dt: float) -> void:
-	if _flash_t >= 0.0 and _level_flash != null:
-		_flash_t += dt
-		if _flash_t >= 0.5:
-			_flash_t = -1.0
-			_level_flash.visible = false
-		else:
-			_level_flash.visible = true
-			_level_flash.color.a = (1.0 - _flash_t / 0.5) * 0.4
-	if _zone_card_t >= 0.0 and _zone_card != null:
-		_zone_card_t += dt
-		var fin := 0.3
-		var hold := 1.1
-		var fout := 0.6
-		if _zone_card_t >= fin + hold + fout:
-			_zone_card_t = -1.0
-			_zone_card.visible = false
-		else:
-			_zone_card.visible = true
-			var a := 1.0
-			if _zone_card_t < fin:
-				a = _zone_card_t / fin
-			elif _zone_card_t > fin + hold:
-				a = 1.0 - (_zone_card_t - fin - hold) / fout
-			if reduce_fx:                          # no motion fade — steady then cut
-				a = 0.0 if _zone_card_t > fin + hold else 1.0
-			_zone_card.color.a = a * 0.5
-			_zone_card_label.modulate.a = a
+func _banner_module_preview(on: bool) -> void:
+	_banner_preview = on
+	if on and _banner_t < 0.0:
+		_banner_set(_banner_status, "Boss Event", 15, 0.26)
+		_banner_status.add_theme_color_override("font_color", Palette.SB_ORANGE)
+		_banner_set(_banner_title, "Head Coach", 30, 0.20)
+		_banner_set(_banner_sub, "Prepare to Compete", 13, 0.24)
+
+# ---- P8 interact prompt: ONE configurable module (keycap + action text in a UTILITY frame)
+# replacing the 7 hand-positioned proximity hint labels. Proximity/keybind/panel-close logic
+# stays in each _update_*_proximity — they just offer/clear by source name (change-gated).
+var _ip_root: Control = null
+var _ip_key: Label = null
+var _ip_text: Label = null
+var _ip_offers := {}                         # source -> {key, text}
+var _ip_sig := ""
+var _ip_preview := false
+
+func _build_interact_prompt() -> void:
+	var fd: Dictionary = HudFrame.fitted(HudFrame.Tier.UTILITY, {"stripe": true, "accent": Palette.SB_LIME, "body_alpha": 0.8})
+	_ip_root = fd["root"]
+	_ip_root.visible = false
+	_hud.add_child(_ip_root)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 9)
+	(fd["body"] as MarginContainer).add_child(hb)
+	var cap := PanelContainer.new()              # keycap chip (same language as the hotbar keys)
+	cap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = Color(Palette.SB_INK, 0.9)
+	csb.set_border_width_all(1)
+	csb.border_color = Color(Palette.SB_CYAN, 0.45)
+	csb.set_corner_radius_all(3)
+	csb.content_margin_left = 7.0
+	csb.content_margin_right = 7.0
+	cap.add_theme_stylebox_override("panel", csb)
+	_ip_key = Label.new()
+	_ip_key.add_theme_font_size_override("font_size", 15)
+	_ip_key.add_theme_color_override("font_color", Palette.SB_CYAN)
+	cap.add_child(_ip_key)
+	hb.add_child(cap)
+	_ip_text = Label.new()
+	_ip_text.add_theme_font_size_override("font_size", 15)
+	_ip_text.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	hb.add_child(_ip_text)
+	HudLayout.register("interact_prompt", _ip_root, {"label": "Interact Prompt",
+		"defaults": {"anchor": "bottom_center", "oy": -140.0}, "ref_size": Vector2(280, 42),
+		"min_scale": 0.8, "max_scale": 1.6, "preview": _ip_module_preview})
+
+func _interact_offer(src: String, key: String, text: String) -> void:
+	var cur: Dictionary = _ip_offers.get(src, {})
+	if str(cur.get("key", "")) == key and str(cur.get("text", "")) == text:
+		return
+	_ip_offers[src] = {"key": key, "text": text}
+	_ip_render()
+
+func _interact_clear(src: String) -> void:
+	if _ip_offers.erase(src):
+		_ip_render()
+
+func _ip_render() -> void:
+	if _ip_root == null:
+		return
+	var key := ""
+	var text := ""
+	if not _ip_offers.is_empty():
+		var first: Dictionary = _ip_offers[_ip_offers.keys()[0]]
+		key = str(first["key"])
+		text = str(first["text"])
+	elif _ip_preview:
+		key = "F"
+		text = "Forge — upgrade & reforge gear"
+	var sig := key + "|" + text
+	if sig != _ip_sig:
+		_ip_sig = sig
+		_ip_key.text = key
+		_ip_text.text = text
+	_ip_root.visible = key != ""
+
+func _ip_module_preview(on: bool) -> void:
+	_ip_preview = on
+	_ip_render()
 
 func _process(delta: float) -> void:
 	if supa != null and net != null and _connected:
@@ -5466,6 +5510,7 @@ func _process(delta: float) -> void:
 		if _reauth_t >= REAUTH_INTERVAL:
 			_reauth_t = 0.0
 			_do_reauth()
+	_update_event_banner(delta)     # P8: pure-client one-shots — must run even pre-snapshot
 	if _state.is_empty():
 		_update_hud()          # still show the connecting/error banner before any snapshot
 		return
@@ -5495,7 +5540,6 @@ func _process(delta: float) -> void:
 	_update_vendor_proximity()
 	_update_camp_proximity()
 	_update_drill_banner()
-	_update_juice_online(delta)     # P4: level-up flash + zone-transition card one-shots
 	_update_loot_roll(delta)        # party loot want/need/pass countdown → auto-pass
 	if _locker_panel != null and _locker_panel.visible and _locker_model_holder != null:
 		_locker_model_holder.rotation.y += delta * 0.5   # slow turntable on the locker figure
@@ -5569,7 +5613,9 @@ func receive_snapshot(snap: Dictionary) -> void:
 	if map != _last_map:
 		if _last_map != "":
 			AudioManager.play_sfx("portal")
-			_trigger_zone_card(map)              # P4: "Now Entering <Zone>" card (not on the first login zone-in)
+			# P8: "Now Entering" hero banner (not on the first login zone-in)
+			_show_banner("Now Entering", _zone_name(map),
+				"open pvp zone" if bool(snap.get("pvp", false)) else "", Palette.SB_CYAN)
 		_last_map = map
 		_pred_on = false                         # reseed local-player prediction at the new zone's spawn (no cross-zone snap)
 		AudioManager.play_music(map)
@@ -5580,9 +5626,13 @@ func receive_snapshot(snap: Dictionary) -> void:
 		var lvl := int(lpf.get("level", 1))
 		if _last_level > 0 and lvl > _last_level:
 			AudioManager.play_sfx("level_up")
-			_trigger_level_flash()
+			_show_banner("Level Up", "Level %d" % lvl)   # P8: replaces the full-screen gold flash
 			_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level %d[/color]" % [Palette.hex(Palette.ACCENT), lvl], Palette.ACCENT, true)
 		_last_level = lvl
+		var alive_now := bool(lpf.get("alive", true))    # P8: respawn banner (death side = overlay)
+		if alive_now and not _last_alive:
+			_show_banner("Respawn", "Back In The Game", "", Palette.SB_CYAN)
+		_last_alive = alive_now
 	var unlocked_now := _locker_unlocked()        # Builder Mode: toast the first time you own your Locker Room
 	if unlocked_now and not _was_locker_unlocked:
 		_toast("[color=#9fe8a0]🔓 Locker Room unlocked![/color]\nWalk through the portal in the home base to enter.", Palette.ACCENT)
@@ -5595,7 +5645,7 @@ func receive_snapshot(snap: Dictionary) -> void:
 		_toast("[color=#ffd24d]★ Looted[/color]  [color=#c77dff]Epic Cleats[/color]\n[color=#7f93a8]epic · feet  +18 SPD[/color]", Color.html("#c77dff"))
 		_toast("[color=#9fe8a0]✔ Quest complete:[/color] Boot Camp", Palette.ACCENT)
 		_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level 3[/color]" % Palette.hex(Palette.ACCENT), Palette.ACCENT, true)
-		_trigger_zone_card("glitchyard_1")
+		_show_banner("Now Entering", "The Glitchyard", "", Palette.SB_CYAN)
 
 func assign_fighter(fid: String) -> void:
 	_player_id = fid
