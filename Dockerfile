@@ -43,6 +43,11 @@ RUN godot --headless --path /app --import 2>&1 | tail -3 || true
 
 # The code (changes often) — copied after the import so editing it doesn't re-run the import.
 COPY . /app
+# Re-import WITH the code present: the first import ran before any script existed, so the global
+# script-class cache (class_name registry: WorldUI/Palette/Widgets/…) was empty — harmless for the
+# headless server but it spams parse errors at boot and would break any class_name-resolved global a
+# server path ever grows. Assets are already imported in the cached layer, so this pass is fast.
+RUN godot --headless --path /app --import 2>&1 | tail -3 || true
 
 ENV PORT=7777
 # Containers are the PRODUCTION profile (stabilization P4): the server refuses plaintext, requires a
