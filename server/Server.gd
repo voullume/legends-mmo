@@ -1860,9 +1860,18 @@ func _kick(pid: int, reason := "") -> void:
 			net.recv_denied.rpc_id(pid, reason)  # flushes queued packets on a non-forced disconnect)
 	_transport_kick(pid)
 
-# transport seam: actually drop the peer (overridden by the headless tests, which have no ENet peer)
+# transport seam: actually drop the peer (overridden by the headless tests, which have no ENet peer).
+# GRACE before the drop: the recv_denied RPC queued in _kick sits in SceneMultiplayer's OUTGOING
+# buffer and isn't handed to ENet until the next multiplayer poll. disconnect_peer() synchronously in
+# the same frame therefore severs the link before the reason packet is even sent — the client only
+# sees the generic transport-drop message (confirmed live). A short wall-clock grace lets the poll
+# flush the reliable RPC into ENet first; disconnect_peer(force=false) then drains it to the client.
+const KICK_GRACE_S := 0.4
 func _transport_kick(pid: int) -> void:
-	if multiplayer.has_multiplayer_peer():
+	if not multiplayer.has_multiplayer_peer():
+		return
+	await get_tree().create_timer(KICK_GRACE_S).timeout
+	if multiplayer.has_multiplayer_peer() and pid in multiplayer.get_peers():
 		multiplayer.multiplayer_peer.disconnect_peer(pid)
 
 func _on_peer_connected(pid: int) -> void:
