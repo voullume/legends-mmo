@@ -65,7 +65,8 @@ static func fitted(p_tier: int, opts: Dictionary = {}) -> Dictionary:
 	body.minimum_size_changed.connect(func() -> void:
 		var ms := body.get_combined_minimum_size()
 		f.size = ms
-		root.custom_minimum_size = ms)
+		root.custom_minimum_size = ms
+		root.size = ms)      # non-container parents (module wrappers) never apply the min size
 	return {"root": root, "frame": f, "body": body}
 
 func attach_body() -> MarginContainer:

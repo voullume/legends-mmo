@@ -176,6 +176,7 @@ var _decals_cache := {}        # map -> resolved Array (JSON-on-disk or World fa
 var _info: RichTextLabel
 var _bar: RichTextLabel
 var _hotbar: HBoxContainer                 # MMO-style skill bar (a slot per ability)
+var _hotbar_frame: Control                 # P5: the bar's PANEL-tier chassis (what the module positions)
 var _slots := []                           # [{root, cd, cs}] per ability
 var _hotbar_class := ""
 var _tooltip: PanelContainer
@@ -2690,10 +2691,15 @@ func _build_hud() -> void:
 	_bar.add_theme_font_size_override("bold_font_size", Palette.SIZE_CAPTION)
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud.add_child(_bar)
-	# skill bar (hotbar) + hover tooltip
+	# skill bar (hotbar) + hover tooltip — P5: the HBox keeps every slot behavior; it rides in a
+	# PANEL-tier chassis, and the chassis root is what the "hotbar" module positions/scales
 	_hotbar = HBoxContainer.new()
 	_hotbar.add_theme_constant_override("separation", 6)
-	_hud.add_child(_hotbar)
+	var hbf: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"body_alpha": 0.72})
+	_hotbar_frame = hbf["root"]
+	_hotbar_frame.mouse_filter = Control.MOUSE_FILTER_STOP   # the bar region shields gameplay clicks
+	(hbf["body"] as MarginContainer).add_child(_hotbar)
+	_hud.add_child(_hotbar_frame)
 	_tooltip = PanelContainer.new()
 	_tooltip.visible = false
 	_tooltip.z_index = 4096                       # always draw on top of panels (it's a sibling under _hud)
@@ -2722,8 +2728,8 @@ func _build_hud() -> void:
 		"defaults": {"anchor": "top_left", "ox": 12.0, "oy": 10.0}, "ref_size": Vector2(284, 130),
 		"variants": ["standard", "compact", "bars"], "on_variant": _build_vitals_content,
 		"preview": _player_frame_preview})
-	HudLayout.register("hotbar", _hotbar, {"label": "Hotbar",
-		"defaults": {"anchor": "bottom_center", "oy": -26.0}, "ref_size": Vector2(522, 60)})
+	HudLayout.register("hotbar", _hotbar_frame, {"label": "Hotbar",
+		"defaults": {"anchor": "bottom_center", "oy": -18.0}, "ref_size": Vector2(550, 88)})
 
 # configurable-HUD P3: enter/exit HUD edit mode (F2, or Settings online). Exit saves; the
 # overlay's Cancel restores the pre-edit snapshot.
@@ -3453,7 +3459,7 @@ func _build_hotbar(class_id: String) -> void:
 		var bsb := StyleBoxFlat.new()
 		bsb.bg_color = _slot_color(ab)
 		bsb.set_border_width_all(1)
-		bsb.border_color = Color(Palette.ACCENT, 0.8) if ab.get("ult", false) else Palette.BORDER
+		bsb.border_color = Color(Palette.ACCENT, 0.8) if ab.get("ult", false) else Color(Palette.SB_CYAN, 0.4)
 		bsb.set_corner_radius_all(7)
 		bg.add_theme_stylebox_override("panel", bsb)
 		slot.add_child(bg)
@@ -3467,7 +3473,9 @@ func _build_hotbar(class_id: String) -> void:
 		cap.position = Vector2(3, 3)
 		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var csb := StyleBoxFlat.new()
-		csb.bg_color = Color(0, 0, 0, 0.55)
+		csb.bg_color = Color(Palette.SB_INK, 0.85)
+		csb.set_border_width_all(1)
+		csb.border_color = Color(Palette.SB_CYAN, 0.3)
 		csb.set_corner_radius_all(3)
 		csb.content_margin_left = 4.0
 		csb.content_margin_right = 4.0
@@ -3475,7 +3483,7 @@ func _build_hotbar(class_id: String) -> void:
 		var kl := Label.new()                    # keybind
 		kl.text = str(i + 1)
 		kl.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
-		kl.add_theme_color_override("font_color", Palette.ACCENT2)
+		kl.add_theme_color_override("font_color", Palette.SB_CYAN)
 		cap.add_child(kl)
 		slot.add_child(cap)
 		var nl := Label.new()                    # ability name (small, wrapped)
@@ -3497,6 +3505,13 @@ func _build_hotbar(class_id: String) -> void:
 		slot.add_child(cs)
 		slot.mouse_entered.connect(_on_slot_hover.bind(i))
 		slot.mouse_exited.connect(_on_slot_unhover)
+		var ready := ColorRect.new()             # P5: lime ready tick along the slot's bottom edge
+		ready.color = Color(Palette.SB_LIME, 0.75)
+		ready.position = Vector2(4, 56)
+		ready.size = Vector2(52, 2)
+		ready.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ready.visible = false
+		slot.add_child(ready)
 		var lock := ColorRect.new()              # gameplay-length P2: covers a not-yet-unlocked ability
 		lock.color = Color(0.02, 0.03, 0.05, 0.82)
 		lock.position = Vector2(1, 1)
@@ -3513,7 +3528,8 @@ func _build_hotbar(class_id: String) -> void:
 		lock.add_child(ll)
 		slot.add_child(lock)
 		_hotbar.add_child(slot)
-		_slots.append({"root": slot, "cd": cd, "cs": cs, "sb": bsb, "press": 0.0, "lock": lock, "key": str(ab["key"])})
+		_slots.append({"root": slot, "cd": cd, "cs": cs, "sb": bsb, "press": 0.0, "lock": lock,
+			"ready": ready, "key": str(ab["key"])})
 
 func _slot_color(ab: Dictionary) -> Color:
 	if ab.get("ult", false): return Color(0.36, 0.30, 0.10)       # ultimate = gold-ish
@@ -3534,6 +3550,7 @@ func _update_hotbar(pf: Dictionary) -> void:
 		if locked:
 			(_slots[i]["cd"] as ColorRect).size = Vector2(58.0, 0.0)   # no cooldown sweep under the lock
 			(_slots[i]["cs"] as Label).text = ""
+			(_slots[i]["ready"] as ColorRect).visible = false
 			continue
 		var total: float = float(ab.get("cd", 0.0))
 		var rem: float = float(pf.get("cds", {}).get(ab["key"], 0.0))
@@ -3556,6 +3573,7 @@ func _update_hotbar(pf: Dictionary) -> void:
 		var frac: float = clampf(rem / total, 0.0, 1.0) if total > 0.0 else 0.0
 		_slots[i]["cd"].size = Vector2(58.0, frac * 58.0)
 		_slots[i]["cs"].text = ("%d" % int(ceil(rem))) if rem > 0.05 else ""
+		(_slots[i]["ready"] as ColorRect).visible = rem <= 0.05
 		var press: float = float(_slots[i].get("press", 0.0))
 		if press > 0.0:                                 # tactile press: depress + brighten, settling fast
 			press = maxf(0.0, press - dt * 6.0)
