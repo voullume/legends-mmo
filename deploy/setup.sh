@@ -55,6 +55,12 @@ case "${SUPABASE_SERVICE_KEY:-}" in
 esac
 
 echo "==> [3/6] Image — pull the CI-built image (fast, no on-box build); build locally only as a fallback"
+# Reclaim disk BEFORE pulling/building: every redeploy leaves the previous CI-tagged (:sha) image
+# behind, and on a 24G box ~10 of them fill the disk, after which BOTH the pull and the on-box build
+# fail with "no space left on device". Dangling images + build cache are always safe to drop; the
+# running container's image is protected by `image prune -a`, so this never removes the live server.
+docker image prune -af >/dev/null 2>&1 || true
+docker builder prune -f  >/dev/null 2>&1 || true
 if docker pull "$IMAGE_REF" >/dev/null 2>&1; then
   IMAGE="$IMAGE_REF"
   echo "    using prebuilt $IMAGE_REF"
