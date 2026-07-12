@@ -252,7 +252,101 @@ extremes 60%/160%) in the session scratchpad. NOT yet verified: live-input feel 
 (no synthetic-input tool on this box) and online-mode pass (quest tracker preview, settings HUD
 section) — both fold into the owner playtest that is already owed for the 2026-07-11 session.
 
-Known deliberate limits for later phases: converted modules keep their ORIGINAL visuals (pattern
-restyle is P4+); party frames still hardcoded at (12,250) so an enlarged player frame can
-overlap them until P7; login screen ignores ui_scale until P11; meter keeps its own drag until
-P9.
+Known deliberate limits for later phases: party frames still hardcoded at (12,250) so an
+enlarged player frame can overlap them until P7; login screen ignores ui_scale until P11; meter
+keeps its own drag until P9.
+
+## STATUS — P4 SHIPPED (commit c69e86c, same session)
+
+Player frame + resources wear the pattern: `HudFrame.fitted()` (content-auto-sized frame),
+PANEL chrome + class-emblem chip + name ellipsis on the vitals, UTILITY strip w/ gold stripe on
+the tray, **variants** standard/compact/bars via new HudLayout variant plumbing (on_variant
+rebuild hook, sanitize-against-list, profile seeds: minimal=bars, compact/exploration=compact)
++ an editor variant picker. `_vit_status` exists in every variant (never-hideable messaging).
+Review pass (both findings empirically verified + fixed): fitted frames had stopped shielding
+gameplay clicks → STOP restored on both roots; test harness left lambdas in HudLayout statics →
+teardown SIGABRT on green runs → registry reset before quit. 46 checks, exit 0. Screenshot
+evidence: all three variants incl. bars@150%. Notable: the owner's own F2 layout (saved by a
+real play session) restored correctly across sessions during verification — persistence works
+in the wild.
+
+## STATUS — P5 SHIPPED (commit 9f69f3a, same session)
+
+Hotbar chassis + slot chrome: the bar rides in a PANEL-tier fitted chassis (module now wraps
+the chassis root — existing saved layouts re-apply transparently, verified against the owner's
+real layout), STOP shielding on the bar region, cyan slot borders (ult keeps gold), ink keycap
+chips with cyan keys, lime ready tick on each slot's bottom edge (hidden while locked/cooling;
+the wipe + seconds remain the primary indicators). All slot behavior untouched. fitted() now
+sets root.size for non-container parents. Two-row/compact content variants deliberately
+skipped — module scale covers the need (spec allowed "optionally").
+
+## STATUS — P6 SHIPPED (commit 85104a9, same session) + owner playtest round 1
+
+Owner playtested P0–P5 ("mostly working"): two UX misses found + fixed — the anchor dropdown
+now SNAPS the module to the picked corner/edge/center (`HudLayout.snap_to_anchor`, 12px inset),
+and "Fit Screen" became "Rescue Off-Screen" with status feedback. P6: quest tracker rides a
+PANEL chassis (display-font QUESTS title + body-font count) with standard/compact/collapsed
+variants, registered EAGERLY at build (edit mode can place it pre-quests — lazy registration
+left it unplaceable in fresh sessions); chat (log+input) is one module — UTILITY frame fades
+with the log, variants standard/compact/wide/collapsed cover the spec's width/height/collapse
+options, input keeps body font + exact focus flow, scale clamped 0.7–1.4. `--hudedit` works
+online. Verified: 46 tests exit 0, online pre-connect edit-mode screenshots (chat preview,
+collapsed tracker chip, saved-variant round-trip).
+
+## STATUS — P7 SHIPPED (ce9b4ad) + P6/P7 review fixes (be420aa)
+
+P7: 2D target (red rail) + focus (green rail) unit-frame modules fed by the same authoritative
+`_focus_id`/`_friend_id` the 3D rings use — Tab/Ctrl+Tab/Esc/death rules untouched; change-gated
+text, shared HP ramp, edit previews, defaults flank the zone banner. Party frames became ONE
+group module (PANEL chassis + PARTY title at the old (12,250); member rows restyled navy/cyan;
+click-to-focus + Leave untouched; sample rows in edit preview; eager registration). Boss target
+= the target frame's tier chip (world scoreboard plate stays the richer source).
+Consolidated adversarial review (2 finders; verifiers died on session limits → findings
+self-verified against code) — all six fixed in be420aa: mob identity (mobs ship mobLevel/
+mobTier, never name/level → frame was blank for the primary target type), unit-frame STOP
+starving camera input, chat variants unable to shrink (size-before-min clamp + read-back pin),
+Enter-on-hidden-chat freezing movement invisibly, one-frame stale focus row, _draw_utility
+ignoring body_alpha.
+
+## STATUS — P8 SHIPPED (commit 8f64414, same session)
+
+Hero event banners: ONE queued hero-frame module (in/hold/out; reduce_fx steady-then-cut;
+disconnect-suppressed; movable/scalable/hideable — celebrations only, ult telegraph +
+disconnect overlay stay un-hideable) replaced the P4 zone card + level flash. Wired states:
+zone arrival (+open-pvp sub), level-up, respawn, Circuit Clear, Drill Complete. The 7
+proximity hints collapsed into ONE interact-prompt module (keycap chip + verb/target,
+change-gated offer/clear per source; all proximity/keybind/auto-close logic untouched;
+locker cost dynamic). `--bannertest` dev flag (suppression bypass) for screenshots — note the
+banner driver must run pre-snapshot (it sits ABOVE `_process`'s `_state.is_empty()` return).
+9 modules now configurable. Verified: banner screenshot over the live world, edit-mode shot
+with the prompt preview, 46 tests exit 0, boots clean.
+
+## STATUS — P9 SHIPPED (same session)
+
+- **Meter**: ad-hoc header drag + auto-place REMOVED — the meter is a module now (moves/scales
+  in F2, position finally persists; 4 Hz timer + fixed row pool untouched; edit preview opens
+  it). Works in the sandbox too (registered in Client._build_hud).
+- **Builder panel**: `_lb_lbl` left `_pin_topright` for a lime PANEL chassis with a BUILDER
+  badge (autowrapped status text, module "builder_panel", eager-registered via
+  `_lb_set_on(false)` at _enter_mode, edit preview shows sample status).
+- **Bottom nav**: NEW module — 10 buttons for the REAL panels with their REAL keybinds
+  (Inventory I … Settings O), selected-state recolor (change-gated per frame), hidden
+  pre-snapshot, hideable for keyboard-only players. Reuses the flat _meter_btn chrome.
+- **Gotcha (twice-learned)**: modules hidden at build never lay out (size 0) — ANY module that
+  starts hidden needs an edit-preview that shows it, or its editor rect collapses pre-trigger.
+
+### Minimap feasibility audit (P9 deliverable — implementation deferred)
+
+FEASIBLE, pure client, zero protocol change. Data already client-side: `_state.fighters`
+(interest-filtered ~30 Hz — drawing exactly this reveals nothing beyond nameplates, satisfying
+the no-hidden-info rule BY CONSTRUCTION), `_state.portals`, zone pads (META), rectangular map
+bounds (same source the F3 coords overlay uses). Design: one "minimap" module, ~180px custom
+`_draw()` Control — bounds rect → schematic box; self = oriented arrow; fighters = dots
+(hostile red / friendly class-color); portals = diamonds; pads = color-coded squares;
+north-up. Redraw on a 10 Hz timer (bounded ≤ ~40 dots). Est. ~150 lines in NetClient +
+registration. Recommended slot: its own small session (needs owner eyeball on live camps).
+
+12 modules configurable: player_frame, hotbar, quest_tracker, chat, target_frame, focus_frame,
+party_frames, event_banner, interact_prompt, meter, builder_panel, bottom_nav.
+**NEXT = P10 (modal panel styling pass: pattern styleboxes for Widgets windows, global-scale
+sanity, consistent headers) → P11 settings consolidation → P12 branding/licensing gate.**

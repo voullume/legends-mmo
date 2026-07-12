@@ -224,7 +224,7 @@ var _meter_title: Label = null
 var _meter_mode := 0
 var _meter_party_only := false             # sandbox default: whole zone (the bots ARE the encounter);
 var _meter_scope_btn: Button = null        # NetClient flips it to party-only (§4a default)
-var _meter_dragged := false                # once the player drags it, stop auto-placing on open
+var _meter_prev_vis := false               # HUD-edit preview bookkeeping (meter usually hidden)
 var _enc_start := 0.0
 var _enc_last := -1.0e9                    # last tracked-event time; an event ≥GAP later opens a new encounter
 
@@ -2730,6 +2730,9 @@ func _build_hud() -> void:
 		"preview": _player_frame_preview})
 	HudLayout.register("hotbar", _hotbar_frame, {"label": "Hotbar",
 		"defaults": {"anchor": "bottom_center", "oy": -18.0}, "ref_size": Vector2(550, 88)})
+	HudLayout.register("meter", _meter_panel, {"label": "DPS Meter",
+		"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 340.0}, "ref_size": Vector2(310, 120),
+		"min_scale": 0.7, "max_scale": 1.4, "preview": _meter_module_preview})
 
 # configurable-HUD P3: enter/exit HUD edit mode (F2, or Settings online). Exit saves; the
 # overlay's Cancel restores the pre-edit snapshot.
@@ -3208,13 +3211,8 @@ func _build_meter() -> void:
 		_enc_last = -1.0e9
 		_render_meter()))
 	head.add_child(_meter_btn("✕", func() -> void: _toggle_meter()))
-	var drag := {"on": false}                               # drag the header to move the panel
-	head.gui_input.connect(func(ev) -> void:
-		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
-			drag["on"] = ev.pressed
-		elif ev is InputEventMouseMotion and drag["on"]:
-			_meter_panel.position += (ev as InputEventMouseMotion).relative
-			_meter_dragged = true)
+	# (P9: the old ad-hoc header drag is gone — the meter moves/scales in F2 edit mode like every
+	# other module, and its position finally PERSISTS instead of resetting every session)
 	var rows := VBoxContainer.new()
 	rows.add_theme_constant_override("separation", 2)
 	vb.add_child(rows)
@@ -3283,11 +3281,18 @@ func _toggle_meter() -> void:
 		return
 	_meter_panel.visible = not _meter_panel.visible
 	if _meter_panel.visible:
-		_render_meter()                           # fill rows/title FIRST so the placement sees the real width
-		if not _meter_dragged:
-			_meter_panel.reset_size()
-			var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-			_meter_panel.position = Vector2(vp.x - _meter_panel.size.x - 12.0, 340.0)
+		_render_meter()                           # fill rows/title immediately (placement = module system)
+
+# HUD-edit preview: the meter is usually closed — show it (empty rows render fine) while editing
+func _meter_module_preview(on: bool) -> void:
+	if _meter_panel == null:
+		return
+	if on:
+		_meter_prev_vis = _meter_panel.visible
+		_meter_panel.visible = true
+		_render_meter()
+	else:
+		_meter_panel.visible = _meter_prev_vis
 
 func _meter_now() -> float:
 	return Time.get_ticks_msec() / 1000.0

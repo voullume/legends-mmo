@@ -139,6 +139,7 @@ var _build_help_panel: Panel = null # the onboarding "how to build" popup (auto 
 var _build_help_hide := false       # persisted pref: skip the auto-popup on entry (settings.cfg [build]/hide_help)
 var _build_help_hint: Label = null  # the always-visible "press [H] for build help" reminder in the locker
 var _lb_lbl: Label = null           # the editor HUD line
+var _lb_root: Control = null        # P9: the builder panel's chassis (the module node)
 var _lb_ghost: Node3D = null        # translucent preview of the to-place / being-moved prop at the cursor
 var _lb_ghost_key := ""             # model+"@"+h of the current ghost (rebuild only when it changes)
 var _forge_root: Node3D = null   # the 3D forge pad visual (P4)
@@ -244,6 +245,8 @@ func _enter_mode() -> void:
 	_build_event_banner()
 	_build_unit_frames()                          # P7: hostile target + friendly focus modules
 	_build_interact_prompt()                      # P8: the ONE proximity prompt module (7 hints unified)
+	_build_bottom_nav()                           # P9: clickable panel shortcuts (real keybinds only)
+	_lb_set_on(false)                             # eager: registers the builder-panel module pre-F4
 	_update_quest_tracker()                       # eager: registers the tracker module (hidden while
 	                                              # questless) so edit mode can place it pre-quests
 	_sync_party_panel()                           # eager: registers the party group module (hidden solo)
@@ -3869,18 +3872,30 @@ func _lb_set_on(on: bool) -> void:
 		_lb_del_ghost.queue_free()
 	_lb_del_ghost = null
 	_lb_free_del_menu()
-	if _lb_lbl == null and _hud != null:
+	if _lb_root == null and _hud != null:
+		# P9: the builder status line rides a PANEL chassis with a BUILDER badge — a configurable
+		# module (position/scale/opacity) instead of the old _pin_topright dev label
+		var bfd: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"header": true, "accent": Palette.SB_LIME, "body_alpha": 0.85})
+		_lb_root = bfd["root"]
+		_lb_root.visible = false
+		_hud.add_child(_lb_root)
+		var bvb := VBoxContainer.new()
+		bvb.add_theme_constant_override("separation", 3)
+		(bfd["body"] as MarginContainer).add_child(bvb)
+		var badge := HudFonts.display_label("Builder", 12, Palette.SB_LIME, 0.2)
+		badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		bvb.add_child(badge)
 		_lb_lbl = Label.new()
-		_lb_lbl.add_theme_font_size_override("font_size", 14)
-		_lb_lbl.add_theme_color_override("font_color", Color(0.7, 0.95, 0.75))
-		_lb_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-		_lb_lbl.add_theme_constant_override("outline_size", 4)
-		_pin_topright(_lb_lbl, 44.0)
-		_lb_lbl.z_index = 4096
-		_lb_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_hud.add_child(_lb_lbl)
-	if _lb_lbl != null:
-		_lb_lbl.visible = on
+		_lb_lbl.custom_minimum_size = Vector2(300, 0)
+		_lb_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_lb_lbl.add_theme_font_size_override("font_size", 13)
+		_lb_lbl.add_theme_color_override("font_color", Color(0.78, 0.95, 0.8))
+		bvb.add_child(_lb_lbl)
+		HudLayout.register("builder_panel", _lb_root, {"label": "Builder Panel",
+			"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 44.0},
+			"ref_size": Vector2(330, 84), "preview": _lb_panel_preview})
+	if _lb_root != null:
+		_lb_root.visible = on
 	if not on:
 		if is_instance_valid(_lb_ghost):
 			_lb_ghost.queue_free()
@@ -4968,6 +4983,19 @@ func _party_frames_preview(on: bool) -> void:
 	_party_prev = on
 	_sync_party_panel()
 
+# HUD-edit preview: builder panel with sample status (it only shows for real while _lb_on)
+func _lb_panel_preview(on: bool) -> void:
+	if _lb_root == null:
+		return
+	if on:
+		_lb_root.visible = true
+		if str(_lb_lbl.text) == "":
+			_lb_lbl.text = "▸ locker_bench  ·  yaw 45°  ·  size 1.0\nLMB place · G grab · X remove · F4 exit"
+	else:
+		_lb_root.visible = _lb_on
+		if not _lb_on:
+			_lb_lbl.text = ""
+
 func _select_friend(fid: String) -> void:
 	_friend_id = "" if _friend_id == fid else fid   # click the frame again to clear
 
@@ -5504,6 +5532,62 @@ func _ip_module_preview(on: bool) -> void:
 	_ip_preview = on
 	_ip_render()
 
+# ---- P9 bottom navigation: clickable shortcuts to the REAL panels with their REAL keybinds
+# (no invented entries; NetClient-only, so practice mode never shows unavailable items).
+# One configurable module — hideable for keyboard-only minimal HUDs.
+var _nav_root: Control = null
+var _nav_items := []                         # [{btn, panel: Callable, open}]
+
+func _build_bottom_nav() -> void:
+	var fd: Dictionary = HudFrame.fitted(HudFrame.Tier.UTILITY, {"body_alpha": 0.75})
+	_nav_root = fd["root"]
+	_nav_root.visible = false                    # shown once a snapshot arrives
+	_hud.add_child(_nav_root)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 3)
+	(fd["body"] as MarginContainer).add_child(hb)
+	var entries := [
+		["Inventory", "I", _toggle_inventory, func(): return _inv_panel],
+		["Character", "K", _toggle_charsheet, func(): return _sheet_panel],
+		["Quests", "J", _toggle_questlog, func(): return _quest_panel],
+		["Locker", "U", _toggle_locker, func(): return _locker_panel],
+		["Wardrobe", "G", _toggle_wardrobe, func(): return _wardrobe_panel],
+		["Talents", "T", _toggle_talents, func(): return _talent_panel],
+		["Bench", "B", _toggle_paragon, func(): return _paragon_panel],
+		["Boards", "L", _toggle_leaderboard, func(): return _lb_panel],
+		["Meter", "N", _toggle_meter, func(): return _meter_panel],
+		["Settings", "O", _toggle_settings, func(): return _settings_panel],
+	]
+	for e in entries:
+		var b := _meter_btn("%s %s" % [str(e[0]), str(e[1])], e[2])
+		b.add_theme_color_override("font_color", Palette.TEXT_DIM)
+		b.tooltip_text = "%s  (key %s)" % [str(e[0]), str(e[1])]
+		hb.add_child(b)
+		_nav_items.append({"btn": b, "panel": e[3], "open": false})
+	HudLayout.register("bottom_nav", _nav_root, {"label": "Bottom Nav",
+		"defaults": {"anchor": "bottom_right", "ox": -12.0, "oy": -10.0},
+		"ref_size": Vector2(640, 38), "min_scale": 0.8, "max_scale": 1.3,
+		"preview": _nav_preview})
+
+# HUD-edit preview: the nav is hidden pre-snapshot, and hidden Controls never lay out (size 0)
+# — show it while editing so it has a real rect to place
+func _nav_preview(on: bool) -> void:
+	if _nav_root != null:
+		_nav_root.visible = on or not _state.is_empty()
+
+# selected-state sync (change-gated recolor; cheap visibility reads once per frame)
+func _update_bottom_nav() -> void:
+	if _nav_root == null:
+		return
+	_nav_root.visible = true
+	for it in _nav_items:
+		var p = (it["panel"] as Callable).call()
+		var open: bool = p != null and (p as Control).visible
+		if bool(it["open"]) != open:
+			it["open"] = open
+			(it["btn"] as Button).add_theme_color_override("font_color",
+				Palette.ACCENT if open else Palette.TEXT_DIM)
+
 func _process(delta: float) -> void:
 	if supa != null and net != null and _connected:
 		_reauth_t += delta
@@ -5520,6 +5604,7 @@ func _process(delta: float) -> void:
 	_update_focus()
 	_update_party()          # validates _friend_id BEFORE the frames read it (no one-frame stale row)
 	_update_unit_frames()
+	_update_bottom_nav()
 	_render_shop_pad()
 	_update_shop_proximity()
 	_render_build_shop_pad()
