@@ -261,6 +261,10 @@ func _enter_mode() -> void:
 	var oi := ua.find("--open")                   # dev-only: open a named panel after the first snapshot
 	if oi >= 0 and oi + 1 < ua.size():
 		_dev_open = str(ua[oi + 1])
+	var oni := ua.find("--opennow")               # dev-only: open a named panel IMMEDIATELY (pre-connect
+	if oni >= 0 and oni + 1 < ua.size():          # window-chrome screenshots — panels exist at build)
+		_dev_open = str(ua[oni + 1])
+		_dev_open_panel()
 	if "--juicetest" in ua:                       # dev-only: fire demo P4 juice once connected (for --shot)
 		_dev_juice = true
 	print("[netclient] ready — awaiting server fighter assignment")
@@ -5837,6 +5841,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				return
 			elif _vendor_panel != null and _vendor_panel.visible:
 				_vendor_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
+			elif _build_shop_panel != null and _build_shop_panel.visible:
+				_build_shop_panel.visible = false    # P10: was the ONE window missing from this cascade
 				get_viewport().set_input_as_handled()
 				return
 			elif _camp_panel != null and _camp_panel.visible:

@@ -26,10 +26,11 @@ static func _build() -> Theme:
 	var t := Theme.new()
 	t.default_font_size = Palette.SIZE_BODY
 
-	# panels — the pop-up chrome (PanelContainer) + bare Panel (popups/frames)
-	var panel := _flat(Palette.BG_PANEL, Palette.BORDER, 1, 8, 4)
+	# panels — the pop-up chrome (PanelContainer) + bare Panel (popups/frames). HUD-config P10:
+	# the windows join the pattern language — navy body, cyan-tinted rail, crisper corners.
+	var panel := _flat(Palette.BG_PANEL, Color(Palette.SB_CYAN, 0.32), 1, 6, 4)
 	t.set_stylebox("panel", "PanelContainer", panel)
-	t.set_stylebox("panel", "Panel", _flat(Palette.BG_PANEL, Palette.BORDER, 1, 6, 4))
+	t.set_stylebox("panel", "Panel", _flat(Palette.BG_PANEL, Color(Palette.SB_CYAN, 0.28), 1, 5, 4))
 
 	# buttons — rest / hover / pressed / disabled states (the "free juice" every panel inherits)
 	var b_norm := _flat(Palette.BG_INSET, Palette.BORDER, 1, 6, 6)
@@ -100,12 +101,12 @@ static func _build() -> Theme:
 	t.set_color("font_color", "PopupMenu", Palette.TEXT)
 	t.set_color("font_hover_color", "PopupMenu", Palette.TEXT_BRIGHT)
 
-	# separators
+	# separators — P10: the rule under every window title reads as a subtle cyan rail
 	var sep := StyleBoxLine.new()
-	sep.color = Color(Palette.BORDER, 0.55)
+	sep.color = Color(Palette.SB_CYAN, 0.30)
 	t.set_stylebox("separator", "HSeparator", sep)
 	var vsep := StyleBoxLine.new()
-	vsep.color = Color(Palette.BORDER, 0.55)
+	vsep.color = Color(Palette.SB_CYAN, 0.30)
 	vsep.vertical = true
 	t.set_stylebox("separator", "VSeparator", vsep)
 
