@@ -62,6 +62,13 @@ var _party := []             # party roster from the snapshot (live HP)
 var _party_panel: VBoxContainer = null
 var _party_frames := []      # [{root, fid, fill, name}]
 var _leave_btn: Button = null
+var _party_root: Control = null   # P7: the party group's PANEL chassis (one module, not per-member)
+var _party_prev := false          # HUD-edit preview: sample member rows while solo
+var _party_samples := []          # the temporary preview row nodes
+var _tf := {}                     # P7 hostile target frame {root, name, sub, hp, hpt, cache}
+var _ff := {}                     # P7 friendly focus frame (same shape)
+var _tf_preview := false
+var _ff_preview := false
 var _invite_popup: PanelContainer = null      # "Invite <name>?" after clicking a player
 var _invite_prompt: PanelContainer = null     # an incoming invite (accept/decline)
 var _invite_from_fid := ""
@@ -242,8 +249,10 @@ func _enter_mode() -> void:
 	_build_locker()
 	_build_disconnect_overlay()
 	_build_juice_online()
+	_build_unit_frames()                          # P7: hostile target + friendly focus modules
 	_update_quest_tracker()                       # eager: registers the tracker module (hidden while
 	                                              # questless) so edit mode can place it pre-quests
+	_sync_party_panel()                           # eager: registers the party group module (hidden solo)
 	var ua := OS.get_cmdline_user_args()
 	if "--meter" in ua:                           # dev-only: open the §4a meter on boot (pairs with --shot)
 		_toggle_meter()
@@ -4769,6 +4778,115 @@ func _make_target_ring(col: Color) -> Node3D:
 	return m
 
 # ---- parties: HUD frames (live HP, click to pick a heal/buff target), friend ring, invites ----
+# ---- P7 unit frames: 2D target/focus panels fed by the SAME authoritative ids the 3D rings
+# use (_focus_id / _friend_id). Pure display — Tab/Ctrl+Tab/Esc/death rules are untouched.
+func _build_unit_frames() -> void:
+	_tf = _make_unit_frame(Palette.DANGER, "target_frame", "Target",
+		{"anchor": "top_center", "ox": 150.0, "oy": 56.0}, _target_frame_preview)
+	_ff = _make_unit_frame(Palette.HEAL, "focus_frame", "Focus (Ally)",
+		{"anchor": "top_center", "ox": -150.0, "oy": 56.0}, _focus_frame_preview)
+
+func _make_unit_frame(accent: Color, id: String, label: String, defs: Dictionary, prev: Callable) -> Dictionary:
+	var fd: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"header": true, "accent": accent, "body_alpha": 0.8})
+	var root: Control = fd["root"]
+	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.visible = false
+	_hud.add_child(root)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 3)
+	(fd["body"] as MarginContainer).add_child(vb)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.custom_minimum_size = Vector2(220, 0)   # the name ellipsizes inside this budget
+	vb.add_child(head)
+	var nm := Label.new()
+	nm.add_theme_font_size_override("font_size", 15)
+	nm.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	head.add_child(nm)
+	var sub := Label.new()
+	sub.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	sub.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	sub.size_flags_vertical = Control.SIZE_SHRINK_END
+	head.add_child(sub)
+	var hp: Dictionary = Widgets.bar(220, 16, Palette.HP)
+	var hpt := Label.new()
+	hpt.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hpt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hpt.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	hpt.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	hpt.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	hpt.add_theme_constant_override("outline_size", 4)
+	(hp["root"] as Control).add_child(hpt)
+	vb.add_child(hp["root"])
+	HudLayout.register(id, root, {"label": label, "defaults": defs,
+		"ref_size": Vector2(248, 74), "preview": prev})
+	return {"root": root, "name": nm, "sub": sub, "hp": hp, "hpt": hpt, "cache": {}}
+
+func _update_unit_frames() -> void:
+	_drive_unit_frame(_tf, _focus_id, true, _tf_preview)
+	_drive_unit_frame(_ff, _friend_id, false, _ff_preview)
+
+func _drive_unit_frame(f: Dictionary, fid: String, hostile: bool, preview: bool) -> void:
+	if f.is_empty():
+		return
+	var root: Control = f["root"]
+	var pf = _find_fighter(fid) if fid != "" else null
+	if pf == null or not bool(pf.get("alive", true)):
+		if preview:                                  # HUD-edit: sample values keep it placeable
+			root.visible = true
+			_set_unit_frame(f, "Training Dummy" if hostile else "Blitz-7",
+				"Lv 5 · DUMMY" if hostile else "Lv 12 · Slugger",
+				WorldUI.HOSTILE if hostile else Palette.HEAL,
+				1.0 if hostile else 0.72, 825.0 if hostile else 610.0, 825.0)
+		else:
+			root.visible = false
+		return
+	root.visible = true
+	var lvl := int(pf.get("level", 0))
+	var sub := ("Lv %d" % lvl) if lvl > 0 else ""
+	var ncol: Color = Palette.TEXT_BRIGHT
+	if hostile:
+		ncol = WorldUI.HOSTILE
+		var tier := str(pf.get("mobTier", ""))
+		if tier != "":
+			sub += " · " + tier.to_upper()
+	else:
+		var cdef: Dictionary = GameData.CLASSES.get(str(pf.get("classId", "")), {})
+		ncol = WorldUI.friendly_plate(Color.from_string(str(cdef.get("color", "")), Palette.TEXT_BRIGHT))
+		if not str(pf.get("classId", "")).is_empty():
+			sub += " · " + str(pf.get("classId", "")).capitalize()
+	var mhp: float = maxf(1.0, float(pf.get("maxHP", 1.0)))
+	_set_unit_frame(f, str(pf.get("name", "")), sub, ncol,
+		clampf(float(pf.get("hp", 0.0)) / mhp, 0.0, 1.0), float(pf.get("hp", 0.0)), mhp)
+
+func _set_unit_frame(f: Dictionary, name: String, sub: String, ncol: Color, frac: float, hp: float, mhp: float) -> void:
+	var c: Dictionary = f["cache"]
+	if str(c.get("n", "")) != name:
+		c["n"] = name
+		(f["name"] as Label).text = name
+	if c.get("nc") != ncol:
+		c["nc"] = ncol
+		(f["name"] as Label).add_theme_color_override("font_color", ncol)
+	if str(c.get("s", "")) != sub:
+		c["s"] = sub
+		(f["sub"] as Label).text = sub
+	Widgets.set_bar(f["hp"], frac)
+	((f["hp"] as Dictionary)["fill"] as ColorRect).color = WorldUI.hp_color(frac)
+	var hptxt := "%d / %d" % [int(round(hp)), int(round(mhp))]
+	if str(c.get("h", "")) != hptxt:
+		c["h"] = hptxt
+		(f["hpt"] as Label).text = hptxt
+
+func _target_frame_preview(on: bool) -> void:
+	_tf_preview = on
+	_drive_unit_frame(_tf, _focus_id, true, on)
+
+func _focus_frame_preview(on: bool) -> void:
+	_ff_preview = on
+	_drive_unit_frame(_ff, _friend_id, false, on)
+
 func _update_party() -> void:
 	if _friend_id != "" and not _in_party(_friend_id) and _friend_id != _player_id:
 		_friend_id = ""
@@ -4790,10 +4908,18 @@ func _in_party(fid: String) -> bool:
 
 func _sync_party_panel() -> void:
 	if _party_panel == null:
+		# P7: the party group is ONE module (never per-member) riding a PANEL chassis; default
+		# spot matches the old hardcoded (12,250) below the vitals stack
+		var pfd: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"header": true, "body_alpha": 0.8})
+		_party_root = pfd["root"]
+		_party_root.visible = false
+		_hud.add_child(_party_root)
 		_party_panel = VBoxContainer.new()
 		_party_panel.add_theme_constant_override("separation", 4)
-		_party_panel.position = Vector2(12.0, 250.0)   # below the P1 vitals frame + currency tray
-		_hud.add_child(_party_panel)
+		(pfd["body"] as MarginContainer).add_child(_party_panel)
+		var pt := HudFonts.display_label("Party", 12, Palette.SB_CYAN, 0.18)
+		pt.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_party_panel.add_child(pt)
 		_leave_btn = Button.new()
 		_leave_btn.text = "Leave Party"
 		_leave_btn.pressed.connect(func() -> void:
@@ -4801,6 +4927,9 @@ func _sync_party_panel() -> void:
 				net.party_leave.rpc_id(1)
 			_friend_id = "")
 		_party_panel.add_child(_leave_btn)
+		HudLayout.register("party_frames", _party_root, {"label": "Party",
+			"defaults": {"anchor": "top_left", "ox": 12.0, "oy": 250.0},
+			"ref_size": Vector2(184, 120), "preview": _party_frames_preview})
 	var fids := []
 	for m in _party:
 		fids.append(str(m["fid"]))
@@ -4815,6 +4944,20 @@ func _sync_party_panel() -> void:
 			_party_frames.append(_make_party_frame(fid))
 		_party_panel.move_child(_leave_btn, _party_panel.get_child_count() - 1)   # keep it at the bottom
 	_leave_btn.visible = _party.size() > 0           # only while actually in a party
+	# HUD-edit preview: sample rows while solo, so the group is placeable before any invite
+	if _party_prev and _party.is_empty() and _party_samples.is_empty():
+		for sample in [["Blitz-7", 0.74], ["Coach-AI", 1.0]]:
+			var sp := _make_party_frame("")          # returns the row; only _sync tracks live frames
+			sp["name"].text = "%s  610/825" % str(sample[0])
+			sp["fill"].size = Vector2(146.0 * float(sample[1]), 14.0)
+			sp["fill"].color = WorldUI.hp_color(float(sample[1]))
+			_party_samples.append(sp)
+		_party_panel.move_child(_leave_btn, _party_panel.get_child_count() - 1)
+	elif (not _party_prev or not _party.is_empty()) and not _party_samples.is_empty():
+		for sp in _party_samples:
+			(sp["root"] as Control).queue_free()
+		_party_samples.clear()
+	_party_root.visible = _party.size() > 0 or not _party_samples.is_empty()
 	for i in _party_frames.size():
 		var m = _party[i]
 		var fr = _party_frames[i]
@@ -4829,6 +4972,12 @@ func _make_party_frame(fid: String) -> Dictionary:
 	var root := Panel.new()
 	root.custom_minimum_size = Vector2(152.0, 36.0)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	var psb := StyleBoxFlat.new()                    # P7: member rows speak the pattern language
+	psb.bg_color = Color(Palette.SB_NAVY, 0.85)
+	psb.set_border_width_all(1)
+	psb.border_color = Color(Palette.SB_CYAN, 0.35)
+	psb.set_corner_radius_all(4)
+	root.add_theme_stylebox_override("panel", psb)
 	var sel := ColorRect.new()
 	sel.size = Vector2(152.0, 36.0)
 	sel.color = Color(1.0, 0.85, 0.3, 0.22)
@@ -4853,6 +5002,10 @@ func _make_party_frame(fid: String) -> Dictionary:
 			_select_friend(fid))
 	_party_panel.add_child(root)
 	return {"root": root, "fid": fid, "fill": fill, "name": nm, "sel": sel}
+
+func _party_frames_preview(on: bool) -> void:
+	_party_prev = on
+	_sync_party_panel()
 
 func _select_friend(fid: String) -> void:
 	_friend_id = "" if _friend_id == fid else fid   # click the frame again to clear
@@ -5295,6 +5448,7 @@ func _process(delta: float) -> void:
 	_render_world(delta)
 	_update_boss_telegraph()
 	_update_focus()
+	_update_unit_frames()
 	_update_party()
 	_render_shop_pad()
 	_update_shop_proximity()
