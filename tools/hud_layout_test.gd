@@ -188,7 +188,42 @@ func _run() -> void:
 	ok(approx(float(cfg3.get_value("audio", "Master", -1.0)), 0.42, 0.001), "erase_saved keeps [audio]")
 	ok(approx(float(HudLayoutS.layout("hotbar")["scale"]), 1.0, 0.001), "erase_saved resets live layouts")
 
+	# --- variants (P4): callback plumbing, list-sanitizing, persistence round-trip
+	var vcalls := []
+	HudLayoutS.reset_registry()
+	HudLayoutS.cfg_path = TEST_CFG
+	var host5 := Control.new()
+	host5.size = Vector2(1600, 900)
+	root.add_child(host5)
+	var n5 := _make_nodes(host5)
+	HudLayoutS.register("player_frame", n5["a"], {"defaults": {"ox": 12.0, "oy": 10.0},
+		"variants": ["standard", "compact", "bars"],
+		"on_variant": func(v: String) -> void: vcalls.append(v)})
+	ok(vcalls == ["standard"], "on_variant fires once at register with the stored/default variant")
+	HudLayoutS.set_field("player_frame", "variant", "compact")
+	ok(vcalls == ["standard", "compact"], "on_variant fires on change")
+	HudLayoutS.set_field("player_frame", "variant", "compact")
+	ok(vcalls.size() == 2, "no re-fire on the same variant")
+	HudLayoutS.set_field("player_frame", "variant", "nonsense")
+	ok(str(HudLayoutS.layout("player_frame")["variant"]) == "standard", "unknown variant → module default")
+	HudLayoutS.set_field("player_frame", "variant", "bars")
+	HudLayoutS.save()
+	var vcalls2 := []
+	HudLayoutS.reset_registry()
+	HudLayoutS.cfg_path = TEST_CFG
+	var host6 := Control.new()
+	host6.size = Vector2(1600, 900)
+	root.add_child(host6)
+	var n6 := _make_nodes(host6)
+	HudLayoutS.register("player_frame", n6["a"], {"defaults": {"ox": 12.0, "oy": 10.0},
+		"variants": ["standard", "compact", "bars"],
+		"on_variant": func(v: String) -> void: vcalls2.append(v)})
+	ok(vcalls2 == ["bars"], "saved variant applied (once) on re-register, got %s" % [vcalls2])
+
 	print("[hud_layout_test] %d checks, %d failures" % [checks, fails])
 	if FileAccess.file_exists(TEST_CFG):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_CFG))
+	# lambda Callables must not outlive the script in HudLayout's statics — retained captures
+	# corrupt the heap at engine teardown (SIGABRT 134 on an otherwise-green run)
+	HudLayoutS.reset_registry()
 	quit(1 if fails > 0 else 0)

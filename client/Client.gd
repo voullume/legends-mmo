@@ -183,7 +183,11 @@ var _tt_label: RichTextLabel
 
 # --- vitals frame + currency tray + zone banner (UI-overhaul P1) ---
 var _hud_left: VBoxContainer               # top-left stack: vitals panel → currency tray
-var _vitals: PanelContainer
+var _vitals: Control                       # P4: HudFrame.fitted root (PANEL-tier pattern chrome)
+var _vitals_body: MarginContainer          # the frame's content-safe area (variant content lives here)
+var _vit_emblem: Panel = null              # class emblem chip (standard/compact variants)
+var _vit_emblem_sb: StyleBoxFlat = null
+var _vit_emblem_lbl: Label = null
 var _vit_level: Label
 var _vit_name: Label
 var _vit_class: Label
@@ -193,8 +197,9 @@ var _vit_shield: Dictionary
 var _vit_xp: Dictionary
 var _vit_xp_row: HBoxContainer
 var _vit_xp_text: Label
-var _vit_status: Label                     # respawning / save-note / bots line
-var _tray: PanelContainer                  # ◈ credits · scrap · tokens (online only)
+var _vit_status: Label                     # respawning / save-note / bots line (exists in EVERY variant)
+var _tray: Control                         # ◈ credits · scrap · tokens (online only; UTILITY-tier strip)
+var _tray_was_visible := false             # HUD-edit preview bookkeeping
 var _tray_credits: Label
 var _tray_scrap: Label
 var _tray_tokens: Label
@@ -2714,7 +2719,9 @@ func _build_hud() -> void:
 	# player-facing layout (position/scale/opacity/visibility); the wrapped node keeps all game
 	# behavior. More modules migrate in later phases (meter, chat, party, banners…).
 	HudLayout.register("player_frame", _hud_left, {"label": "Player Frame",
-		"defaults": {"anchor": "top_left", "ox": 12.0, "oy": 10.0}, "ref_size": Vector2(284, 130)})
+		"defaults": {"anchor": "top_left", "ox": 12.0, "oy": 10.0}, "ref_size": Vector2(284, 130),
+		"variants": ["standard", "compact", "bars"], "on_variant": _build_vitals_content,
+		"preview": _player_frame_preview})
 	HudLayout.register("hotbar", _hotbar, {"label": "Hotbar",
 		"defaults": {"anchor": "bottom_center", "oy": -26.0}, "ref_size": Vector2(522, 60)})
 
@@ -2935,71 +2942,23 @@ func _build_vitals() -> void:
 	_hud_left.add_theme_constant_override("separation", 6)
 	_hud_left.visible = false                     # shown once a player fighter exists
 	_hud.add_child(_hud_left)
-	_vitals = PanelContainer.new()
-	var sb := StyleBoxFlat.new()                  # always-on HUD chrome: a touch more translucent than pop-ups
-	sb.bg_color = Color(Palette.BG_PANEL, 0.82)
-	sb.set_border_width_all(1)
-	sb.border_color = Palette.BORDER
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(10)
-	_vitals.add_theme_stylebox_override("panel", sb)
+	# P4: the player frame wears the standard HUD pattern (P1 chrome); its inner content is
+	# rebuilt per player-chosen variant (standard / compact / bars) by _build_vitals_content.
+	var fd: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"header": true})
+	_vitals = fd["root"]
+	_vitals_body = fd["body"]
+	_vitals.mouse_filter = Control.MOUSE_FILTER_STOP   # shield gameplay clicks like the old PanelContainer
 	_hud_left.add_child(_vitals)
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 4)
-	_vitals.add_child(vb)
-	var head := HBoxContainer.new()
-	head.add_theme_constant_override("separation", 8)
-	vb.add_child(head)
-	_vit_level = Label.new()
-	_vit_level.add_theme_font_size_override("font_size", 18)
-	_vit_level.add_theme_color_override("font_color", Palette.ACCENT)
-	head.add_child(_vit_level)
-	_vit_name = Label.new()
-	_vit_name.add_theme_font_size_override("font_size", 18)
-	_vit_name.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
-	head.add_child(_vit_name)
-	_vit_class = Label.new()
-	_vit_class.size_flags_vertical = Control.SIZE_SHRINK_END
-	_vit_class.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
-	head.add_child(_vit_class)
-	_vit_hp = Widgets.bar(260, 20, Palette.HP)
-	_vit_hp_text = Label.new()                    # HP numbers centered ON the bar
-	_vit_hp_text.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_vit_hp_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_vit_hp_text.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
-	_vit_hp_text.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
-	_vit_hp_text.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
-	_vit_hp_text.add_theme_constant_override("outline_size", 5)
-	(_vit_hp["root"] as Control).add_child(_vit_hp_text)
-	vb.add_child(_vit_hp["root"])
-	_vit_shield = Widgets.bar(260, 5, Palette.SHIELD)   # absorb strip under the HP bar
-	(_vit_shield["root"] as Control).visible = false
-	vb.add_child(_vit_shield["root"])
-	_vit_xp_row = HBoxContainer.new()
-	_vit_xp_row.add_theme_constant_override("separation", 8)
-	vb.add_child(_vit_xp_row)
-	_vit_xp = Widgets.bar(180, 8, Palette.XP)
-	(_vit_xp["root"] as Control).size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_vit_xp_row.add_child(_vit_xp["root"])
-	_vit_xp_text = Label.new()
-	_vit_xp_text.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
-	_vit_xp_text.add_theme_color_override("font_color", Palette.TEXT_DIM)
-	_vit_xp_row.add_child(_vit_xp_text)
-	_vit_status = Label.new()
-	_vit_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
-	_vit_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
-	vb.add_child(_vit_status)
-	# currency tray (values live online; the sandbox hides it)
-	_tray = PanelContainer.new()
-	var tsb: StyleBoxFlat = sb.duplicate()
-	tsb.content_margin_top = 4.0
-	tsb.content_margin_bottom = 5.0
-	_tray.add_theme_stylebox_override("panel", tsb)
+	_build_vitals_content("standard")
+	# currency tray — a UTILITY-tier strip with the credits-gold semantic stripe (online only)
+	var td: Dictionary = HudFrame.fitted(HudFrame.Tier.UTILITY, {"stripe": true, "accent": Palette.CREDITS})
+	_tray = td["root"]
+	_tray.mouse_filter = Control.MOUSE_FILTER_STOP     # same shielding for the tray strip
 	_tray.visible = false
 	_hud_left.add_child(_tray)
 	var th := HBoxContainer.new()
 	th.add_theme_constant_override("separation", 14)
-	_tray.add_child(th)
+	(td["body"] as MarginContainer).add_child(th)
 	_tray_credits = _tray_label(th, Palette.CREDITS)
 	_tray_scrap = _tray_label(th, Palette.SCRAP)
 	_tray_tokens = _tray_label(th, Palette.TOKENS)
@@ -3018,7 +2977,10 @@ func _build_vitals() -> void:
 	zc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hud.add_child(zc)
 	_zone_banner = PanelContainer.new()
-	var zsb: StyleBoxFlat = sb.duplicate()
+	var zsb := StyleBoxFlat.new()                 # (was a dup of the old vitals chrome; restyles in P8)
+	zsb.bg_color = Color(Palette.BG_PANEL, 0.82)
+	zsb.set_border_width_all(1)
+	zsb.border_color = Palette.BORDER
 	zsb.content_margin_left = 16.0
 	zsb.content_margin_right = 16.0
 	zsb.content_margin_top = 3.0
@@ -3041,8 +3003,120 @@ func _tray_label(parent: HBoxContainer, color: Color) -> Label:
 	parent.add_child(l)
 	return l
 
-# set a label's text only when it changed — vitals update every frame, re-shaping is not free
+# P4: (re)build the player frame's inner content for a layout variant. The bar/label member refs
+# are consumed by _update_vitals every frame, so they're swapped atomically here and the
+# change-gating cache is cleared for the rebuilt keys. _vit_status exists in EVERY variant —
+# respawn/save/bots messaging must never be hideable (accessibility rule). Invoked by the
+# HudLayout "player_frame" module's on_variant hook (editor picker / profiles / saved layout).
+func _build_vitals_content(variant: String) -> void:
+	for c in _vitals_body.get_children():
+		c.queue_free()
+	for k in ["hp", "name", "class", "lvl", "xp", "cls", "status"]:
+		_vit_cache.erase(k)
+	var compact := variant == "compact"
+	var bars := variant == "bars"
+	var bw := 200.0 if (compact or bars) else 260.0
+	var bh := 14.0 if (compact or bars) else 20.0
+	_vit_emblem = null
+	_vit_emblem_sb = null
+	_vit_emblem_lbl = null
+	_vit_level = null
+	_vit_name = null
+	_vit_class = null
+	_vit_xp = {}
+	_vit_xp_row = null
+	_vit_xp_text = null
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 3 if compact else 4)
+	_vitals_body.add_child(vb)
+	if not bars:
+		var head := HBoxContainer.new()
+		head.add_theme_constant_override("separation", 6 if compact else 8)
+		head.custom_minimum_size = Vector2(bw, 0)   # the name ellipsizes inside this budget
+		vb.add_child(head)
+		_vit_emblem = Panel.new()                   # class emblem chip — recolored per class
+		var esz := 16.0 if compact else 20.0
+		_vit_emblem.custom_minimum_size = Vector2(esz, esz)
+		_vit_emblem.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_vit_emblem_sb = StyleBoxFlat.new()
+		_vit_emblem_sb.bg_color = Palette.BG_INSET
+		_vit_emblem_sb.set_corner_radius_all(4)
+		_vit_emblem_sb.set_border_width_all(1)
+		_vit_emblem_sb.border_color = Color(1, 1, 1, 0.25)
+		_vit_emblem.add_theme_stylebox_override("panel", _vit_emblem_sb)
+		_vit_emblem_lbl = Label.new()
+		_vit_emblem_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_vit_emblem_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_vit_emblem_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_vit_emblem_lbl.add_theme_font_size_override("font_size", 11 if compact else 13)
+		_vit_emblem_lbl.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+		_vit_emblem.add_child(_vit_emblem_lbl)
+		head.add_child(_vit_emblem)
+		_vit_level = Label.new()
+		_vit_level.add_theme_font_size_override("font_size", 15 if compact else 18)
+		_vit_level.add_theme_color_override("font_color", Palette.ACCENT)
+		head.add_child(_vit_level)
+		_vit_name = Label.new()
+		_vit_name.add_theme_font_size_override("font_size", 15 if compact else 18)
+		_vit_name.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+		_vit_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_vit_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS   # long names stay in the safe area
+		head.add_child(_vit_name)
+		if not compact:
+			_vit_class = Label.new()
+			_vit_class.size_flags_vertical = Control.SIZE_SHRINK_END
+			_vit_class.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+			head.add_child(_vit_class)
+	_vit_hp = Widgets.bar(bw, bh, Palette.HP)
+	_vit_hp_text = Label.new()                    # HP numbers centered ON the bar
+	_vit_hp_text.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_vit_hp_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_vit_hp_text.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + (0 if (compact or bars) else 1))
+	_vit_hp_text.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+	_vit_hp_text.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_vit_hp_text.add_theme_constant_override("outline_size", 5)
+	(_vit_hp["root"] as Control).add_child(_vit_hp_text)
+	vb.add_child(_vit_hp["root"])
+	_vit_shield = Widgets.bar(bw, 4.0 if (compact or bars) else 5.0, Palette.SHIELD)   # absorb strip
+	(_vit_shield["root"] as Control).visible = false
+	vb.add_child(_vit_shield["root"])
+	if not bars:
+		_vit_xp_row = HBoxContainer.new()
+		_vit_xp_row.add_theme_constant_override("separation", 8)
+		vb.add_child(_vit_xp_row)
+		_vit_xp = Widgets.bar(140.0 if compact else 180.0, 6.0 if compact else 8.0, Palette.XP)
+		(_vit_xp["root"] as Control).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_vit_xp_row.add_child(_vit_xp["root"])
+		if not compact:
+			_vit_xp_text = Label.new()
+			_vit_xp_text.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+			_vit_xp_text.add_theme_color_override("font_color", Palette.TEXT_DIM)
+			_vit_xp_row.add_child(_vit_xp_text)
+	_vit_status = Label.new()
+	_vit_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	_vit_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
+	vb.add_child(_vit_status)
+
+# HUD-edit preview: the currency tray is online-only — surface it (with sample values when
+# blank) so the whole player-frame stack is visible/placeable while editing in the sandbox.
+func _player_frame_preview(on: bool) -> void:
+	if on:
+		_tray_was_visible = _tray.visible
+		_tray.visible = true
+		if str(_tray_credits.text) == "":
+			_tray_credits.text = "◈ 1,240"
+			_tray_scrap.text = "36 scrap"
+			_tray_tokens.text = "12 tokens"
+	else:
+		_tray.visible = _tray_was_visible
+		for k in ["credits", "scrap", "tokens"]:
+			_vit_cache.erase(k)                  # force the online writer to re-set real values
+
+# set a label's text only when it changed — vitals update every frame, re-shaping is not free.
+# Null-tolerant: variant content omits some labels (e.g. no XP text in compact, no name in bars).
 func _vit_set(key: String, label: Label, text: String) -> void:
+	if label == null:
+		return
 	if _vit_cache.get(key) != text:
 		_vit_cache[key] = text
 		label.text = text
@@ -3060,24 +3134,30 @@ func _update_vitals(pf: Dictionary, title: String, c: Dictionary) -> void:
 	if sh > 0.0:
 		Widgets.set_bar(_vit_shield, clampf(sh / mhp, 0.0, 1.0))
 	_vit_set("name", _vit_name, title)
-	if str(_vit_cache.get("cls", "")) != str(pf["classId"]):
+	if str(_vit_cache.get("cls", "")) != str(pf["classId"]):   # class changed: recolor accents once
 		_vit_cache["cls"] = str(pf["classId"])
-		_vit_class.add_theme_color_override("font_color",
-			Color.from_string(str(c.get("color", "")), Palette.TEXT_DIM).lightened(0.15))
+		var ccol := Color.from_string(str(c.get("color", "")), Palette.TEXT_DIM)
+		if _vit_class != null:
+			_vit_class.add_theme_color_override("font_color", ccol.lightened(0.15))
+		if _vit_emblem_sb != null:
+			_vit_emblem_sb.bg_color = Color(ccol.darkened(0.25), 0.9)
+			_vit_emblem_lbl.text = str(pf["classId"]).left(1).to_upper()
 	_vit_set("class", _vit_class, "%s · %s" % [str(c.get("sport", "")), str(c.get("role", ""))])
-	if pf.has("level"):
-		_vit_set("lvl", _vit_level, "Lv %d" % int(pf["level"]))
-		_vit_level.visible = true
-	else:
-		_vit_level.visible = false
-	if pf.has("xp"):
-		_vit_xp_row.visible = true
-		var xp := int(pf.get("xp", 0))
-		var xpn: int = maxi(1, int(pf.get("xpNext", 100)))
-		Widgets.set_bar(_vit_xp, float(xp) / float(xpn))
-		_vit_set("xp", _vit_xp_text, "XP %d / %d" % [xp, xpn])
-	else:
-		_vit_xp_row.visible = false
+	if _vit_level != null:
+		if pf.has("level"):
+			_vit_set("lvl", _vit_level, "Lv %d" % int(pf["level"]))
+			_vit_level.visible = true
+		else:
+			_vit_level.visible = false
+	if _vit_xp_row != null:
+		if pf.has("xp"):
+			_vit_xp_row.visible = true
+			var xp := int(pf.get("xp", 0))
+			var xpn: int = maxi(1, int(pf.get("xpNext", 100)))
+			Widgets.set_bar(_vit_xp, float(xp) / float(xpn))
+			_vit_set("xp", _vit_xp_text, "XP %d / %d" % [xp, xpn])
+		else:
+			_vit_xp_row.visible = false
 
 # ============================================================ DPS/HPS meter (§4a, UI-overhaul P1)
 # Pure client: accumulates the RAW dmg/heal/shield events inside _handle_events (before the

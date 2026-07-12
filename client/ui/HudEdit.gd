@@ -35,6 +35,7 @@ var _op_slider: HSlider = null
 var _vis_check: CheckBox = null
 var _lock_check: CheckBox = null
 var _anchor_opt: OptionButton = null
+var _variant_opt: OptionButton = null
 var _status: Label = null
 
 func _init() -> void:
@@ -386,6 +387,16 @@ func _build_toolbar() -> void:
 			HudLayout.set_position_from_rect(_selected, keep)
 			_mark_dirty())
 	_mod_row.add_child(_anchor_opt)
+	_variant_opt = OptionButton.new()             # layout variant (only for modules that declare them)
+	_variant_opt.focus_mode = Control.FOCUS_NONE
+	_variant_opt.item_selected.connect(func(idx: int) -> void:
+		if _selected == "":
+			return
+		var vl: Array = HudLayout.info(_selected).get("variants", [])
+		if idx >= 0 and idx < vl.size():
+			HudLayout.set_field(_selected, "variant", str(vl[idx]))
+			_mark_dirty())
+	_mod_row.add_child(_variant_opt)
 	_mod_row.add_child(_tb_btn("Reset", func() -> void:
 		if _selected != "":
 			HudLayout.reset_module(_selected)
@@ -427,3 +438,12 @@ func _sync_mod_row() -> void:
 	var aidx: int = HudLayout.ANCHORS.keys().find(str(lay["anchor"]))
 	if aidx >= 0:
 		_anchor_opt.select(aidx)
+	var vl: Array = m.get("variants", [])
+	_variant_opt.visible = not vl.is_empty()
+	if not vl.is_empty():
+		_variant_opt.clear()
+		for vv in vl:
+			_variant_opt.add_item(str(vv).capitalize())
+		var vidx: int = vl.find(str(lay["variant"]))
+		if vidx >= 0:
+			_variant_opt.select(vidx)

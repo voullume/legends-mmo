@@ -33,7 +33,7 @@ const LAYOUT_DEFAULTS := {"anchor": "top_left", "nx": 0.0, "ny": 0.0, "ox": 0.0,
 const PROFILES := {
 	"default": {},
 	"minimal": {
-		"player_frame": {"scale": 0.85, "opacity": 0.85},
+		"player_frame": {"scale": 0.85, "opacity": 0.85, "variant": "bars"},
 		"hotbar": {"scale": 0.9, "opacity": 0.9},
 		"quest_tracker": {"visible": false},
 	},
@@ -43,12 +43,12 @@ const PROFILES := {
 		"quest_tracker": {"scale": 0.8, "opacity": 0.8},
 	},
 	"exploration": {
-		"player_frame": {"scale": 0.9},
+		"player_frame": {"scale": 0.9, "variant": "compact"},
 		"hotbar": {"scale": 0.85},
 		"quest_tracker": {"scale": 1.15},
 	},
 	"compact": {
-		"player_frame": {"scale": 0.75, "ox": 8.0, "oy": 6.0},
+		"player_frame": {"scale": 0.75, "ox": 8.0, "oy": 6.0, "variant": "compact"},
 		"hotbar": {"scale": 0.8, "oy": -64.0},
 		"quest_tracker": {"scale": 0.8, "ox": -8.0, "oy": 120.0},
 	},
@@ -100,6 +100,9 @@ static func register(id: String, node: Control, opts: Dictionary = {}) -> Contro
 		"max_s": float(opts.get("max_scale", SCALE_MAX)),
 		"ref_size": opts.get("ref_size", Vector2(160, 60)),
 		"preview": opts.get("preview", Callable()),
+		"variants": opts.get("variants", []),      # e.g. ["standard","compact","bars"]
+		"on_variant": opts.get("on_variant", Callable()),   # rebuilds module content for a variant
+		"last_variant": "",                        # "" → the stored variant is applied on register
 		"layout": {},
 	}
 	_modules[id] = m
@@ -150,6 +153,12 @@ static func _sync(id: String) -> void:
 	if not is_instance_valid(wrapper) or not is_instance_valid(node):
 		return
 	var lay: Dictionary = m["layout"]
+	var vname := str(lay["variant"])
+	if str(m.get("last_variant", "")) != vname:    # variant changed → let the module rebuild its
+		m["last_variant"] = vname                  # content (size settles via node.resized → re-sync)
+		var vcb: Callable = m.get("on_variant", Callable())
+		if vcb.is_valid():
+			vcb.call(vname)
 	wrapper.size = node.size
 	var s := clampf(float(lay["scale"]), float(m["min_s"]), float(m["max_s"]))
 	wrapper.scale = Vector2(s, s)
@@ -276,7 +285,9 @@ static func _sanitize(raw: Variant, m: Dictionary) -> Dictionary:
 					if ANCHORS.has(str(v)):
 						out[k] = str(v)
 				"variant":
-					out[k] = str(v)
+					var vl: Array = m.get("variants", [])
+					if vl.is_empty() or vl.has(str(v)):   # unknown variant → module default
+						out[k] = str(v)
 				"visible", "locked":
 					if v is bool:            # bool(<String>) is a nonexistent constructor — guard
 						out[k] = v           # typed like the numeric fields so corrupt entries

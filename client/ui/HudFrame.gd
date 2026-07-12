@@ -52,6 +52,22 @@ static func boxed(p_tier: int, opts: Dictionary = {}) -> Dictionary:
 	var f := make(p_tier, opts)
 	return {"frame": f, "body": f.attach_body()}
 
+# A frame that auto-sizes to its content and participates in container layout: returns
+# {root, frame, body}. Add content under `body`; put `root` in a VBox/HBox — its minimum size
+# tracks content + the tier's safe-area margins (the "frame hugs content" pattern the edit-mode
+# toolbar and the P4 player frame share).
+static func fitted(p_tier: int, opts: Dictionary = {}) -> Dictionary:
+	var root := Control.new()
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var f := make(p_tier, opts)
+	root.add_child(f)
+	var body := f.attach_body()
+	body.minimum_size_changed.connect(func() -> void:
+		var ms := body.get_combined_minimum_size()
+		f.size = ms
+		root.custom_minimum_size = ms)
+	return {"root": root, "frame": f, "body": body}
+
 func attach_body() -> MarginContainer:
 	if _body == null:
 		_body = MarginContainer.new()
