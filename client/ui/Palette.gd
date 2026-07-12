@@ -36,6 +36,15 @@ const LAVENDER := Color("#cdbcff")
 const HP := Color(0.3, 0.85, 0.4)
 const HP_LOW := Color(0.9, 0.3, 0.3)
 
+# --- sports-tech pattern tokens (HUD frame language; source: docs/ideas-not-in/hud ui/
+#     match-found-tokens.json — deep navy / graphite surfaces, cyan rails, lime ready, orange warn) ---
+const SB_NAVY := Color("#0B1324")
+const SB_GRAPHITE := Color("#1A1F2B")
+const SB_INK := Color("#050B12")
+const SB_CYAN := Color("#00E5FF")
+const SB_LIME := Color("#A8FF00")
+const SB_ORANGE := Color("#FF6A00")
+
 # --- rarity ramp (hex strings: BBCode and Color.html both consume these) ---
 const RARITY_HEX := {"common": "#cfd6df", "uncommon": "#7fe08a", "rare": "#5aa0ff",
 	"epic": "#c77dff", "legendary": "#ff8c1a", "mythic": "#ff4d6d"}

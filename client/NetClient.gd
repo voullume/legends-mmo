@@ -198,6 +198,7 @@ var _quest_panel: Control = null
 var _quest_label: RichTextLabel = null
 var _quest_tracker: VBoxContainer = null    # always-on HUD list of active quests
 var _quest_tracker_title: Label = null
+var _qt_preview := false                    # HUD-edit mode: show placeholder rows when questless
 var _qgiver_panel: Control = null           # the home-base quest-giver dialog (accept / turn in)
 var _qgiver_label: RichTextLabel = null
 var _qgiver_root: Node3D = null             # the 3D quest-giver marker in the home base
@@ -1606,8 +1607,11 @@ func _update_quest_tracker() -> void:
 		_quest_tracker = VBoxContainer.new()
 		_quest_tracker.add_theme_constant_override("separation", 2)
 		_hud.add_child(_quest_tracker)
-		_reposition_quest_tracker()
-		_hud.get_viewport().size_changed.connect(_reposition_quest_tracker)   # stay pinned on window resize
+		# configurable-HUD P3: position/scale owned by the module system (anchored top-right, so
+		# the list grows leftward from a pinned right edge — no resize hook needed)
+		HudLayout.register("quest_tracker", _quest_tracker, {"label": "Quest Tracker",
+			"defaults": {"anchor": "top_right", "ox": -20.0, "oy": 150.0},
+			"ref_size": Vector2(230, 96), "preview": _quest_tracker_preview})
 		_quest_tracker_title = Label.new()
 		_quest_tracker_title.add_theme_font_size_override("font_size", 13)
 		_quest_tracker_title.modulate = Color(1.0, 0.86, 0.5)
@@ -1638,12 +1642,21 @@ func _update_quest_tracker() -> void:
 			lbl.text = "• %s  %d/%d" % [str(q["name"]), prog, cnt]
 			lbl.modulate = Color(0.85, 0.88, 0.95)
 		_quest_tracker.add_child(lbl)
+	if _qt_preview and not any:                      # HUD-edit placeholder: keep the frame placeable
+		for txt in ["• Sample quest  2/5", "✓ Sample quest  (ready)"]:
+			var pl := Label.new()
+			pl.add_theme_font_size_override("font_size", 12)
+			pl.modulate = Color(0.7, 0.78, 0.9, 0.85)
+			pl.text = txt
+			_quest_tracker.add_child(pl)
+		any = true
 	_quest_tracker.visible = any
 
-func _reposition_quest_tracker() -> void:
-	if _quest_tracker != null:
-		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-		_quest_tracker.position = Vector2(vp.x - 250.0, 150.0)
+# HUD-edit preview hook (HudLayout.set_preview): materialize the tracker with sample rows so an
+# empty quest list doesn't leave the module invisible/unplaceable in the editor.
+func _quest_tracker_preview(on: bool) -> void:
+	_qt_preview = on
+	_update_quest_tracker()
 
 func _build_questlog() -> void:
 	var p := Widgets.panel("Quest Journal", "J / Esc", 560.0, _toggle_questlog)
@@ -1995,14 +2008,55 @@ func _build_settings() -> void:
 	rfx.text = "Reduce screen effects"
 	rfx.tooltip_text = "Softens camera shake and turns off the hit camera-kick, zoom-punch and hitstop"
 	rfx.button_pressed = reduce_fx
-	rfx.toggled.connect(func(on: bool) -> void: set_reduce_fx(on))
+	rfx.toggled.connect(func(on: bool) -> void:
+		set_reduce_fx(on)
+		HudFrame.reduced = on)                   # pattern chrome drops its glow layers with the rest
 	vb.add_child(rfx)
+	# --- configurable-HUD P3: global scale + edit mode + layout reset ---
+	vb.add_child(Widgets.section("HUD"))
+	var srow := HBoxContainer.new()
+	srow.add_theme_constant_override("separation", 10)
+	var slbl := Label.new()
+	slbl.text = "UI scale"
+	slbl.custom_minimum_size = Vector2(70, 0)
+	srow.add_child(slbl)
+	var ssl := HSlider.new()
+	ssl.min_value = HudLayout.UI_SCALE_MIN
+	ssl.max_value = HudLayout.UI_SCALE_MAX
+	ssl.step = 0.05
+	ssl.custom_minimum_size = Vector2(240, 0)
+	ssl.value = get_window().content_scale_factor
+	srow.add_child(ssl)
+	var sval := Label.new()
+	sval.text = "%d%%" % int(round(get_window().content_scale_factor * 100.0))
+	sval.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	srow.add_child(sval)
+	ssl.value_changed.connect(func(v: float) -> void:   # live preview; persisted on release only
+		get_window().content_scale_factor = v
+		sval.text = "%d%%" % int(round(v * 100.0)))
+	ssl.drag_ended.connect(func(_ch: bool) -> void:
+		HudLayout.set_ui_scale(ssl.value, get_window()))
+	vb.add_child(srow)
+	var edit_hud := Button.new()
+	edit_hud.text = "Edit HUD Layout  (F2)"
+	edit_hud.tooltip_text = "Move, scale, hide and re-anchor HUD modules"
+	edit_hud.pressed.connect(func() -> void:
+		_settings_panel.visible = false
+		_hud_edit_toggle())
+	vb.add_child(edit_hud)
+	var reset_hud := Button.new()
+	reset_hud.text = "Reset HUD Layout"
+	reset_hud.tooltip_text = "Restore every HUD module to its default position/scale (audio + window settings untouched)"
+	reset_hud.pressed.connect(func() -> void:
+		HudLayout.erase_saved()
+		_settings_status("HUD layout reset"))
+	vb.add_child(reset_hud)
 	var reset_ui := Button.new()                 # recover from a window dragged/resized off-screen
-	reset_ui.text = "Reset UI Layout"
-	reset_ui.tooltip_text = "Re-center every panel and clear saved window positions/sizes"
+	reset_ui.text = "Reset Window Positions"
+	reset_ui.tooltip_text = "Re-center every panel window and clear saved window positions/sizes"
 	reset_ui.pressed.connect(func() -> void:
 		Widgets.reset_all_windows()
-		_settings_status("UI layout reset"))
+		_settings_status("Window positions reset"))
 	vb.add_child(reset_ui)
 	_settings_reset_note = Label.new()
 	_settings_reset_note.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
@@ -3717,6 +3771,10 @@ func _build_item_tile(it: Dictionary) -> Button:
 func _locker_build_available() -> bool:
 	return str(_state.get("map", "")) == World.LOCKER and _locker_unlocked()
 
+# HUD edit mode may not stack on either _input-phase build editor (see Client._hud_edit_blocked)
+func _hud_edit_blocked() -> bool:
+	return _lb_on or _deco_on
+
 # the WORLD/map decorator (F4 outside your Locker Room) is GAME-MASTER ONLY on the live server (recv_admin, gated
 # by the service-role admins table). Non-admins pressing F4 in the world get nothing; their Locker Room build
 # editor still works (that's _locker_build_available, above). Overrides Client._world_build_allowed().
@@ -4500,9 +4558,9 @@ func _physics_process(_delta: float) -> void:
 	_update_chat_fade(_delta)
 	if _chat_grace > 0:
 		_chat_grace -= 1
-	if _chatting or _chat_grace > 0:
-		_player.intent["mx"] = 0.0                   # hold still while typing (and the frame after, so
-		_player.intent["my"] = 0.0                   # the click that dismissed chat doesn't fire an ability)
+	if _chatting or _chat_grace > 0 or hud_edit_on:
+		_player.intent["mx"] = 0.0                   # hold still while typing / editing the HUD (and the
+		_player.intent["my"] = 0.0                   # frame after, so the dismissing click can't fire)
 		_player.intent["ability"] = ""
 	elif autowalk:
 		_player.intent["mx"] = 0.0                   # debug: stand and fight (combat / XP tests)
@@ -4813,6 +4871,8 @@ func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
 		if net != null and _connected:
 			net.party_accept.rpc_id(1, inviter_fid)
 		return
+	if hud_edit_on and _hud_edit != null:            # a live prompt needs its buttons — leave edit mode
+		(_hud_edit as HudEdit).close(true)
 	_invite_from_fid = inviter_fid
 	if _invite_prompt != null:
 		_invite_prompt.queue_free()
@@ -4873,6 +4933,8 @@ func recv_loot_roll(drop_id: int, info: Dictionary, ms: int) -> void:
 func _show_next_loot_roll() -> void:
 	if _loot_roll_panel != null or _loot_roll_queue.is_empty():
 		return
+	if hud_edit_on and _hud_edit != null:            # Need/Want/Pass must be clickable (else auto-pass)
+		(_hud_edit as HudEdit).close(true)
 	var e: Dictionary = _loot_roll_queue.pop_front()
 	var info: Dictionary = e["info"]
 	_loot_roll_cur = int(e["drop_id"])
@@ -5309,6 +5371,16 @@ func _sync_nodes_to_state() -> void:
 # Enter opens/sends chat, Esc cancels; camera/zoom otherwise (class-cycle/reset are server-side)
 func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo:
+		if e.keycode == KEY_F2 and not _chatting:    # configurable-HUD P3: HUD edit mode
+			_hud_edit_toggle()
+			get_viewport().set_input_as_handled()
+			return
+		if hud_edit_on:                              # editing: Esc cancels drag → saves + exits;
+			if e.keycode == KEY_ESCAPE and _hud_edit != null:   # every other key is swallowed so
+				if not (_hud_edit as HudEdit).handle_escape():  # panel toggles can't fire mid-edit
+					(_hud_edit as HudEdit).close(true)
+			get_viewport().set_input_as_handled()
+			return
 		if (e.keycode == KEY_ENTER or e.keycode == KEY_KP_ENTER) and not _chatting:
 			_open_chat()
 			get_viewport().set_input_as_handled()

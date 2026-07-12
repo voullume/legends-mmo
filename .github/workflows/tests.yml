@@ -54,7 +54,8 @@ jobs:
                   smoke_builder_p0 smoke_builder_p1 smoke_builder_p2 \
                   test_instancing test_residents test_res_chat test_res_party test_res_reports \
                   smoke_p2 smoke_p4 smoke_p5 test_heal_events test_procs \
-                  smoke_prediction smoke_snapshot_meta smoke_collision"
+                  smoke_prediction smoke_snapshot_meta smoke_collision \
+                  hud_layout_test"
           FAILED=0
           for t in $SUITES; do
             out=$(timeout 300 ~/godot-bin/godot --headless --path . --script "res://tools/$t.gd" 2>&1); code=$?

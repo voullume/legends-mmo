@@ -141,6 +141,8 @@ var _flashing := {}                        # fighter id → true while its hit-f
 var _recoiling := {}                       # fighter id → true while a struck-body recoil pose is decaying
 var _pred_cds := {}                        # ability key → {t, total, window}: predicted cooldown sweeps
 var reduce_fx := false                     # accessibility: damp shake, disable kick/FOV-punch/hitstop
+var hud_edit_on := false                   # configurable-HUD P3: edit-mode gate (blocks gameplay input)
+var _hud_edit = null                       # the HudEdit overlay (lazy; F2 / Settings)
 var _num_pool := []
 var _pop_pool := []
 var _shard_pool := []                      # debris boxes (dedicated: shaded dark, not the additive pops)
@@ -291,6 +293,8 @@ func _enter_mode() -> void:
 			lp["hp"] = float(lp["maxHP"]) * 0.12
 	if "--meter" in uargs:
 		_toggle_meter()
+	if "--hudedit" in uargs:                  # dev: open HUD edit mode (pairs with --shot verification)
+		_hud_edit_toggle()
 	if "--meter-dump" in uargs:              # headless proof: print the accumulator after 12 s, then quit
 		var t := Timer.new()
 		t.wait_time = 12.0
@@ -765,6 +769,8 @@ func _update_deco_lbl() -> void:
 
 # highest-priority input hook: only active while decorating (else early-out), so zero effect on normal play.
 func _input(e: InputEvent) -> void:
+	if hud_edit_on:
+		return          # HUD edit mode: the _input-phase builder layer must not see clicks/keys
 	if not _deco_on:
 		if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F4:
 			# F4 is context-sensitive: in your OWN Locker Room it toggles the server-driven build editor (P3b);
@@ -1299,6 +1305,10 @@ func _process(delta: float) -> void:
 	# 1) input → intent (before the tick, zero-lag)
 	if _player != null:
 		_player.poll(_yaw)
+		if hud_edit_on:                        # HUD edit mode: hold still (same seam chat uses online)
+			_player.intent["mx"] = 0.0
+			_player.intent["my"] = 0.0
+			_player.intent["ability"] = ""
 
 	# 2) fixed-step authoritative sim. Practice arena: never let a winner latch.
 	_acc += delta
@@ -2618,7 +2628,15 @@ func _unhandled_input(e: InputEvent) -> void:
 		_yaw -= e.relative.x * ORBIT_SENS
 		_pitch = clampf(_pitch + e.relative.y * ORBIT_SENS, PITCH_MIN, PITCH_MAX)  # drag up = look down (MMO-natural)
 	elif e is InputEventKey and e.pressed and not e.echo:
-		if e.physical_keycode == KEY_P:
+		if e.physical_keycode == KEY_F2:
+			_hud_edit_toggle()                      # configurable-HUD P3: edit mode (F2 is free in both modes)
+		elif hud_edit_on:
+			# Esc first cancels an in-flight drag, then saves + exits; every other key is
+			# swallowed so P/C/R can't reset the sandbox mid-edit.
+			if e.physical_keycode == KEY_ESCAPE and _hud_edit != null:
+				if not (_hud_edit as HudEdit).handle_escape():
+					(_hud_edit as HudEdit).close(true)
+		elif e.physical_keycode == KEY_P:
 			_bots_frozen = not _bots_frozen
 			if _state != null:
 				_state["botsFrozen"] = _bots_frozen
@@ -2638,11 +2656,17 @@ func _unhandled_input(e: InputEvent) -> void:
 
 # ============================================================ HUD
 func _build_hud() -> void:
+	HudLayout.reset_registry()                    # fresh Client = fresh module registry (relogin safety)
 	_hud = CanvasLayer.new()
 	add_child(_hud)
 	# UI-overhaul P0: ONE Theme restyles every Control. A CanvasLayer isn't a Control (no `theme`
 	# property), so the root Window carries it — it propagates to everything under _hud + popups.
 	get_window().theme = UITheme.get_theme()
+	# configurable-HUD P3: global accessibility scale (0.75–1.5) composes with the stretch config;
+	# every per-frame `vp` read tracks the scaled visible rect automatically. HudFrame mirrors
+	# reduce_fx so the pattern chrome skips its glow layers with the rest of the FX.
+	get_window().content_scale_factor = HudLayout.load_ui_scale()
+	HudFrame.reduced = reduce_fx
 	_info = RichTextLabel.new()
 	_info.bbcode_enabled = true
 	_info.fit_content = true
@@ -2686,6 +2710,32 @@ func _build_hud() -> void:
 	_build_vitals()
 	_build_meter()
 	_build_screen_juice()
+	# configurable-HUD P3: the first three player-configurable modules. The wrapper owns
+	# player-facing layout (position/scale/opacity/visibility); the wrapped node keeps all game
+	# behavior. More modules migrate in later phases (meter, chat, party, banners…).
+	HudLayout.register("player_frame", _hud_left, {"label": "Player Frame",
+		"defaults": {"anchor": "top_left", "ox": 12.0, "oy": 10.0}, "ref_size": Vector2(284, 130)})
+	HudLayout.register("hotbar", _hotbar, {"label": "Hotbar",
+		"defaults": {"anchor": "bottom_center", "oy": -26.0}, "ref_size": Vector2(522, 60)})
+
+# configurable-HUD P3: enter/exit HUD edit mode (F2, or Settings online). Exit saves; the
+# overlay's Cancel restores the pre-edit snapshot.
+func _hud_edit_toggle() -> void:
+	if _hud_edit != null and (_hud_edit as Control).visible:
+		(_hud_edit as HudEdit).close(true)
+		return
+	if _hud_edit_blocked():
+		return          # a build editor owns the _input phase — no HUD editing on top of it
+	if _hud_edit == null:
+		_hud_edit = HudEdit.new()
+		(_hud_edit as HudEdit).client = self
+		_hud.add_child(_hud_edit)
+	(_hud_edit as HudEdit).open()
+
+# builder layers consume input at the Node._input phase (before the GUI) — HUD edit mode and a
+# build editor may never stack. NetClient extends this with the Locker Room editor.
+func _hud_edit_blocked() -> bool:
+	return _deco_on
 
 # P4: the shared screen-space juice layer — a low-HP vignette (z=-20, under the HUD), a death/benched
 # overlay (z=140), and a top-right toast stack (z=200). All MOUSE_FILTER_IGNORE so they never eat input.
@@ -3394,8 +3444,7 @@ func _slot_color(ab: Dictionary) -> Color:
 func _update_hotbar(pf: Dictionary) -> void:
 	if pf.get("classId", "") != _hotbar_class:
 		_build_hotbar(str(pf["classId"]))
-	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-	_hotbar.position = Vector2((vp.x - _hotbar.size.x) / 2.0, vp.y - 86.0)
+	# (position is owned by the HudLayout "hotbar" module — anchored bottom-center by default)
 	var abilities: Array = GameData.CLASSES[str(pf["classId"])]["abilities"]
 	var dt := get_process_delta_time()
 	for i in _slots.size():
@@ -3446,7 +3495,14 @@ func _on_slot_hover(i: int) -> void:
 	_tooltip.visible = true
 	_tooltip.reset_size()
 	var sp: Vector2 = _slots[i]["root"].global_position
-	_tooltip.position = Vector2(sp.x - 95.0, sp.y - _tooltip.size.y - 8.0)
+	# above the slot by default; flip below + clamp on-screen (the hotbar is a movable module now,
+	# so "above" can be off the top of the viewport — mirror the item-tooltip clamp)
+	var tp := Vector2(sp.x - 95.0, sp.y - _tooltip.size.y - 8.0)
+	if tp.y < 4.0:
+		tp.y = (_slots[i]["root"] as Control).get_global_rect().end.y + 8.0
+	var vps: Vector2 = _hud.get_viewport().get_visible_rect().size
+	_tooltip.position = Vector2(clampf(tp.x, 4.0, maxf(4.0, vps.x - _tooltip.size.x - 4.0)),
+		clampf(tp.y, 4.0, maxf(4.0, vps.y - _tooltip.size.y - 4.0)))
 
 func _on_slot_unhover() -> void:
 	_tooltip.visible = false
