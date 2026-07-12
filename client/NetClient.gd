@@ -297,6 +297,7 @@ func _build_chat() -> void:
 	_chat_root = Control.new()
 	_chat_box = Control.new()
 	_chat_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chat_box.clip_contents = true       # a full 9-line ring in a compact box clips instead of bleeding
 	_chat_root.add_child(_chat_box)
 	_chat_frame = HudFrame.make(HudFrame.Tier.UTILITY, {"stripe": true, "accent": Palette.ACCENT2, "body_alpha": 0.45})
 	_chat_box.add_child(_chat_frame)
@@ -333,12 +334,15 @@ func _chat_apply_variant(v: String) -> void:
 	_chat_frame.position = Vector2.ZERO
 	_chat_frame.size = ls
 	_chat_log.position = Vector2(12, 6)
-	_chat_log.size = Vector2(maxf(0.0, ls.x - 24.0), maxf(0.0, ls.y - 12.0))
-	_chat_log.custom_minimum_size = _chat_log.size
+	# minimum FIRST, from the computed target — Control.set_size clamps to the combined minimum
+	# synchronously, so writing size first then reading it back pins the old (larger) footprint
+	var lg := Vector2(maxf(0.0, ls.x - 24.0), maxf(0.0, ls.y - 12.0))
+	_chat_log.custom_minimum_size = lg
+	_chat_log.size = lg
 	var iy := 0.0 if collapsed else ls.y + 6.0
 	_chat_input.position = Vector2(0, iy)
-	_chat_input.size = Vector2(ls.x, 34)
 	_chat_input.custom_minimum_size = Vector2(ls.x, 34)
+	_chat_input.size = Vector2(ls.x, 34)
 	_chat_root.custom_minimum_size = Vector2(ls.x, iy + 34.0)
 	_chat_root.size = _chat_root.custom_minimum_size
 
@@ -355,6 +359,11 @@ func _chat_preview(on: bool) -> void:
 		_chat_log.text = ""
 
 func _open_chat() -> void:
+	if _chat_root != null and not _chat_root.is_visible_in_tree():
+		# the player hid the chat module — opening an invisible input would freeze movement
+		# (_chatting zeroes intent) with no on-screen feedback
+		_toast("[color=#8ad6ff]Chat is hidden[/color] — press F2, select Chat, re-enable Visible", Palette.ACCENT2)
+		return
 	_chatting = true
 	_chat_input.visible = true
 	_chat_input.grab_focus()
@@ -4789,7 +4798,8 @@ func _build_unit_frames() -> void:
 func _make_unit_frame(accent: Color, id: String, label: String, defs: Dictionary, prev: Callable) -> Dictionary:
 	var fd: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"header": true, "accent": accent, "body_alpha": 0.8})
 	var root: Control = fd["root"]
-	root.mouse_filter = Control.MOUSE_FILTER_STOP
+	# stays IGNORE (fitted default): these frames take no clicks, and STOP would starve the
+	# RMB-orbit/wheel-zoom _unhandled_input handlers exactly where combat happens
 	root.visible = false
 	_hud.add_child(root)
 	var vb := VBoxContainer.new()
@@ -4844,21 +4854,36 @@ func _drive_unit_frame(f: Dictionary, fid: String, hostile: bool, preview: bool)
 			root.visible = false
 		return
 	root.visible = true
-	var lvl := int(pf.get("level", 0))
-	var sub := ("Lv %d" % lvl) if lvl > 0 else ""
+	# mobs ship mobLevel/mobTier and NO name/level keys (only players carry those) — mirror the
+	# world-plate identity rules (Client.gd _update_ui) so the frame reads for every target type
+	var nm := str(pf.get("name", ""))
+	var lvl := int(pf.get("mobLevel", pf.get("level", 0)))
+	var parts := []
+	if lvl > 0:
+		parts.append("Lv %d" % lvl)
 	var ncol: Color = Palette.TEXT_BRIGHT
 	if hostile:
 		ncol = WorldUI.HOSTILE
 		var tier := str(pf.get("mobTier", ""))
+		if pf.get("dummy", false):
+			nm = "Training Dummy"
+		elif pf.get("isCore", false):
+			nm = "Power Core"
+		elif tier == "boss":
+			nm = "Head Coach"
+		if nm == "":
+			nm = str(pf.get("classId", "")).capitalize()
+			if nm == "":
+				nm = "Enemy"
 		if tier != "":
-			sub += " · " + tier.to_upper()
+			parts.append(tier.to_upper())
 	else:
 		var cdef: Dictionary = GameData.CLASSES.get(str(pf.get("classId", "")), {})
 		ncol = WorldUI.friendly_plate(Color.from_string(str(cdef.get("color", "")), Palette.TEXT_BRIGHT))
 		if not str(pf.get("classId", "")).is_empty():
-			sub += " · " + str(pf.get("classId", "")).capitalize()
+			parts.append(str(pf.get("classId", "")).capitalize())
 	var mhp: float = maxf(1.0, float(pf.get("maxHP", 1.0)))
-	_set_unit_frame(f, str(pf.get("name", "")), sub, ncol,
+	_set_unit_frame(f, nm, " · ".join(parts), ncol,
 		clampf(float(pf.get("hp", 0.0)) / mhp, 0.0, 1.0), float(pf.get("hp", 0.0)), mhp)
 
 func _set_unit_frame(f: Dictionary, name: String, sub: String, ncol: Color, frac: float, hp: float, mhp: float) -> void:
@@ -5448,8 +5473,8 @@ func _process(delta: float) -> void:
 	_render_world(delta)
 	_update_boss_telegraph()
 	_update_focus()
+	_update_party()          # validates _friend_id BEFORE the frames read it (no one-frame stale row)
 	_update_unit_frames()
-	_update_party()
 	_render_shop_pad()
 	_update_shop_proximity()
 	_render_build_shop_pad()

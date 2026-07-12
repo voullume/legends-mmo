@@ -325,7 +325,7 @@ func _draw_panel() -> void:
 func _draw_utility() -> void:
 	var r := Rect2(0.5, 0.5, size.x - 1.0, size.y - 1.0)
 	var body := _chamfer_rect(r, [5.0, 5.0, 5.0, 5.0])
-	draw_colored_polygon(body, Color(Palette.SB_INK, 0.93))
+	draw_colored_polygon(body, Color(Palette.SB_INK, body_alpha))   # callers can go translucent (chat)
 	draw_polyline(_closed(body), Color(Palette.BORDER_BRIGHT, 0.7), 1.0, true)
 	if stripe:
 		draw_rect(Rect2(r.position.x + 1.0, r.position.y + 5.0, 2.0, r.size.y - 10.0), Color(accent, 0.9))
