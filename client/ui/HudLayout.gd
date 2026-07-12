@@ -224,6 +224,20 @@ static func reset_all() -> void:
 		reset_module(id)
 	_profile = "default"
 
+# Snap a module flush to its stored anchor point (small edge inset) — the edit-mode anchor
+# picker's visible action. Offsets reset to the inset so the intent survives resolution changes.
+static func snap_to_anchor(id: String) -> void:
+	if not _modules.has(id):
+		return
+	var lay: Dictionary = (_modules[id]["layout"] as Dictionary)
+	var an: Vector2 = ANCHORS.get(str(lay["anchor"]), Vector2.ZERO)
+	var inset := 12.0
+	lay["nx"] = 0.0
+	lay["ny"] = 0.0
+	lay["ox"] = inset if an.x == 0.0 else (-inset if an.x == 1.0 else 0.0)
+	lay["oy"] = inset if an.y == 0.0 else (-inset if an.y == 1.0 else 0.0)
+	_sync(id)
+
 # Clamp a module fully on screen (never lose a module off-screen; oversized modules pin to 0).
 static func clamp_module(id: String) -> void:
 	if not _modules.has(id):

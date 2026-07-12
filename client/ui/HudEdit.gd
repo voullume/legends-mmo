@@ -302,9 +302,20 @@ func _build_toolbar() -> void:
 		_mark_dirty()
 		_sync_profile_opt()
 		_sync_mod_row()))
-	top.add_child(_tb_btn("Fit Screen", func() -> void:
-		HudLayout.fit_all_to_screen()
-		_mark_dirty()))
+	var fit_btn := _tb_btn("Rescue Off-Screen", func() -> void:
+		var moved := 0
+		for id in HudLayout.ids():
+			var before := HudLayout.rect(id).position
+			HudLayout.clamp_module(id)
+			if not HudLayout.rect(id).position.is_equal_approx(before):
+				moved += 1
+		if moved > 0:
+			_mark_dirty()
+			_status.text = "%d module%s pulled back on-screen." % [moved, "" if moved == 1 else "s"]
+		else:
+			_status.text = "Nothing was off-screen.")
+	fit_btn.tooltip_text = "Pull any module that ended up outside the window back into view"
+	top.add_child(fit_btn)
 	_status = Label.new()
 	_status.text = "Drag modules · corner grip scales · Esc saves + exits"
 	_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
@@ -378,13 +389,16 @@ func _build_toolbar() -> void:
 	_mod_row.add_child(_lock_check)
 	_anchor_opt = OptionButton.new()
 	_anchor_opt.focus_mode = Control.FOCUS_NONE
+	_anchor_opt.tooltip_text = "Snap the module to a screen corner/edge/center (drag afterwards to fine-tune)"
 	for a in HudLayout.ANCHORS:
 		_anchor_opt.add_item(str(a))
 	_anchor_opt.item_selected.connect(func(idx: int) -> void:
 		if _selected != "":
-			var keep := HudLayout.rect(_selected).position   # re-anchor without moving on screen
-			HudLayout.set_field(_selected, "anchor", str(HudLayout.ANCHORS.keys()[idx]))
-			HudLayout.set_position_from_rect(_selected, keep)
+			# snap TO the picked anchor (visible, what players expect) — dragging afterwards
+			# stores the offset relative to it, which is what survives resolution changes
+			var aname := str(HudLayout.ANCHORS.keys()[idx])
+			HudLayout.set_field(_selected, "anchor", aname)
+			HudLayout.snap_to_anchor(_selected)
 			_mark_dirty())
 	_mod_row.add_child(_anchor_opt)
 	_variant_opt = OptionButton.new()             # layout variant (only for modules that declare them)

@@ -48,6 +48,10 @@ var _chat_input: LineEdit
 var _chat_lines := []
 var _chat_idle := 0.0        # seconds since the last chat/loot line — the log fades out after CHAT_FADE_AFTER
 const CHAT_FADE_AFTER := 20.0
+var _chat_root: Control = null       # P6: the whole chat block (log box + input) as one module
+var _chat_box: Control = null        # frame + log — the part that idle-fades
+var _chat_frame: Control = null      # UTILITY-tier backing (fades with the log)
+var _chat_preview_on := false        # HUD-edit preview: sample lines + no fade
 var _focus_id := ""          # tab-target: the chosen enemy (sticky — only Tab/Esc/death changes it)
 var _focus_marker: Node3D = null
 var _is_admin := false       # set by the server (recv_admin) only for the admin account
@@ -198,6 +202,9 @@ var _quest_panel: Control = null
 var _quest_label: RichTextLabel = null
 var _quest_tracker: VBoxContainer = null    # always-on HUD list of active quests
 var _quest_tracker_title: Label = null
+var _qt_root: Control = null                # P6: the tracker's PANEL chassis (the module node)
+var _qt_count: Label = null                 # body-font "(J) · N" suffix beside the display title
+var _qt_variant := "standard"               # standard / compact / collapsed
 var _qt_preview := false                    # HUD-edit mode: show placeholder rows when questless
 var _qgiver_panel: Control = null           # the home-base quest-giver dialog (accept / turn in)
 var _qgiver_label: RichTextLabel = null
@@ -235,9 +242,13 @@ func _enter_mode() -> void:
 	_build_locker()
 	_build_disconnect_overlay()
 	_build_juice_online()
+	_update_quest_tracker()                       # eager: registers the tracker module (hidden while
+	                                              # questless) so edit mode can place it pre-quests
 	var ua := OS.get_cmdline_user_args()
 	if "--meter" in ua:                           # dev-only: open the §4a meter on boot (pairs with --shot)
 		_toggle_meter()
+	if "--hudedit" in ua:                         # dev-only: open HUD edit mode (pairs with --shot)
+		_hud_edit_toggle()
 	var oi := ua.find("--open")                   # dev-only: open a named panel after the first snapshot
 	if oi >= 0 and oi + 1 < ua.size():
 		_dev_open = str(ua[oi + 1])
@@ -272,24 +283,67 @@ func _dev_open_panel() -> void:
 		_equip_best()
 
 func _build_chat() -> void:
+	# P6: log + input travel as ONE "chat" module. The log rides a low-alpha UTILITY frame that
+	# idle-fades with it; the input keeps the readable body font + the exact focus/submit flow.
+	_chat_root = Control.new()
+	_chat_box = Control.new()
+	_chat_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chat_root.add_child(_chat_box)
+	_chat_frame = HudFrame.make(HudFrame.Tier.UTILITY, {"stripe": true, "accent": Palette.ACCENT2, "body_alpha": 0.45})
+	_chat_box.add_child(_chat_frame)
 	_chat_log = RichTextLabel.new()
 	_chat_log.bbcode_enabled = true
 	_chat_log.scroll_active = false
 	_chat_log.fit_content = true
-	_chat_log.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_chat_log.position = Vector2(16, -300)
-	_chat_log.custom_minimum_size = Vector2(620, 230)
-	_hud.add_child(_chat_log)
+	_chat_box.add_child(_chat_log)
 	_chat_input = LineEdit.new()
 	_chat_input.placeholder_text = "say something…  (Enter sends · Esc cancels)"
 	_chat_input.max_length = 120
-	_chat_input.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	_chat_input.position = Vector2(16, -46)
-	_chat_input.custom_minimum_size = Vector2(620, 34)
 	_chat_input.visible = false
 	_chat_input.text_submitted.connect(_on_chat_submit)
 	_chat_input.focus_exited.connect(_close_chat)
-	_hud.add_child(_chat_input)
+	_chat_root.add_child(_chat_input)
+	_hud.add_child(_chat_root)
+	_chat_apply_variant("standard")
+	HudLayout.register("chat", _chat_root, {"label": "Chat",
+		"defaults": {"anchor": "bottom_left", "ox": 16.0, "oy": -12.0},
+		"ref_size": Vector2(620, 276), "min_scale": 0.7, "max_scale": 1.4,
+		"variants": ["standard", "compact", "wide", "collapsed"],
+		"on_variant": _chat_apply_variant, "preview": _chat_preview})
+
+# P6: variant = the log's footprint (width/height per the spec's chat options); "collapsed"
+# keeps chat fully functional with zero permanent screen use (input appears on Enter).
+func _chat_apply_variant(v: String) -> void:
+	var sizes := {"standard": Vector2(620, 230), "compact": Vector2(460, 150),
+		"wide": Vector2(800, 300), "collapsed": Vector2(620, 0)}
+	var ls: Vector2 = sizes.get(v, sizes["standard"])
+	var collapsed := v == "collapsed"
+	_chat_box.visible = not collapsed
+	_chat_box.position = Vector2.ZERO
+	_chat_box.size = ls
+	_chat_frame.position = Vector2.ZERO
+	_chat_frame.size = ls
+	_chat_log.position = Vector2(12, 6)
+	_chat_log.size = Vector2(maxf(0.0, ls.x - 24.0), maxf(0.0, ls.y - 12.0))
+	_chat_log.custom_minimum_size = _chat_log.size
+	var iy := 0.0 if collapsed else ls.y + 6.0
+	_chat_input.position = Vector2(0, iy)
+	_chat_input.size = Vector2(ls.x, 34)
+	_chat_input.custom_minimum_size = Vector2(ls.x, 34)
+	_chat_root.custom_minimum_size = Vector2(ls.x, iy + 34.0)
+	_chat_root.size = _chat_root.custom_minimum_size
+
+# HUD-edit preview: sample lines when the log is empty + hold full alpha while editing.
+func _chat_preview(on: bool) -> void:
+	_chat_preview_on = on
+	if _chat_log == null:
+		return
+	if on:
+		if _chat_lines.is_empty():
+			_chat_log.text = "[color=#9fd0ff][b]Blitz-7[/b][/color]  gg nice pull\n[color=#9fd0ff][b]Coach[/b][/color]  rotate to the Camp Circuit"
+		_chat_box.modulate.a = 1.0
+	elif _chat_lines.is_empty():
+		_chat_log.text = ""
 
 func _open_chat() -> void:
 	_chatting = true
@@ -313,16 +367,17 @@ func _on_chat_submit(text: String) -> void:
 		net.send_chat.rpc_id(1, msg)
 	_close_chat()
 
-# the chat/loot log fades out after CHAT_FADE_AFTER seconds of no new line (and while not typing)
+# the chat/loot log fades out after CHAT_FADE_AFTER seconds of no new line (and while not
+# typing) — P6: the whole log box (frame + text) fades together; edit-preview pins it visible
 func _update_chat_fade(delta: float) -> void:
-	if _chat_log == null:
+	if _chat_box == null:
 		return
 	if _chatting:
 		_chat_idle = 0.0
 	else:
 		_chat_idle += delta
-	var target := 0.0 if _chat_idle > CHAT_FADE_AFTER else 1.0
-	_chat_log.modulate.a = lerpf(_chat_log.modulate.a, target, clampf(delta * 2.5, 0.0, 1.0))
+	var target := 0.0 if (_chat_idle > CHAT_FADE_AFTER and not _chat_preview_on) else 1.0
+	_chat_box.modulate.a = lerpf(_chat_box.modulate.a, target, clampf(delta * 2.5, 0.0, 1.0))
 
 func recv_chat(sender: String, text: String) -> void:
 	print("[chat] %s: %s" % [sender, text])
@@ -332,7 +387,7 @@ func recv_chat(sender: String, text: String) -> void:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
 	_chat_log.text = "\n".join(_chat_lines)
 	_chat_idle = 0.0                              # new line → pop the log back up
-	_chat_log.modulate.a = 1.0
+	_chat_box.modulate.a = 1.0
 
 func _esc(s: String) -> String:
 	return s.replace("[", "[lb]")
@@ -1575,7 +1630,7 @@ func _quest_toast(line: String) -> void:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
 	_chat_log.text = "\n".join(_chat_lines)
 	_chat_idle = 0.0
-	_chat_log.modulate.a = 1.0
+	_chat_box.modulate.a = 1.0
 
 func _refresh_quests() -> void:
 	_update_quest_tracker()
@@ -1601,26 +1656,43 @@ func recv_bounty_update(bounty_id: String, progress: int, claimed: bool) -> void
 	if _qgiver_panel != null and _qgiver_panel.visible:
 		_render_qgiver()
 
-# the always-on HUD tracker (active quests + progress). Rebuilt only on a quest event, not per frame.
+# the always-on HUD tracker (active quests + progress). Rebuilt only on a quest event, not per
+# frame. P6: rides a PANEL-tier chassis (the module node) with variants — standard (full rows),
+# compact (smaller, max 4 + "+N more"), collapsed (title + count only).
 func _update_quest_tracker() -> void:
 	if _quest_tracker == null:
+		var qf: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"header": true, "body_alpha": 0.8})
+		_qt_root = qf["root"]
+		_hud.add_child(_qt_root)
 		_quest_tracker = VBoxContainer.new()
 		_quest_tracker.add_theme_constant_override("separation", 2)
-		_hud.add_child(_quest_tracker)
-		# configurable-HUD P3: position/scale owned by the module system (anchored top-right, so
-		# the list grows leftward from a pinned right edge — no resize hook needed)
-		HudLayout.register("quest_tracker", _quest_tracker, {"label": "Quest Tracker",
+		(qf["body"] as MarginContainer).add_child(_quest_tracker)
+		var trow := HBoxContainer.new()
+		trow.add_theme_constant_override("separation", 6)
+		_quest_tracker.add_child(trow)
+		_quest_tracker_title = HudFonts.display_label("Quests", 13, Palette.SB_CYAN, 0.18)
+		_quest_tracker_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		trow.add_child(_quest_tracker_title)
+		_qt_count = Label.new()                      # "(J)" and punctuation live in the body font
+		_qt_count.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+		_qt_count.add_theme_color_override("font_color", Palette.TEXT_DIM)
+		_qt_count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		trow.add_child(_qt_count)
+		# module registration LAST — on_variant fires inside register (re-entering this function),
+		# so the title row must already exist. Anchored top-right: the list grows leftward.
+		HudLayout.register("quest_tracker", _qt_root, {"label": "Quest Tracker",
 			"defaults": {"anchor": "top_right", "ox": -20.0, "oy": 150.0},
-			"ref_size": Vector2(230, 96), "preview": _quest_tracker_preview})
-		_quest_tracker_title = Label.new()
-		_quest_tracker_title.add_theme_font_size_override("font_size", 13)
-		_quest_tracker_title.modulate = Color(1.0, 0.86, 0.5)
-		_quest_tracker_title.text = "✦ Quests  (J)"
-		_quest_tracker.add_child(_quest_tracker_title)
-	for c in _quest_tracker.get_children():          # clear the per-quest lines, keep the title
-		if c != _quest_tracker_title:
+			"ref_size": Vector2(240, 110), "preview": _quest_tracker_preview,
+			"variants": ["standard", "compact", "collapsed"], "on_variant": _qt_set_variant})
+	var trow_node := _quest_tracker_title.get_parent()
+	for c in _quest_tracker.get_children():          # clear the per-quest lines, keep the title row
+		if c != trow_node:
 			c.queue_free()
-	var any := false
+	var compact := _qt_variant == "compact"
+	var collapsed := _qt_variant == "collapsed"
+	var rows := 0
+	var total := 0
+	var overflow := 0
 	for qid in Quests.display_order():
 		if not _quests.has(qid):
 			continue
@@ -1630,11 +1702,17 @@ func _update_quest_tracker() -> void:
 		var q = Quests.get_quest(qid)
 		if q == null:
 			continue
-		any = true
+		total += 1
+		if collapsed:
+			continue
+		if compact and rows >= 4:
+			overflow += 1
+			continue
+		rows += 1
 		var cnt := int(q["objective"]["count"])
 		var prog := int(st.get("progress", 0))
 		var lbl := Label.new()
-		lbl.add_theme_font_size_override("font_size", 12)
+		lbl.add_theme_font_size_override("font_size", 11 if compact else 12)
 		if prog >= cnt:
 			lbl.text = "✓ %s  (ready)" % str(q["name"])
 			lbl.modulate = Color(0.62, 0.9, 0.55)
@@ -1642,15 +1720,30 @@ func _update_quest_tracker() -> void:
 			lbl.text = "• %s  %d/%d" % [str(q["name"]), prog, cnt]
 			lbl.modulate = Color(0.85, 0.88, 0.95)
 		_quest_tracker.add_child(lbl)
-	if _qt_preview and not any:                      # HUD-edit placeholder: keep the frame placeable
+	if overflow > 0:
+		var more := Label.new()
+		more.text = "+%d more  (J)" % overflow
+		more.add_theme_font_size_override("font_size", 11)
+		more.modulate = Color(0.6, 0.68, 0.78)
+		_quest_tracker.add_child(more)
+	if _qt_preview and total == 0 and not collapsed:   # HUD-edit placeholder: keep it placeable
 		for txt in ["• Sample quest  2/5", "✓ Sample quest  (ready)"]:
 			var pl := Label.new()
-			pl.add_theme_font_size_override("font_size", 12)
+			pl.add_theme_font_size_override("font_size", 11 if compact else 12)
 			pl.modulate = Color(0.7, 0.78, 0.9, 0.85)
 			pl.text = txt
 			_quest_tracker.add_child(pl)
-		any = true
-	_quest_tracker.visible = any
+		total = 2
+	elif _qt_preview and total == 0:
+		total = 2                                    # collapsed preview: title + count chip
+	_qt_count.text = ("(J) · %d" % total) if collapsed else "(J)"
+	_qt_root.visible = total > 0
+
+# module variant hook — re-render the rows in the new density
+func _qt_set_variant(v: String) -> void:
+	_qt_variant = v
+	if _quest_tracker != null and _quest_tracker_title != null:
+		_update_quest_tracker()
 
 # HUD-edit preview hook (HudLayout.set_preview): materialize the tracker with sample rows so an
 # empty quest list doesn't leave the module invisible/unplaceable in the editor.
@@ -4532,7 +4625,7 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
 	_chat_log.text = "\n".join(_chat_lines)
 	_chat_idle = 0.0                              # new line → pop the log back up
-	_chat_log.modulate.a = 1.0
+	_chat_box.modulate.a = 1.0
 	_gear_count += 1                              # a loot drop is always a gear add → track it live for the near-cap warning
 	_update_cap_warning()
 	if _inv_panel.visible:
