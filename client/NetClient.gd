@@ -2112,7 +2112,7 @@ func _build_settings() -> void:
 	vb.add_child(mute)
 	var rfx := CheckBox.new()                    # accessibility: shake/hitstop/FOV-punch are motion-sickness triggers
 	rfx.text = "Reduce screen effects"
-	rfx.tooltip_text = "Softens camera shake and turns off the hit camera-kick, zoom-punch and hitstop"
+	rfx.tooltip_text = "Softens camera shake; turns off hit camera-kick, zoom-punch, hitstop — and HUD motion (banner fades, toast slides, frame glow)"
 	rfx.button_pressed = reduce_fx
 	rfx.toggled.connect(func(on: bool) -> void:
 		set_reduce_fx(on)
@@ -2143,6 +2143,46 @@ func _build_settings() -> void:
 	ssl.drag_ended.connect(func(_ch: bool) -> void:
 		HudLayout.set_ui_scale(ssl.value, get_window()))
 	vb.add_child(srow)
+	# P11: layout profile + bulk opacity + fit-to-screen live here too (per-module fine-tuning
+	# stays in F2 edit mode — settings holds only the whole-HUD knobs)
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 10)
+	var plbl := Label.new()
+	plbl.text = "Layout"
+	plbl.custom_minimum_size = Vector2(70, 0)
+	prow.add_child(plbl)
+	var popt := OptionButton.new()
+	popt.focus_mode = Control.FOCUS_NONE
+	for pn in HudLayout.profile_names():
+		popt.add_item(str(pn).capitalize())
+	var pidx: int = HudLayout.profile_names().find(HudLayout.profile())
+	if pidx >= 0:
+		popt.select(pidx)
+	popt.item_selected.connect(func(idx: int) -> void:
+		HudLayout.apply_profile(str(HudLayout.profile_names()[idx]))
+		HudLayout.save()
+		_settings_status("HUD profile applied"))
+	prow.add_child(popt)
+	vb.add_child(prow)
+	var orow := HBoxContainer.new()
+	orow.add_theme_constant_override("separation", 10)
+	var olbl := Label.new()
+	olbl.text = "HUD opacity"
+	olbl.custom_minimum_size = Vector2(70, 0)
+	orow.add_child(olbl)
+	var osl := HSlider.new()
+	osl.min_value = HudLayout.OPACITY_MIN
+	osl.max_value = 1.0
+	osl.step = 0.05
+	osl.value = 1.0
+	osl.custom_minimum_size = Vector2(240, 0)
+	osl.tooltip_text = "Bulk opacity for every HUD module (fine-tune per module in F2)"
+	osl.value_changed.connect(func(v: float) -> void: HudLayout.set_all_opacity(v))
+	osl.drag_ended.connect(func(_ch: bool) -> void:
+		HudLayout.save()
+		_settings_status("HUD opacity saved"))
+	orow.add_child(osl)
+	vb.add_child(orow)
 	var edit_hud := Button.new()
 	edit_hud.text = "Edit HUD Layout  (F2)"
 	edit_hud.tooltip_text = "Move, scale, hide and re-anchor HUD modules"
@@ -2150,6 +2190,14 @@ func _build_settings() -> void:
 		_settings_panel.visible = false
 		_hud_edit_toggle())
 	vb.add_child(edit_hud)
+	var fit_hud := Button.new()
+	fit_hud.text = "Fit Layout to Screen"
+	fit_hud.tooltip_text = "Pull any module that ended up outside the window back into view"
+	fit_hud.pressed.connect(func() -> void:
+		HudLayout.fit_all_to_screen()
+		HudLayout.save()
+		_settings_status("Layout fitted to screen"))
+	vb.add_child(fit_hud)
 	var reset_hud := Button.new()
 	reset_hud.text = "Reset HUD Layout"
 	reset_hud.tooltip_text = "Restore every HUD module to its default position/scale (audio + window settings untouched)"

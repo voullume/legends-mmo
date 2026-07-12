@@ -253,6 +253,12 @@ static func fit_all_to_screen() -> void:
 	for id in _order:
 		clamp_module(id)
 
+# Settings "HUD opacity": bulk-set every module (each stays individually tunable in F2)
+static func set_all_opacity(v: float) -> void:
+	for id in _order:
+		set_field(id, "opacity", v)
+	mark_custom()
+
 # ---------------------------------------------------------------- profiles
 
 static func profile_names() -> Array:
