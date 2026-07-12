@@ -1,0 +1,102 @@
+# CI for the test suites + clean-database migration verification (stabilization follow-up).
+# Two independent jobs:
+#   godot-tests      — every headless suite in tools/ (stabilization + smoke + feature tests);
+#                      each extends SceneTree and exits non-zero on any failed assertion.
+#   migration-check  — bootstrap a Supabase-stubbed vanilla Postgres, apply EVERY migration in
+#                      filename order, then run tools/migration_check/assertions.sql (privilege
+#                      posture + real plpgsql behavior of the atomic-economy functions).
+# Neither job touches the live Supabase project or deploys anything.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.6.3-stable
+
+jobs:
+  godot-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot binary + import artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot-bin
+            .godot
+          key: godot-${{ env.GODOT_VERSION }}-${{ hashFiles('project.godot', 'models/**') }}
+          restore-keys: godot-${{ env.GODOT_VERSION }}-
+
+      - name: Install Godot (headless)
+        run: |
+          if [ ! -x ~/godot-bin/godot ]; then
+            mkdir -p ~/godot-bin
+            wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip" -O /tmp/godot.zip
+            unzip -q /tmp/godot.zip -d /tmp
+            mv "/tmp/Godot_v${GODOT_VERSION}_linux.x86_64" ~/godot-bin/godot
+            chmod +x ~/godot-bin/godot
+          fi
+          ~/godot-bin/godot --version
+
+      - name: Import assets
+        run: ~/godot-bin/godot --headless --path . --import 2>&1 | tail -3 || true
+
+      - name: Run suites
+        run: |
+          set -u
+          SUITES="stab_auth stab_authority stab_economy stab_econ_atomic stab_sessions stab_protocol stab_trust \
+                  smoke_builder_p0 smoke_builder_p1 smoke_builder_p2 \
+                  test_instancing test_residents test_res_chat test_res_party test_res_reports \
+                  smoke_p2 smoke_p4 smoke_p5 test_heal_events test_procs \
+                  smoke_prediction smoke_snapshot_meta smoke_collision"
+          FAILED=0
+          for t in $SUITES; do
+            out=$(timeout 300 ~/godot-bin/godot --headless --path . --script "res://tools/$t.gd" 2>&1); code=$?
+            errs=$(printf '%s' "$out" | grep -c "SCRIPT ERROR" || true)
+            if [ "$code" != "0" ] || [ "$errs" != "0" ]; then
+              FAILED=1
+              echo "::error::$t failed (exit=$code, script_errors=$errs)"
+              printf '%s\n' "$out" | tail -30
+            else
+              echo "OK  $t  $(printf '%s' "$out" | grep -E 'passed|PASS' | tail -1)"
+            fi
+          done
+          exit $FAILED
+
+  migration-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: migcheck
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: migcheck
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply bootstrap + every migration + assertions on a clean database
+        run: |
+          set -euo pipefail
+          createdb legends_migcheck
+          psql -d legends_migcheck -v ON_ERROR_STOP=1 -q -f tools/migration_check/bootstrap.sql
+          for f in supabase/migrations/*.sql; do
+            echo "applying $f"
+            psql -d legends_migcheck -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+          psql -d legends_migcheck -v ON_ERROR_STOP=1 -q -f tools/migration_check/assertions.sql
+          echo "clean-DB migration check passed"

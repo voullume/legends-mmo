@@ -22,10 +22,13 @@ func submit_ability(key: String, seq: int) -> void:
 	if server != null:
 		server.submit_ability(multiplayer.get_remote_sender_id(), key, seq)
 
+# `hello` carries the protocol handshake ({"protocol": int, "build": String} — see shared/Protocol.gd);
+# the default keeps the RPC arg-count compatible with older clients, which the server then rejects
+# with a useful reason (missing protocol version).
 @rpc("any_peer", "call_remote", "reliable")
-func authenticate(access_token: String) -> void:
+func authenticate(access_token: String, hello: Dictionary = {}) -> void:
 	if server != null:
-		server.authenticate(multiplayer.get_remote_sender_id(), access_token)
+		server.authenticate(multiplayer.get_remote_sender_id(), access_token, hello)
 
 # client re-issues a fresh access token periodically (refresh token never leaves the client)
 @rpc("any_peer", "call_remote", "reliable")
@@ -351,6 +354,13 @@ func recv_bounty_update(bounty_id: String, progress: int, claimed: bool) -> void
 		client.recv_bounty_update(bounty_id, progress, claimed)
 
 # ---- server → client (only the authority may call these) ----
+# a player-facing refusal/kick reason (e.g. "character already online", protocol mismatch), sent
+# reliably just before the server closes the peer — the client pins it on the disconnect overlay.
+@rpc("authority", "call_remote", "reliable")
+func recv_denied(reason: String) -> void:
+	if client != null:
+		client.recv_denied(reason)
+
 @rpc("authority", "call_remote", "unreliable_ordered")
 func receive_snapshot(snap: Dictionary) -> void:
 	if client != null:

@@ -7,6 +7,7 @@ extends "res://client/Client.gd"
 ##   ONLINE — a remote client: intents/snapshots via the Net RPC bridge.
 ##   HOST   — the player who is also hosting: talks to the in-process Server directly.
 
+const NetProtocol := preload("res://shared/Protocol.gd")   # protocol handshake constant (stabilization P5)
 const REAUTH_INTERVAL := 1500.0   # re-issue a fresh access token every 25 min (< ~1h TTL)
 const MOVE_SEND_INTERVAL := 1.0 / 30.0   # cap input sends at the server tick (30 Hz); 60 Hz floods the UDP buffer
 var _move_send_t := 0.0
@@ -5169,17 +5170,32 @@ func _process(delta: float) -> void:
 func _on_connected() -> void:
 	_connected = true
 	_net_msg = ""
-	print("[netclient] connected — authenticating to the zone")
+	_net_msg_final = false
+	print("[netclient] connected — authenticating to the zone (protocol v%d)" % NetProtocol.VERSION)
 	if net != null:
-		net.authenticate.rpc_id(1, access_token)
+		# prefer the LIVE supa token (reauth keeps it fresh) over the boot-time snapshot; the hello
+		# carries the protocol version the server validates before any token work (stabilization P5)
+		var tok: String = supa.access_token if (supa != null and supa.access_token != "") else access_token
+		net.authenticate.rpc_id(1, tok, NetProtocol.hello())
 
 # keep the server's access token fresh without ever sending the refresh token over the wire
 func _do_reauth() -> void:
 	if supa != null and await supa.refresh_session() and net != null:
 		net.reauth.rpc_id(1, supa.access_token)
 
+# server → client: a specific, player-facing refusal reason (single-session refusal, protocol
+# mismatch, auth failure), sent reliably just before the server drops us. STICKY: the generic
+# "Disconnected from the zone." that follows the transport drop must not overwrite the real cause.
+var _net_msg_final := false
+func recv_denied(reason: String) -> void:
+	_net_msg_final = true
+	_net_msg = reason
+	push_warning("[netclient] denied: " + reason)
+
 # shown on the HUD when the connection fails or the server goes away
 func net_error(msg: String) -> void:
+	if _net_msg_final:
+		return                        # a server-sent reason already owns the disconnect overlay
 	_net_msg = msg
 	push_warning("[netclient] " + msg)
 

@@ -16,10 +16,12 @@ extends Node
 
 const NetScript := preload("res://client/Net.gd")
 const ServerScript := preload("res://server/Server.gd")
+const ServerRepoScript := preload("res://server/ServerRepo.gd")
 const ClientScript := preload("res://client/Client.gd")
 const NetClientScript := preload("res://client/NetClient.gd")
 const AccountScript := preload("res://client/Account.gd")
 const SupaScript := preload("res://client/Supabase.gd")
+const NetTrust := preload("res://shared/NetTrust.gd")
 const SERVER_PORT := 7777
 const PUBLIC_HOST := "159.89.132.86"   # exported/distributed builds connect straight here (double-click → online, DTLS)
 
@@ -42,7 +44,14 @@ func _ready() -> void:
 		var ip := _arg_value(args, "--online", "127.0.0.1")
 		print("[boot] ONLINE — account → shared zone @ %s:%d%s" % [ip, port, " · DTLS" if dtls else ""])
 		var tok := _arg_value(args, "--token", "")
+		# --token/--refresh are DEVELOPMENT-ONLY (test automation): command-line arguments are visible
+		# to local process inspection, so they must never carry real credentials — and they are HARD-
+		# disabled in exported builds (same posture as --insecure-dtls in shared/NetTrust.gd).
+		if tok != "" and not OS.has_feature("editor"):
+			print("[boot] ⚠ --token ignored — development-only (run from source)")
+			tok = ""
 		if tok != "":                              # debug: skip the login UI, use a provided token
+			print("[boot] ⚠ DEV token auth: command-line tokens are visible to local process inspection — test accounts only")
 			var supa := SupaScript.new()
 			supa.name = "Supa"
 			add_child(supa)
@@ -74,7 +83,7 @@ func _make_zone_server(port: int, dtls: bool, bind_ip := "") -> void:
 	var net := NetScript.new()
 	net.name = "Net"
 	add_child(net)
-	var supa := SupaScript.new()
+	var supa := ServerRepoScript.new()             # the SERVER-ONLY repository (adds the atomic economy RPCs)
 	supa.name = "Supa"
 	supa.service_key = OS.get_environment("SUPABASE_SERVICE_KEY")   # server-only; bypasses RLS for inventory writes
 	if supa.service_key == "":
@@ -86,7 +95,9 @@ func _make_zone_server(port: int, dtls: bool, bind_ip := "") -> void:
 	server.supa = supa
 	net.server = server
 	add_child(server)
-	server.start(port, dtls, bind_ip)
+	if not server.start(port, dtls, bind_ip):     # refused (port, or the P4 trust policy) → exit non-zero
+		push_error("[boot] zone server failed to start — exiting")
+		get_tree().quit(1)
 
 func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := false) -> void:
 	var net := NetScript.new()
@@ -111,13 +122,25 @@ func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := fal
 	Engine.max_fps = 60
 	_client = client                              # wire logout BEFORE any transport-init early return below, so the
 	client.logout_requested.connect(_on_logout_requested)   # disconnect overlay's "Return to Login" works even then
+	var bargs := OS.get_cmdline_args()
+	bargs.append_array(OS.get_cmdline_user_args())
+	# stabilization P4: transport trust policy (shared/NetTrust.gd). DTLS verifies the server against
+	# the PINNED zone certificate (dev override: --insecure-dtls, from source only); plaintext is
+	# loopback-only unless the EXPLICIT dev --insecure flag is given. Both refusals fail closed.
+	if not dtls and not NetTrust.plaintext_allowed(ip, "--insecure" in bargs):
+		client.net_error("Refusing to send your login over PLAINTEXT to %s. Use --dtls (verified), a VPN, or --insecure to override in development." % ip)
+		return
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_client(ip, port)
 	if err != OK:
 		client.net_error("Could not start client (%d)" % err)
 		return
-	if dtls:                                       # encrypt the link (server self-signed; client encrypts, doesn't verify)
-		var derr := peer.host.dtls_client_setup(ip, TLSOptions.client_unsafe())
+	if dtls:
+		var topts := NetTrust.client_tls_options("--insecure-dtls" in bargs)
+		if topts == null:                          # no pinned cert (or a refused insecure override) → fail closed
+			client.net_error("Secure connection unavailable: this build has no trusted server certificate. Update the client (developers: run from source with --insecure-dtls).")
+			return
+		var derr := peer.host.dtls_client_setup(ip, topts)
 		if derr != OK:
 			client.net_error("DTLS setup failed (%d)" % derr)
 			return

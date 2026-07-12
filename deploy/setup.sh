@@ -24,10 +24,10 @@ IMAGE_REF="${IMAGE_REF:-ghcr.io/voullume/legends-mmo:latest}"   # prebuilt image
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo -E bash setup.sh)"; exit 1; }
 
-echo "==> [1/5] Docker"
+echo "==> [1/6] Docker"
 command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
 
-echo "==> [2/5] Code"
+echo "==> [2/6] Code"
 command -v git >/dev/null 2>&1 || { apt-get update -y && apt-get install -y git; }
 if [ -d "$APP_DIR/.git" ]; then
   # re-deploy: update to the latest main from the already-configured remote (no REPO_URL needed)
@@ -54,7 +54,7 @@ case "${SUPABASE_SERVICE_KEY:-}" in
      exit 1 ;;
 esac
 
-echo "==> [3/5] Image — pull the CI-built image (fast, no on-box build); build locally only as a fallback"
+echo "==> [3/6] Image — pull the CI-built image (fast, no on-box build); build locally only as a fallback"
 if docker pull "$IMAGE_REF" >/dev/null 2>&1; then
   IMAGE="$IMAGE_REF"
   echo "    using prebuilt $IMAGE_REF"
@@ -64,14 +64,33 @@ else
   docker build -t "$IMAGE" .
 fi
 
-echo "==> [4/5] Firewall (allow SSH + UDP $PORT, if ufw is in use)"
+echo "==> [4/6] Firewall (allow SSH + UDP $PORT, if ufw is in use)"
 if command -v ufw >/dev/null 2>&1; then ufw allow OpenSSH >/dev/null 2>&1 || true; ufw allow "${PORT}/udp" >/dev/null 2>&1 || true; fi
 
-echo "==> [5/5] Run (detached, auto-restart on reboot, DTLS on)"
+echo "==> [5/6] Persistent DTLS certificate (stabilization P4 — production refuses to start without one)"
+CERT_DIR="${CERT_DIR:-/opt/legends-certs}"
+if [ ! -f "$CERT_DIR/zone.key" ]; then
+  command -v openssl >/dev/null 2>&1 || { apt-get update -y && apt-get install -y openssl; }
+  bash "$APP_DIR/deploy/gen_zone_cert.sh" "$CERT_DIR"
+  NEW_CERT=1
+else
+  echo "    reusing existing keypair in $CERT_DIR (rotate with deploy/gen_zone_cert.sh)"
+  NEW_CERT=0
+fi
+
+echo "==> [6/6] Run (detached, auto-restart on reboot, DTLS + pinned certificate)"
 docker rm -f legends-zone >/dev/null 2>&1 || true
 docker run -d --name legends-zone --restart unless-stopped \
   -e SUPABASE_SERVICE_KEY="$SUPABASE_SERVICE_KEY" -e PORT="$PORT" \
+  -v "$CERT_DIR":/certs:ro \
+  -e LEGENDS_DTLS_CERT=/certs/zone.crt -e LEGENDS_DTLS_KEY=/certs/zone.key \
   -p "${PORT}:${PORT}/udp" "$IMAGE"
+
+if [ "$NEW_CERT" = "1" ]; then
+  echo ""
+  echo "!!! NEW certificate generated — clients can only connect once they pin it:"
+  echo "    copy $CERT_DIR/zone.crt into the repo as client/zone_cert.pem, commit, and re-export the client builds."
+fi
 
 IP="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo '<this-VPS-IP>')"
 cat <<EOF

@@ -18,6 +18,8 @@ extends Node
 ## (SUPABASE_SERVICE_KEY env var) — clients are denied direct writes, so items can't be forged.
 
 const Sim := preload("res://shared/Sim.gd")
+const NetTrust := preload("res://shared/NetTrust.gd")
+const Protocol := preload("res://shared/Protocol.gd")
 const GameData := preload("res://shared/GameData.gd")
 const Geom := preload("res://shared/Geom.gd")
 const Rng := preload("res://shared/Rng.gd")
@@ -170,6 +172,8 @@ var _worlds: Dictionary = {}        # map name → independent sim state
 var _peers: Array = []
 var _authing := {}
 var _session := {}                  # peer id → {fid, access, char_id, name, xp, level, map}
+var _char_peer := {}                # character id → controlling peer id — the SINGLE-ACTIVE-SESSION claim
+									# (stabilization P2). One character, one live peer, per server process.
 var _move := {}
 var _pending_ability := {}
 var _last_aseq := {}
@@ -185,6 +189,7 @@ var _equip_next := {}              # peer id → earliest ms it may equip again 
 var _fseq := 0
 var _acc := 0.0
 var _save_t := 0.0
+var _save_fail_n := 0              # observability: count of failed character saves (never silently "ok")
 var _snap_count := 0
 const META_HEARTBEAT := 30            # re-ship the quasi-static snapshot META at least this often (~1s) so a
 var _meta_hash := {}                  # dropped unreliable packet can't strand a client on a stale sheet/pads
@@ -205,41 +210,207 @@ func start(port := PORT, use_dtls := false, bind_ip := "") -> bool:
 	if err != OK:
 		push_error("[zone] create_server(%d) failed: %d" % [port, err])
 		return false
-	if use_dtls:                                 # encrypt the transport with a fresh self-signed cert
-		var crypto := Crypto.new()
-		var key := crypto.generate_rsa(2048)
-		var cert := crypto.generate_self_signed_certificate(key, "CN=legends-zone,O=Legends,C=US")
-		var derr := peer.host.dtls_server_setup(TLSOptions.server(key, cert))
+	if use_dtls:                                 # stabilization P4: trust policy lives in shared/NetTrust.gd
+		var tls := NetTrust.server_tls_options() # production: operator cert REQUIRED; dev: self-signed fallback
+		if tls == null:
+			push_error("[zone] DTLS trust configuration missing/invalid — server NOT started (fail closed)")
+			return false
+		var derr := peer.host.dtls_server_setup(tls)
 		if derr != OK:
 			push_error("[zone] DTLS setup failed: %d" % derr)
 			return false
+	elif _is_production():
+		push_error("[zone] PRODUCTION refuses to run PLAINTEXT — start with --dtls and the operator certificate (see docs/stabilization.md)")
+		return false
 	multiplayer.multiplayer_peer = peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	Engine.max_fps = 60
+	init_worlds()
+	print("[zone] online on UDP %d  (%d zones, %d mobs, %d residents%s)" % [port, _worlds.size(), _mob_count(), RESIDENTS.size(), "  · DTLS" if use_dtls else ""])
+	_check_service_key()                         # verify loot/equip will be able to save
+	_probe_atomic_econ()                         # P3: detect the DB-side atomic economy functions
+	return true
+
+# Build the in-memory game state (loot rng, one independent sim per static zone, world actors, AI
+# residents) without touching the transport — split from start() so the headless stabilization tests
+# (tools/stab_*.gd) can boot a complete server with no ENet peer and no live Supabase.
+func init_worlds() -> void:
 	# vary loot per launch with process-unique, high-res entropy (no same-second seed collisions)
 	_loot_rng = Rng.new(int(Time.get_unix_time_from_system()) ^ Time.get_ticks_usec() ^ (OS.get_process_id() << 13))
-	Engine.max_fps = 60
 	for mapname in World.MAPS:                   # one independent sim per STATIC zone (instance templates are
 		if World.is_instance_template(mapname):  # spun up on demand per party, not created here)
 			continue
 		_worlds[mapname] = _new_world(mapname)
 	_spawn_world_actors()                        # the home dummy + every combat zone's mob camps
 	_spawn_residents()                           # the AI residents (RP0)
-	print("[zone] online on UDP %d  (%d zones, %d mobs, %d residents%s)" % [port, _worlds.size(), _mob_count(), RESIDENTS.size(), "  · DTLS" if use_dtls else ""])
-	_check_service_key()                         # verify loot/equip will be able to save
-	return true
 
 # On boot, confirm the service_role key can actually write our inventory table (loot/equip).
-# Logs a clear ✓/✗ in `docker logs` so a wrong/stale key is obvious instead of silent 0-loot.
+# Logs a clear ✓/✗ in `docker logs` (status only — NEVER the key itself). In PRODUCTION a missing or
+# invalid key is fatal (stabilization P6): a zone that can't persist must not accept players.
 func _check_service_key() -> void:
 	if supa == null or supa.service_key == "":
+		if _is_production():
+			push_error("[zone] ✗ SUPABASE_SERVICE_KEY missing in PRODUCTION — a non-persisting zone must not run. Exiting.")
+			get_tree().quit(1)
+			return
 		print("[zone] ✗ SUPABASE_SERVICE_KEY not set — loot/equip will NOT save.")
 		return
 	var r = await supa._http(HTTPClient.METHOD_GET, "/rest/v1/inventory?select=id&limit=1", "", PackedStringArray(), supa.service_key)
 	if int(r.get("code", 0)) == 200:
 		print("[zone] ✓ SUPABASE_SERVICE_KEY valid for this project — loot/equip will save.")
+	elif _is_production():
+		push_error("[zone] ✗ SUPABASE_SERVICE_KEY INVALID (HTTP %s) in PRODUCTION — exiting so the supervisor surfaces it." % str(r.get("code")))
+		get_tree().quit(1)
 	else:
 		print("[zone] ✗ SUPABASE_SERVICE_KEY INVALID (HTTP %s) — loot/equip will NOT save. Redeploy with the correct service_role key." % str(r.get("code")))
+
+# ---- stabilization P3: atomic + idempotent economy ------------------------------------------------
+# When the DB-side economy functions (migration 20260714000000_stab_atomic_economy.sql) are present,
+# every currency↔item exchange runs as ONE Postgres transaction keyed by a server-generated op id
+# (retry-safe via the DB op ledger), and credits/practice_tokens become DB-authoritative: the session
+# holds a MIRROR (last DB balance + not-yet-flushed award buckets) and _save_one stops PATCHing them
+# absolutely. Without the functions: development falls back to the legacy application-level paths
+# (loud warning); PRODUCTION fails closed (economy ops refused) rather than running the unsafe path.
+var _atomic_econ := false             # detected at boot by _probe_atomic_econ()
+var _legacy_econ_warned := false
+var _crypto: Crypto = null            # op-id generator (idempotency keys)
+
+func _is_production() -> bool:
+	return NetTrust.is_production()
+
+# a fresh UUIDv4 operation id — the idempotency key the DB op ledger dedupes on
+func _op_id() -> String:
+	if _crypto == null:
+		_crypto = Crypto.new()
+	var b := _crypto.generate_random_bytes(16)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	var h := b.hex_encode()
+	return "%s-%s-%s-%s-%s" % [h.substr(0, 8), h.substr(8, 4), h.substr(12, 4), h.substr(16, 4), h.substr(20, 12)]
+
+func _probe_atomic_econ() -> void:
+	if supa == null or not supa.has_method("econ_available"):
+		return
+	_atomic_econ = await supa.econ_available()
+	if _atomic_econ:
+		print("[zone] ✓ atomic economy functions live (P3) — purchases/sells/forge run in-DB")
+	elif _is_production():
+		print("[zone] ✗ atomic economy functions MISSING in PRODUCTION — economy ops will be REFUSED (fail closed). Apply supabase/migrations/20260714000000_stab_atomic_economy.sql, then restart.")
+	else:
+		print("[zone] ⚠ atomic economy functions missing — DEV fallback to the legacy application-level economy paths")
+
+# legacy (pre-migration) economy paths are allowed only OUTSIDE production; production fails closed.
+func _legacy_econ_allowed() -> bool:
+	if _is_production():
+		print("[zone] ✗ economy op refused — atomic economy functions missing in production (fail closed)")
+		return false
+	if not _legacy_econ_warned:
+		_legacy_econ_warned = true
+		print("[zone] ⚠ DEV: legacy (non-atomic) economy path in use — apply the stab_atomic_economy migration to exercise the atomic path")
+	return true
+
+# atomic mode: the session currency values are a MIRROR = the DB balance an econ fn just returned
+# + the award deltas still waiting to flush. Every econ-fn result routes through here.
+func _econ_sync_currency(s: Dictionary, r: Dictionary) -> void:
+	var open: Dictionary = s.get("award_open", {})
+	var pkt: Dictionary = s.get("award_packet", {})
+	if r.has("credits"):
+		s["credits"] = int(r["credits"]) + int(open.get("credits", 0)) + int(pkt.get("credits", 0))
+	if r.has("tokens"):
+		s["tokens"] = int(r["tokens"]) + int(open.get("tokens", 0)) + int(pkt.get("tokens", 0))
+	if r.has("scrap"):
+		s["scrap"] = int(r["scrap"])
+
+# ---- per-session ECON GATE: at most ONE balance-returning DB op in flight per session. Without it
+# an award flush and a purchase could overlap, and their returned balance snapshots would apply to
+# the mirror in RESPONSE order rather than DB-commit order (transient over/under display, spurious
+# insufficient refusals). Every atomic-branch econ call and every award flush holds the gate. ----
+func _econ_begin(s: Dictionary) -> void:
+	while bool(s.get("_econ_inflight", false)):
+		await get_tree().process_frame          # WAIT (never skip): ordering is what keeps the mirror sane
+	s["_econ_inflight"] = true
+
+func _econ_end(s: Dictionary) -> void:
+	s["_econ_inflight"] = false
+
+# award packets whose owning session disconnected before their flush landed — retried from the save
+# tick with the SAME op id (the DB op ledger makes every retry idempotent, so this can never double-pay)
+var _orphan_awards: Array = []
+const ORPHAN_AWARD_MAX_TRIES := 40             # ~10 min at the 15 s save cadence, then drop with a log
+
+func _queue_orphan_award(s: Dictionary) -> void:
+	var pkt: Dictionary = s.get("award_packet", {})
+	if not pkt.is_empty():
+		_orphan_awards.append({"op": str(pkt["op"]), "char_id": str(s["char_id"]),
+			"credits": int(pkt.get("credits", 0)), "tokens": int(pkt.get("tokens", 0)), "tries": 0})
+		s.erase("award_packet")
+	var open: Dictionary = s.get("award_open", {})
+	if int(open.get("credits", 0)) != 0 or int(open.get("tokens", 0)) != 0:
+		_orphan_awards.append({"op": _op_id(), "char_id": str(s["char_id"]),
+			"credits": int(open.get("credits", 0)), "tokens": int(open.get("tokens", 0)), "tries": 0})
+		s["award_open"] = {"credits": 0, "tokens": 0}
+
+func _retry_orphan_awards() -> void:
+	if _orphan_awards.is_empty() or not _atomic_econ or supa == null:
+		return
+	var batch: Array = _orphan_awards          # swap so a slow retry can't race the next save tick
+	_orphan_awards = []
+	for e in batch:
+		var r = await supa.econ_award(str(e["op"]), str(e["char_id"]), int(e["credits"]), int(e["tokens"]))
+		if bool(r.get("ok", false)) or str(r.get("reason", "")) == "no_character":
+			continue                            # landed (possibly as a ledger duplicate) or unrecoverable
+		e["tries"] = int(e["tries"]) + 1
+		if int(e["tries"]) >= ORPHAN_AWARD_MAX_TRIES:
+			print("[zone] ⚠ dropping orphaned award packet for %s after %d failed retries (%d cr / %d tk)" % [
+				str(e["char_id"]), int(e["tries"]), int(e["credits"]), int(e["tokens"])])
+			continue
+		_orphan_awards.append(e)
+
+# flush pending kill/quest/drill awards as ONE idempotent DB delta (econ_award). A transport-failed
+# packet is KEPT and retried with the SAME op id on the next flush — the op ledger makes the retry
+# safe (never double-credits). New awards accrued meanwhile go to a fresh bucket/op. If the owning
+# session has disconnected (_gone), a failed packet is handed to the orphan retry queue instead.
+func _flush_awards(s: Dictionary) -> void:
+	if not _atomic_econ or supa == null:
+		return
+	await _econ_begin(s)
+	var pkt: Dictionary = s.get("award_packet", {})
+	if pkt.is_empty():
+		var open: Dictionary = s.get("award_open", {})
+		var c := int(open.get("credits", 0))
+		var t := int(open.get("tokens", 0))
+		if c == 0 and t == 0:
+			_econ_end(s)
+			return
+		pkt = {"op": _op_id(), "credits": c, "tokens": t}
+		s["award_packet"] = pkt
+		s["award_open"] = {"credits": 0, "tokens": 0}
+	var r = await supa.econ_award(str(pkt["op"]), str(s["char_id"]), int(pkt["credits"]), int(pkt["tokens"]))
+	_econ_end(s)
+	if bool(r.get("ok", false)):
+		s.erase("award_packet")
+		if not bool(r.get("duplicate", false)):
+			_econ_sync_currency(s, r)           # a replayed result carries the ORIGINAL commit's balance —
+												# never overwrite a mirror that may have moved since
+	elif bool(s.get("_gone", false)):
+		_queue_orphan_award(s)                  # nobody will flush this dead session again — background retry
+
+# atomic buy (shop / roll / vendor): debit + mint in one DB transaction — no refund path needed.
+func _give_and_charge_atomic(pid: int, item: Dictionary, price_credits: int, price_tokens: int) -> void:
+	var s = _session[pid]
+	await _flush_awards(s)                            # make the DB balance current before the guarded debit
+	await _econ_begin(s)
+	var r = await supa.econ_buy_item(_op_id(), str(s["char_id"]), price_credits, price_tokens, item)
+	_econ_end(s)
+	if bool(r.get("ok", false)):
+		_econ_sync_currency(s, r)
+		if net != null and _session.has(pid):
+			net.recv_loot.rpc_id(pid, str(item["name"]), str(item["rarity"]), str(item["slot"]), int(item["bonus_amt"]), str(item["bonus_stat"]))
+			net.recv_inventory_changed.rpc_id(pid)
+	if not _session.has(pid):
+		_save_one(s, _find(s["fid"]))                 # deferred-save contract: the disconnect handler skipped
+													  # its logout save while our busy-lock was held
 
 # A world key is either a static map name ("home") or an instance key ("camp#<owner>"). The TEMPLATE is the
 # static prefix — all World.gd lookups (cfg/obstacles/portals/mobs/spawn) resolve by template so every instance
@@ -917,6 +1088,24 @@ func _do_respec_talents(pid: int) -> void:
 		return                                    # nothing allocated → no charge
 	if int(s.get("credits", 0)) < GameData.TALENT_RESPEC_CREDITS:
 		return                                    # can't afford
+	if _atomic_econ:
+		await _flush_awards(s)
+		await _econ_begin(s)
+		var ar = await supa.econ_respec_talents(_op_id(), str(s["char_id"]), GameData.TALENT_RESPEC_CREDITS)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			s["talents"] = {}
+			s["talent_spent"] = 0
+			if _session.has(pid):
+				await _apply_equipment(pid)       # strip the talent stat layer (peer still present)
+			if net != null and _session.has(pid):
+				net.recv_talents.rpc_id(pid, {}, 0)
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))         # deferred-save contract (busy-lock skipped the logout save)
+		return
+	if not _legacy_econ_allowed():
+		return
 	s["credits"] = int(s["credits"]) - GameData.TALENT_RESPEC_CREDITS   # deduct-before-write
 	var ok: bool = await supa.talents_respec_as(str(s["char_id"]))
 	# ALWAYS reconcile (even if the peer left mid-await) — the captured `s` owns this op's terminal credit save, and
@@ -1109,6 +1298,22 @@ func _do_buy_cosmetic(pid: int, dye_id: String) -> void:
 	var price := int(GameData.DYE_CATALOG[dye_id]["price"])
 	if int(s.get("credits", 0)) < price:
 		return
+	if _atomic_econ:
+		await _flush_awards(s)
+		await _econ_begin(s)
+		var ar = await supa.econ_buy_cosmetic(_op_id(), str(s["char_id"]), dye_id, price)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			if not (dye_id in (s.get("cos_owned", []) as Array)):
+				(s["cos_owned"] as Array).append(dye_id)
+			if net != null and _session.has(pid):
+				net.recv_cosmetics_changed.rpc_id(pid, (s["cos_owned"] as Array).duplicate(), str(s.get("cos_dye", "")))
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))                 # deferred-save contract (busy-lock skipped the logout save)
+		return
+	if not _legacy_econ_allowed():
+		return
 	s["credits"] = int(s["credits"]) - price          # deduct up front; refund if the grant fails
 	var ok: bool = await supa.cosmetics_grant_as(str(s["char_id"]), dye_id)
 	if not ok:                                        # already owned / write failed → refund + persist
@@ -1227,6 +1432,20 @@ func _do_buy_locker_room(pid: int) -> void:
 		return                                        # already owned — no charge, no-op (also blocks a re-buy)
 	if int(s.get("credits", 0)) < LOCKER_UNLOCK_COST:
 		return                                        # server-authoritative affordability check
+	if _atomic_econ:
+		await _flush_awards(s)
+		await _econ_begin(s)
+		var ar = await supa.econ_unlock_locker(_op_id(), str(s["char_id"]), LOCKER_UNLOCK_COST)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			s["locker_unlocked"] = true               # (captured dict — correct even if the peer just left)
+			print("[zone] %s unlocked their Locker Room (−%d cr) — credits→%d" % [s.get("name", "?"), LOCKER_UNLOCK_COST, int(s["credits"])])
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))             # deferred-save contract (busy-lock skipped the logout save)
+		return
+	if not _legacy_econ_allowed():
+		return
 	s["credits"] = int(s["credits"]) - LOCKER_UNLOCK_COST   # deduct up front; refund if the flip fails
 	var ok: bool = await supa.locker_unlock_as(str(s["char_id"]))   # atomic false→true; true ONLY if WE flipped it
 	if not ok:                                        # already unlocked (another session) / write failed → refund + persist
@@ -1334,6 +1553,22 @@ func _do_build_buy(pid: int, model: String) -> void:
 			model_owned += 1
 	if not _build_within_caps(owned, model_owned):
 		return                                        # at the 50 total or 20 per-model cap → no-op
+	if _atomic_econ:
+		await _flush_awards(s)
+		var bitem := {"category": "build", "model": model, "name": model, "rarity": "common", "slot": "build"}
+		await _econ_begin(s)
+		var ar = await supa.econ_buy_item(_op_id(), str(s["char_id"]), price, 0, bitem)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			if net != null and _session.has(pid):
+				net.recv_inventory_changed.rpc_id(pid)
+			print("[zone] %s bought build item '%s' (−%d cr)" % [s.get("name", "?"), model, price])
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))             # deferred-save contract (busy-lock skipped the logout save)
+		return
+	if not _legacy_econ_allowed():
+		return
 	s["credits"] = int(s["credits"]) - price          # deduct up front; refund if the insert fails
 	var r = await supa.add_build_item_as(str(s["char_id"]), model)
 	if not r.get("ok"):
@@ -1611,6 +1846,25 @@ func _maybe_award_season(pid: int) -> void:
 		_session[pid]["last_season"] = cur
 
 # ---- connection / auth ----
+# transport seams (overridden by the headless stabilization tests, which run with no ENet peer):
+# is this peer still connected at the transport layer?
+func _peer_live(pid: int) -> bool:
+	return multiplayer.has_multiplayer_peer() and (pid in multiplayer.get_peers())
+
+# drop a peer. `reason` is a non-sensitive, player-facing explanation (logged; delivered to the
+# client via the deny channel where one exists).
+func _kick(pid: int, reason := "") -> void:
+	if reason != "":
+		print("[zone] kicking peer %d — %s" % [pid, reason])
+		if net != null:                          # tell the player WHY before the drop (reliable; ENet
+			net.recv_denied.rpc_id(pid, reason)  # flushes queued packets on a non-forced disconnect)
+	_transport_kick(pid)
+
+# transport seam: actually drop the peer (overridden by the headless tests, which have no ENet peer)
+func _transport_kick(pid: int) -> void:
+	if multiplayer.has_multiplayer_peer():
+		multiplayer.multiplayer_peer.disconnect_peer(pid)
+
 func _on_peer_connected(pid: int) -> void:
 	print("[zone] peer %d connected — awaiting auth" % pid)
 
@@ -1619,6 +1873,9 @@ func _on_peer_disconnected(pid: int) -> void:
 	if not _session.has(pid):
 		return
 	var s = _session[pid]                        # capture before erasing (the save coroutine holds it)
+	s["_gone"] = true                            # in-flight econ coroutines route failed award packets to the orphan queue
+	if int(_char_peer.get(str(s["char_id"]), -1)) == pid:   # release the single-session claim (P2);
+		_char_peer.erase(str(s["char_id"]))                 # the == pid guard never frees another peer's claim
 	if supa != null:                             # gameplay-length P1(d): persist remaining rested pool + stamp offline time
 		supa.progression_rest_logout_as(str(s["char_id"]), int(s.get("rested_xp", 0)))
 	if supa != null and int(s.get("overtime_xp", 0)) > 0:   # gameplay-length P5: flush the running paragon Overtime (monotonic greatest() → safe even if a level flush already ran)
@@ -1687,19 +1944,45 @@ func _on_peer_disconnected(pid: int) -> void:
 	_build_next.erase(pid)
 	print("[zone] peer %d left" % pid)
 
-func authenticate(pid: int, access: String, _refresh: String = "") -> void:
+func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 	if pid in _peers or _authing.has(pid) or supa == null:
+		return
+	# ---- PROTOCOL GATE (stabilization P5): validate the client's protocol version BEFORE any token
+	# work. Missing/older/newer all refuse with a player-facing reason; nothing (no DB call, no
+	# session, no claim) happens for an incompatible client. Bump rules: shared/Protocol.gd. ----
+	var pv := Protocol.hello_version(hello)
+	if not Protocol.compatible(pv):
+		if pv == 0:
+			_kick(pid, "This client is out of date (no protocol version; server runs v%d). Please update your client." % Protocol.VERSION)
+		elif pv < Protocol.VERSION:
+			_kick(pid, "This client is out of date (protocol v%d, server v%d). Please update your client." % [pv, Protocol.VERSION])
+		else:
+			_kick(pid, "This client (protocol v%d) is newer than the server (v%d) — the zone needs an update." % [pv, Protocol.VERSION])
 		return
 	_authing[pid] = true
 	var res = await supa.get_character_as(access)
 	_authing.erase(pid)
-	if not (pid in multiplayer.get_peers()) or pid in _peers:
+	if not _peer_live(pid) or pid in _peers:
 		return
 	if not res.get("ok") or res.get("character") == null:
 		print("[zone] peer %d auth failed (%s) — kicking" % [pid, res.get("error", "no character")])
-		multiplayer.multiplayer_peer.disconnect_peer(pid)
+		_kick(pid, "Authentication failed — please sign in again.")
 		return
 	var ch = res["character"]
+	# ---- SINGLE ACTIVE SESSION (stabilization P2): one character, one controlling peer. Policy:
+	# REJECT the second connection (no takeover). The check-and-claim below has NO await between the
+	# lookup and the write, and the claim→session creation below is likewise await-free — so two
+	# in-flight authentications for the same character resolve deterministically to ONE winner, and a
+	# claim can never exist without its session (the disconnect handler releases both together). ----
+	var claim_cid := str(ch["id"])
+	if _char_peer.has(claim_cid):
+		var holder := int(_char_peer[claim_cid])
+		if _session.has(holder):                 # live holder → refuse the newcomer, keep the session
+			print("[zone] peer %d refused — character '%s' already online as peer %d" % [pid, ch.get("name", "?"), holder])
+			_kick(pid, "That character is already online from another connection. Log the other session out first (a dropped session frees up within ~30s).")
+			return
+		_char_peer.erase(claim_cid)              # stale claim with no session (defensive) → reclaimable
+	_char_peer[claim_cid] = pid
 	# defensive clamps: characters is server-authoritative for economy/progression, but clamp on load so a
 	# malformed/tampered DB row can never grant god-mode HP (huge level) or negative currency. (See the
 	# characters_guard_progression migration — the DB pins these columns against non-service-role writes.)
@@ -1771,10 +2054,14 @@ func authenticate(pid: int, access: String, _refresh: String = "") -> void:
 				_relocate(gpf, _session[pid], World.HOME, World.HOME_SPAWN)
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
 		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
+		if not _session.has(pid):                     # the peer may drop during the admin lookup — bail
+			return                                    # (was an unguarded _session[pid] → script error)
 		_session[pid]["admin"] = is_admin
 		if is_admin and net != null:
 			net.recv_admin.rpc_id(pid, true)
 			print("[zone] %s authenticated as ADMIN" % ch.get("name", "?"))
+	if not _session.has(pid):
+		return
 	print("[zone] %s (%s, lvl %d) joined as %s in '%s' — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _session[pid]["map"], _peers.size()])
 
 func reauth(pid: int, access: String) -> void:
@@ -2133,14 +2420,26 @@ func _mob_credits(mob) -> int:
 	return int(base * _intensity_reward(mob))    # Circuit Intensity scales the payout (1.0 for open-world mobs)
 
 func _award_credits(pid: int, amt: int) -> void:
-	if _session.has(pid):
-		_session[pid]["credits"] = int(_session[pid]["credits"]) + amt
+	if not _session.has(pid) or amt == 0:
+		return
+	var s = _session[pid]
+	s["credits"] = int(s["credits"]) + amt
+	if _atomic_econ:                             # P3: queue the delta for the idempotent DB flush.
+		var open: Dictionary = s.get("award_open", {"credits": 0, "tokens": 0})   # NEGATIVE deltas ride too
+		open["credits"] = int(open.get("credits", 0)) + amt                       # (admin corrections) — the
+		s["award_open"] = open                                                    # DB floors the result at 0
 
 # Practice Tokens (Glitchyard reward loop). Awarded in-session; persistence rides the _save_one in the
 # _award_xp call that follows every kill (practice_tokens is in the saved fields). Tier-scaled.
 func _award_tokens(pid: int, amt: int) -> void:
-	if amt > 0 and _session.has(pid):
-		_session[pid]["tokens"] = int(_session[pid].get("tokens", 0)) + amt
+	if amt <= 0 or not _session.has(pid):
+		return
+	var s = _session[pid]
+	s["tokens"] = int(s.get("tokens", 0)) + amt
+	if _atomic_econ:                             # P3: queue the delta for the idempotent DB flush
+		var open: Dictionary = s.get("award_open", {"credits": 0, "tokens": 0})
+		open["tokens"] = int(open.get("tokens", 0)) + amt
+		s["award_open"] = open
 
 func _mob_tokens(mob) -> int:
 	var tier := str(mob.get("mobTier", "minion"))
@@ -2275,7 +2574,10 @@ func _do_vendor_buy(pid: int, slot: String) -> void:
 		return                                                # unknown piece or not enough tokens — no-op
 	var item: Dictionary = (entry as Dictionary).duplicate()
 	item.erase("price")                                       # "price" is display-only, not an inventory column
-	await _give_and_charge_tokens(pid, item, int(entry["price"]))
+	if _atomic_econ:
+		await _give_and_charge_atomic(pid, item, 0, int(entry["price"]))
+	elif _legacy_econ_allowed():
+		await _give_and_charge_tokens(pid, item, int(entry["price"]))
 
 func _give_and_charge_tokens(pid: int, item: Dictionary, price: int) -> void:
 	var s = _session[pid]
@@ -2364,6 +2666,14 @@ func _rarity_mult(rarity: String) -> int:
 			return int(r["mult"])
 	return 1
 
+# roll a recipe's output item (unique recipes draw a random unique; the rest a random slot).
+# Shared by the atomic and legacy craft paths so the roll logic can't drift between them.
+func _roll_recipe_item(recipe) -> Dictionary:
+	if bool(recipe.get("unique", false)):                    # forge_unique → a random unique (P6)
+		return _make_unique(GameData.UNIQUE_IDS[_loot_rng.next_int(GameData.UNIQUE_IDS.size())], int(recipe.get("ilvl", SHOP_ILVL)))
+	var slot: String = (LOOT_SLOTS.keys())[_loot_rng.next_int(LOOT_SLOTS.size())]
+	return _make_item(slot, str(recipe["rarity"]), int(recipe.get("ilvl", SHOP_ILVL)))
+
 func shop_buy(pid: int, slot: String, rarity: String) -> void:
 	if not _shop_lock(pid):
 		return
@@ -2399,7 +2709,10 @@ func _do_shop_buy(pid: int, slot: String, rarity: String) -> void:
 		return
 	var item: Dictionary = (entry as Dictionary).duplicate()
 	item.erase("price")                                       # "price" is display-only, not an inventory column
-	await _give_and_charge(pid, item, int(entry["price"]))
+	if _atomic_econ:
+		await _give_and_charge_atomic(pid, item, int(entry["price"]), 0)
+	elif _legacy_econ_allowed():
+		await _give_and_charge(pid, item, int(entry["price"]))
 
 func _do_shop_roll(pid: int, rarity: String) -> void:
 	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not ROLL_PRICE.has(rarity):
@@ -2408,7 +2721,11 @@ func _do_shop_roll(pid: int, rarity: String) -> void:
 		return
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	await _give_and_charge(pid, _make_item(slot, rarity, SHOP_ILVL), int(ROLL_PRICE[rarity]))   # rolls carry affixes
+	var rolled := _make_item(slot, rarity, SHOP_ILVL)         # rolls carry affixes
+	if _atomic_econ:
+		await _give_and_charge_atomic(pid, rolled, int(ROLL_PRICE[rarity]), 0)
+	elif _legacy_econ_allowed():
+		await _give_and_charge(pid, rolled, int(ROLL_PRICE[rarity]))
 
 # bulk sell: ONE locked, serialized loop of atomic per-row deletes, crediting each row the instant it's
 # removed, then ONE save + push. Dupe-safe by construction — see the per-row note below and the §2 contract.
@@ -2428,6 +2745,27 @@ func _do_shop_sell_many(pid: int, item_ids: Array) -> void:
 			if ids.size() >= 50:
 				break
 	if ids.is_empty():
+		return
+	if _atomic_econ:
+		# ONE transaction: every owned/unequipped/unlocked row is removed and the payout credited
+		# together — retry-safe via the op ledger, and a crash mid-op can't strand a paid-but-present
+		# (or removed-but-unpaid) item.
+		await _flush_awards(s)
+		await _econ_begin(s)
+		var ar = await supa.econ_sell_items(_op_id(), str(s["char_id"]), ids, SELL_PRICE)
+		_econ_end(s)
+		var sold_n := 0
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			sold_n = (ar.get("sold", []) as Array).size()
+		if _session.has(pid) and sold_n > 0:
+			await _apply_equipment(pid)                       # defensive re-derive (equipped is never sold)
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))                     # deferred-save contract: the leaver's xp/level
+		if net != null and _session.has(pid):
+			net.recv_inventory_changed.rpc_id(pid)
+		return
+	if not _legacy_econ_allowed():
 		return
 	var sold := 0
 	for id in ids:
@@ -2495,6 +2833,20 @@ func _do_salvage_many(pid: int, item_ids: Array) -> void:
 				break
 	if ids.is_empty():
 		return
+	if _atomic_econ:
+		var yields := {}                                      # per-rarity scrap, perk multiplier pre-applied
+		for rk in SALVAGE_YIELD:
+			yields[rk] = maxi(1, int(round(float(int(SALVAGE_YIELD[rk])) * _par_mult(pid, "payroll_scrap"))))
+		await _econ_begin(s)
+		var ar = await supa.econ_salvage_items(_op_id(), str(s["char_id"]), ids, yields)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+		if net != null and _session.has(pid):
+			net.recv_inventory_changed.rpc_id(pid)
+		return
+	if not _legacy_econ_allowed():
+		return
 	for id in ids:
 		var r = await supa.sell_item_safe_as(s["char_id"], id)   # same atomic delete → no double-yield
 		if r.get("ok"):
@@ -2543,6 +2895,25 @@ func _do_forge_upgrade(pid: int, item_id: String) -> void:
 	var scrap_cost := _rarity_mult(rarity) * (lvl + 1)
 	if int(s["credits"]) < credit_cost:
 		return
+	var new_ip := int(item.get("item_power", 0)) + UPGRADE_STEP
+	if _atomic_econ:
+		# ONE transaction: gated item patch + credits + scrap — a stale/duplicate request matches no
+		# row and spends nothing; there is no partial state to refund.
+		await _flush_awards(s)
+		await _econ_begin(s)
+		var ar = await supa.econ_forge_upgrade(_op_id(), str(s["char_id"]), item_id, lvl, new_ip, credit_cost, scrap_cost)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			if _session.has(pid):
+				await _apply_equipment(pid)                   # the item may be equipped → raised cap applies
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))                     # deferred-save contract for a mid-op leaver
+		if net != null and _session.has(pid):
+			net.recv_inventory_changed.rpc_id(pid)
+		return
+	if not _legacy_econ_allowed():
+		return
 	var mr = await supa.mats_add_as(s["char_id"], -scrap_cost)   # spend scrap atomically (ok=false → insufficient)
 	if not mr.get("ok"):
 		return                                                  # nothing was spent → safe to bail
@@ -2550,7 +2921,6 @@ func _do_forge_upgrade(pid: int, item_id: String) -> void:
 	# upgrade-or-refund flow below (it uses the captured char_id + session dict, not a live connection).
 	s["scrap"] = int(mr["total"])
 	s["credits"] = int(s["credits"]) - credit_cost              # deduct credits before the write
-	var new_ip := int(item.get("item_power", 0)) + UPGRADE_STEP
 	var r = await supa.inv_upgrade_as(s["char_id"], item_id, lvl, lvl + 1, new_ip)
 	if not r.get("ok"):                                         # write lost the race / item gone → refund both
 		s["credits"] = int(s["credits"]) + credit_cost
@@ -2599,13 +2969,9 @@ func _do_forge_reforge(pid: int, item_id: String) -> void:
 	var scrap_cost := _rarity_mult(rarity) * 2 * (rc + 1)
 	if int(s["credits"]) < credit_cost:
 		return
-	var mr = await supa.mats_add_as(s["char_id"], -scrap_cost)   # spend scrap atomically (ok=false → insufficient)
-	if not mr.get("ok"):
-		return                                                # nothing spent → safe to bail
-	s["scrap"] = int(mr["total"])
-	s["credits"] = int(s["credits"]) - credit_cost
 	# reroll affixes, KEEPING the existing primary: roll a fresh item of the same slot/rarity/ilvl (its
 	# affixes exclude the given primary) and take just its affixes; recompute item_power from the kept primary.
+	# (Rolled BEFORE the spend for both paths — the loot rng is the wall-clock economy stream, not the sim's.)
 	var ilvl := int(item.get("ilvl", 1))
 	var rolled := _make_item(str(item.get("slot", "trinket")), rarity, ilvl, str(item.get("primary_stat", "")))
 	var new_affixes: Array = rolled.get("affixes", [])
@@ -2613,6 +2979,27 @@ func _do_forge_reforge(pid: int, item_id: String) -> void:
 	for a in new_affixes:
 		atot += int(a.get("amt", 0))
 	var new_ip := int(item.get("primary_amt", 0)) + atot + ilvl
+	if _atomic_econ:
+		await _flush_awards(s)
+		await _econ_begin(s)
+		var ar = await supa.econ_forge_reforge(_op_id(), str(s["char_id"]), item_id, rc, new_affixes, new_ip, credit_cost, scrap_cost)
+		_econ_end(s)
+		if bool(ar.get("ok", false)):
+			_econ_sync_currency(s, ar)
+			if _session.has(pid):
+				await _apply_equipment(pid)                   # equipped item → new affixes apply (still capped)
+		if not _session.has(pid):
+			_save_one(s, _find(s["fid"]))
+		if net != null and _session.has(pid):
+			net.recv_inventory_changed.rpc_id(pid)
+		return
+	if not _legacy_econ_allowed():
+		return
+	var mr = await supa.mats_add_as(s["char_id"], -scrap_cost)   # spend scrap atomically (ok=false → insufficient)
+	if not mr.get("ok"):
+		return                                                # nothing spent → safe to bail
+	s["scrap"] = int(mr["total"])
+	s["credits"] = int(s["credits"]) - credit_cost
 	var r = await supa.inv_reforge_as(s["char_id"], item_id, rc, rc + 1, new_affixes, new_ip)
 	if not r.get("ok"):                                        # lost the race / item gone → refund both
 		s["credits"] = int(s["credits"]) + credit_cost
@@ -2647,17 +3034,30 @@ func _do_craft(pid: int, recipe_id: String) -> void:
 		return
 	var s = _session[pid]
 	var cost := int(recipe["scrap"])
+	if _atomic_econ:
+		# no mirror pre-check on scrap: the mirror can be stale-low after a failed login read, and the
+		# DB fn is the authoritative underflow guard anyway (matches the legacy path's semantics)
+		var aitem := _roll_recipe_item(recipe)
+		if aitem.is_empty():
+			return                                            # unknown unique def → nothing spent
+		await _econ_begin(s)
+		var ar = await supa.econ_craft(_op_id(), str(s["char_id"]), cost, aitem)
+		_econ_end(s)
+		if not bool(ar.get("ok", false)):
+			return                                            # insufficient / inventory_full / network → no spend
+		_econ_sync_currency(s, ar)
+		if net != null and _session.has(pid):
+			net.recv_loot.rpc_id(pid, str(aitem["name"]), str(aitem["rarity"]), str(aitem["slot"]), int(aitem["bonus_amt"]), str(aitem["bonus_stat"]))
+			net.recv_inventory_changed.rpc_id(pid)
+		return
+	if not _legacy_econ_allowed():
+		return
 	var mr = await supa.mats_add_as(s["char_id"], -cost)      # spend scrap atomically (ok=false → insufficient)
 	if not mr.get("ok"):
 		return
 	if _session.has(pid):
 		s["scrap"] = int(mr["total"])
-	var item: Dictionary
-	if bool(recipe.get("unique", false)):                    # forge_unique → a random unique (P6)
-		item = _make_unique(GameData.UNIQUE_IDS[_loot_rng.next_int(GameData.UNIQUE_IDS.size())], int(recipe.get("ilvl", SHOP_ILVL)))
-	else:
-		var slot: String = (LOOT_SLOTS.keys())[_loot_rng.next_int(LOOT_SLOTS.size())]
-		item = _make_item(slot, str(recipe["rarity"]), int(recipe.get("ilvl", SHOP_ILVL)))
+	var item: Dictionary = _roll_recipe_item(recipe)
 	if item.is_empty():                                      # unknown unique def → refund + bail
 		var rfb = await supa.mats_add_as(s["char_id"], cost)
 		if rfb.get("ok") and _session.has(pid):
@@ -2677,7 +3077,10 @@ func _do_craft(pid: int, recipe_id: String) -> void:
 func submit_intent(pid: int, mv: Dictionary) -> void:
 	if not _move.has(pid):
 		return
-	var v := Vector2(clampf(float(mv.get("mx", 0.0)), -1.0, 1.0), clampf(float(mv.get("my", 0.0)), -1.0, 1.0))
+	# UNTRUSTED input: coerce through _safe_num FIRST — clampf passes NaN straight through, so a
+	# forged {"mx": NAN} would otherwise poison the fighter's position (and every snapshot reading it);
+	# a non-numeric component would crash the handler. Valid numbers are unchanged (same clamp+normalize).
+	var v := Vector2(clampf(_safe_num(mv.get("mx"), 0.0), -1.0, 1.0), clampf(_safe_num(mv.get("my"), 0.0), -1.0, 1.0))
 	if v.length() > 1.0:
 		v = v.normalized()
 	_move[pid] = {"mx": v.x, "my": v.y, "target": str(mv.get("target", "")), "friend": str(mv.get("friend", ""))}
@@ -4065,7 +4468,7 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 		"add_xp":
 			_award_xp(pid, int(args.get("amt", 100)))
 		"add_credits":
-			s["credits"] = int(s["credits"]) + int(args.get("amt", 500))
+			_award_credits(pid, int(args.get("amt", 500)))   # routes through the award bucket in atomic mode
 			_save_one(s, f)
 		"give_item":
 			_admin_give_item(pid)
@@ -4187,6 +4590,7 @@ func _find(id) -> Variant:
 
 # ---- persistence ----
 func _save_all() -> void:
+	_retry_orphan_awards()                       # fire-and-forget; batch-swapped so ticks can't overlap
 	for pid in _peers.duplicate():
 		if _session.has(pid):
 			_save_one(_session[pid], _find(_session[pid]["fid"]))
@@ -4194,6 +4598,8 @@ func _save_all() -> void:
 func _save_one(session: Dictionary, f) -> void:
 	if supa == null:
 		return
+	if _atomic_econ:
+		await _flush_awards(session)   # P3: currencies flow through the idempotent DB delta, not the PATCH
 	# xp/level + the current world are always valid (they live on the session), so persist them even
 	# for a corpse. Position is the live spot when alive, else the respawn point — never the death
 	# spot — so last_map and last_x/last_y always stay consistent (you resume in the world you were in).
@@ -4201,9 +4607,10 @@ func _save_one(session: Dictionary, f) -> void:
 	var save_map: String = str(session.get("map", World.HOME))
 	if _is_instance(save_map):
 		save_map = World.HOME
-	var fields := {"xp": int(session["xp"]), "level": int(session["level"]),
-		"last_map": save_map, "credits": int(session.get("credits", 0)),
-		"practice_tokens": int(session.get("tokens", 0))}
+	var fields := {"xp": int(session["xp"]), "level": int(session["level"]), "last_map": save_map}
+	if not _atomic_econ:               # legacy only: the absolute PATCH still carries the currencies
+		fields["credits"] = int(session.get("credits", 0))
+		fields["practice_tokens"] = int(session.get("tokens", 0))
 	if f != null and not _is_instance(str(f.get("map", ""))):   # in an instance → don't save its coords either (home uses its fixed spawn)
 		if f["alive"]:
 			fields["last_x"] = f["x"]
@@ -4212,7 +4619,11 @@ func _save_one(session: Dictionary, f) -> void:
 			var sp: Vector2 = _spawn_pos.get(f["id"], Vector2(f["x"], f["y"]))
 			fields["last_x"] = sp.x
 			fields["last_y"] = sp.y
-	await supa.save_character_as(session["access"], session["char_id"], fields)
+	var r = await supa.save_character_as(session["access"], session["char_id"], fields)
+	if not (r is Dictionary and bool(r.get("ok", false))):   # a failed save must be OBSERVABLE, never silent
+		_save_fail_n += 1
+		print("[zone] ⚠ save FAILED for %s (HTTP %s) — xp/level/credits/position NOT persisted (fail #%d)" % [
+			str(session.get("name", "?")), str(r.get("code", "?")) if r is Dictionary else "?", _save_fail_n])
 
 # ---- interest-managed snapshots (per world) ----
 func _broadcast() -> void:
