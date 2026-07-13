@@ -401,11 +401,17 @@ Done (mostly central, so one change lifts many panels):
 - Adversarial review (3-finder + verify): qgiver rewrite / leaderboard / theme = ZERO defects;
   2 low bugs fixed (sell-confirm 0×0 Panel→PanelContainer; section ✦/📋 tofu → glyphs dropped).
 
+Follow-up round (commits e2ec387…d9350c8): fixed an owner-reported z-order bug — the quest
+tracker / minimap / bottom-nav (modules registered late in _enter_mode) drew OVER the
+full-screen loadout; now every HudLayout module wrapper is z_index -6 (below panels/windows/
+modals at 0, above the vignette at -20) so the HUD consistently sits UNDER anything the player
+opens. Plus: charsheet section headers now cyan; admin F1 panel grouped (display title +
+Widgets.section groups + teleport grid, was 19 buttons in one column); paperdoll cells 34px +
+rarity border + pointing cursor.
+
 **Optional remaining polish** (audit flagged, NOT done — all cosmetic, none blocking): charsheet
-is still one dense RichTextLabel blob (could split into Widgets.section blocks); admin F1 panel
-ungrouped (dev tool); quest-journal read-only bbcode wall; paperdoll cells 28px / no rarity
-border; camp intensity tiers could be Widgets.tile cards; ~2 big RichTextLabels (charsheet,
-quest journal) still use retyped bbcode hex literals instead of Palette.hex. Owner playtest of
++ quest-journal are still RichTextLabel blobs using retyped bbcode hex literals (readable, just
+not Palette.hex-tokenized); camp intensity tiers could be Widgets.tile cards. Owner playtest of
 the re-themed menus owed.
 
 ⚠ TEST-HYGIENE NOTE: my screenshot runs polluted the owner's real user://settings.cfg with test
