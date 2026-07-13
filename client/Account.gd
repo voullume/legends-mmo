@@ -35,10 +35,29 @@ func _ready() -> void:
 
 # ---------- UI construction ----------
 func _bg() -> void:
-	var cr := ColorRect.new()
-	cr.color = Color(0.05, 0.06, 0.09)
+	# sports-tech backdrop: a radial navy→ink wash (matches the HUD pattern's body gradient)
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 1.0])
+	grad.colors = PackedColorArray([Palette.SB_NAVY.lightened(0.06), Palette.SB_INK])
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.42)
+	gt.fill_to = Vector2(1.0, 1.0)
+	gt.width = 256
+	gt.height = 256
+	var cr := TextureRect.new()
+	cr.texture = gt
+	cr.stretch_mode = TextureRect.STRETCH_SCALE
 	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(cr)
+	# a display-font wordmark above the cards (the existing name, in the sports-tech face)
+	var mark := HudFonts.display_label("Legends MMO", 46, Palette.TEXT_BRIGHT, 0.14, Palette.SB_CYAN)
+	mark.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	mark.offset_top = 90.0
+	mark.offset_left = -400.0
+	mark.offset_right = 400.0
+	add_child(mark)
 
 func _panel(title: String, width := 460) -> CenterContainer:
 	var center := CenterContainer.new()
@@ -54,10 +73,10 @@ func _panel(title: String, width := 460) -> CenterContainer:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	m.add_child(vb)
-	var t := Label.new()
-	t.text = title
-	t.add_theme_font_size_override("font_size", 26)
+	var t := HudFonts.display_label(title, 24, Palette.TEXT_BRIGHT, 0.08)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	vb.add_child(t)
+	vb.add_child(HSeparator.new())               # the themed cyan title rule
 	center.set_meta("vb", vb)
 	return center
 
@@ -78,7 +97,7 @@ func _button(text: String, cb: Callable) -> Button:
 func _build() -> void:
 	_bg()
 	# --- auth panel ---
-	_auth = _panel("Legends MMO — Sign In")
+	_auth = _panel("Sign In")
 	var avb: VBoxContainer = _auth.get_meta("vb")
 	_email = _edit("email")
 	_pass = _edit("password", true)
@@ -92,7 +111,7 @@ func _build() -> void:
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status.custom_minimum_size = Vector2(412, 0)
-	_status.add_theme_color_override("font_color", Color(0.7, 0.78, 0.9))
+	_status.add_theme_color_override("font_color", Palette.TEXT)
 	avb.add_child(_status)
 
 	# --- character SELECTION (first login): choose a class, preview its abilities ---
@@ -134,7 +153,7 @@ func _build() -> void:
 	_cstatus = Label.new()
 	_cstatus.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_cstatus.custom_minimum_size = Vector2(760, 0)
-	_cstatus.add_theme_color_override("font_color", Color(1.0, 0.6, 0.6))
+	_cstatus.add_theme_color_override("font_color", Palette.DANGER_SOFT)
 	cvb.add_child(_cstatus)
 
 	# --- returning-player panel ---
@@ -150,7 +169,7 @@ func _build() -> void:
 func _label(t: String) -> Label:
 	var l := Label.new()
 	l.text = t
-	l.add_theme_color_override("font_color", Color(0.62, 0.7, 0.82))
+	l.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	return l
 
 func _goto(panel: Control) -> void:

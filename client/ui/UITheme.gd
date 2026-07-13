@@ -32,34 +32,45 @@ static func _build() -> Theme:
 	t.set_stylebox("panel", "PanelContainer", panel)
 	t.set_stylebox("panel", "Panel", _flat(Palette.BG_PANEL, Color(Palette.SB_CYAN, 0.28), 1, 5, 4))
 
-	# buttons — rest / hover / pressed / disabled states (the "free juice" every panel inherits)
-	var b_norm := _flat(Palette.BG_INSET, Palette.BORDER, 1, 6, 6)
-	b_norm.content_margin_left = 12.0
-	b_norm.content_margin_right = 12.0
-	var b_hover := _flat(Palette.BG_HOVER, Palette.BORDER_BRIGHT, 1, 6, 6)
-	b_hover.content_margin_left = 12.0
-	b_hover.content_margin_right = 12.0
-	var b_press := _flat(Palette.BG_PRESSED, Palette.ACCENT, 1, 6, 6)
-	b_press.content_margin_left = 12.0
-	b_press.content_margin_right = 12.0
-	var b_off := _flat(Color(Palette.BG_INSET, 0.5), Color(Palette.BORDER, 0.4), 1, 6, 6)
-	b_off.content_margin_left = 12.0
-	b_off.content_margin_right = 12.0
-	t.set_stylebox("normal", "Button", b_norm)
-	t.set_stylebox("hover", "Button", b_hover)
-	t.set_stylebox("pressed", "Button", b_press)
-	t.set_stylebox("disabled", "Button", b_off)
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	t.set_color("font_color", "Button", Palette.TEXT)
-	t.set_color("font_hover_color", "Button", Palette.TEXT_BRIGHT)
-	t.set_color("font_pressed_color", "Button", Palette.ACCENT)
-	t.set_color("font_disabled_color", "Button", Palette.TEXT_FAINT)
-	t.set_color("font_focus_color", "Button", Palette.TEXT)
+	# buttons — the sports-tech language (navy body + cyan rail; brighter cyan on hover; a
+	# cyan-lit press). Clear affordance so buttons read as interactive, not flat grey blocks.
+	var b_norm := _flat(Color(Palette.SB_NAVY.lightened(0.05), 0.92), Color(Palette.SB_CYAN, 0.35), 1, 5, 6)
+	b_norm.content_margin_left = 13.0
+	b_norm.content_margin_right = 13.0
+	b_norm.content_margin_top = 5.0
+	b_norm.content_margin_bottom = 5.0
+	var b_hover := _flat(Color(Palette.SB_NAVY.lightened(0.16), 0.97), Color(Palette.SB_CYAN, 0.75), 1, 5, 6)
+	b_hover.content_margin_left = 13.0
+	b_hover.content_margin_right = 13.0
+	b_hover.content_margin_top = 5.0
+	b_hover.content_margin_bottom = 5.0
+	var b_press := _flat(Color(0.06, 0.15, 0.21, 0.98), Color(Palette.SB_CYAN, 1.0), 1, 5, 6)
+	b_press.content_margin_left = 13.0
+	b_press.content_margin_right = 13.0
+	b_press.content_margin_top = 5.0
+	b_press.content_margin_bottom = 5.0
+	var b_off := _flat(Color(Palette.SB_INK, 0.55), Color(Palette.BORDER, 0.3), 1, 5, 6)
+	b_off.content_margin_left = 13.0
+	b_off.content_margin_right = 13.0
+	b_off.content_margin_top = 5.0
+	b_off.content_margin_bottom = 5.0
+	for cls in ["Button", "OptionButton", "MenuButton"]:   # OptionButton (Settings/editor) shares the language
+		t.set_stylebox("normal", cls, b_norm)
+		t.set_stylebox("hover", cls, b_hover)
+		t.set_stylebox("pressed", cls, b_press)
+		t.set_stylebox("disabled", cls, b_off)
+		t.set_stylebox("focus", cls, StyleBoxEmpty.new())
+		t.set_color("font_color", cls, Palette.TEXT_BRIGHT)
+		t.set_color("font_hover_color", cls, Color(1, 1, 1))
+		t.set_color("font_pressed_color", cls, Palette.SB_CYAN)
+		t.set_color("font_disabled_color", cls, Palette.TEXT_FAINT)
+		t.set_color("font_focus_color", cls, Palette.TEXT_BRIGHT)
+	t.set_color("font_hover_pressed_color", "OptionButton", Palette.SB_CYAN)
 
-	# checkboxes share the button text language
-	t.set_color("font_color", "CheckBox", Palette.TEXT)
-	t.set_color("font_hover_color", "CheckBox", Palette.TEXT_BRIGHT)
-	t.set_color("font_pressed_color", "CheckBox", Palette.TEXT)
+	# checkboxes share the button text language (default check icons; brighter rest text for contrast)
+	t.set_color("font_color", "CheckBox", Palette.TEXT_BRIGHT)
+	t.set_color("font_hover_color", "CheckBox", Color(1, 1, 1))
+	t.set_color("font_pressed_color", "CheckBox", Palette.SB_CYAN)
 	t.set_stylebox("normal", "CheckBox", StyleBoxEmpty.new())
 	t.set_stylebox("hover", "CheckBox", StyleBoxEmpty.new())
 	t.set_stylebox("pressed", "CheckBox", StyleBoxEmpty.new())
@@ -71,35 +82,44 @@ static func _build() -> Theme:
 	t.set_stylebox("normal", "RichTextLabel", StyleBoxEmpty.new())
 	t.set_stylebox("focus", "RichTextLabel", StyleBoxEmpty.new())
 
-	# inputs
-	var le := _flat(Color(0.045, 0.058, 0.085, 0.96), Palette.BORDER, 1, 6, 6)
-	le.content_margin_left = 10.0
-	le.content_margin_right = 10.0
+	# inputs — ink well, cyan-tint rail at rest → bright cyan on focus
+	var le := _flat(Color(Palette.SB_INK, 0.96), Color(Palette.SB_CYAN, 0.3), 1, 5, 7)
+	le.content_margin_left = 11.0
+	le.content_margin_right = 11.0
 	var le_focus: StyleBoxFlat = le.duplicate()
-	le_focus.border_color = Palette.ACCENT2
+	le_focus.border_color = Palette.SB_CYAN
 	t.set_stylebox("normal", "LineEdit", le)
 	t.set_stylebox("focus", "LineEdit", le_focus)
 	t.set_color("font_color", "LineEdit", Palette.TEXT_BRIGHT)
-	t.set_color("font_placeholder_color", "LineEdit", Palette.TEXT_FAINT)
-	t.set_color("caret_color", "LineEdit", Palette.ACCENT2)
+	t.set_color("font_placeholder_color", "LineEdit", Palette.TEXT_DIM)   # was TEXT_FAINT — too dim to read
+	t.set_color("caret_color", "LineEdit", Palette.SB_CYAN)
+	t.set_stylebox("normal", "TextEdit", le)                              # multi-line inputs match
+	t.set_stylebox("focus", "TextEdit", le_focus)
+	t.set_color("font_color", "TextEdit", Palette.TEXT_BRIGHT)
 
-	# sliders (settings volumes) — slim dark track, accent fill
-	t.set_stylebox("slider", "HSlider", _flat(Color(0.04, 0.05, 0.075, 0.95), Palette.BORDER, 1, 4, 2))
-	t.set_stylebox("grabber_area", "HSlider", _flat(Color(Palette.ACCENT2, 0.75), Color(0, 0, 0, 0), 0, 4, 2))
-	t.set_stylebox("grabber_area_highlight", "HSlider", _flat(Palette.ACCENT2, Color(0, 0, 0, 0), 0, 4, 2))
+	# sliders — dark track, bright SB_CYAN fill + a cyan grabber knob (was soft ACCENT2 + default knob)
+	t.set_stylebox("slider", "HSlider", _flat(Color(Palette.SB_INK, 0.95), Color(Palette.SB_CYAN, 0.2), 1, 4, 2))
+	t.set_stylebox("grabber_area", "HSlider", _flat(Color(Palette.SB_CYAN, 0.85), Color(0, 0, 0, 0), 0, 4, 2))
+	t.set_stylebox("grabber_area_highlight", "HSlider", _flat(Palette.SB_CYAN, Color(0, 0, 0, 0), 0, 4, 2))
+	var knob := _dot_icon(Palette.SB_CYAN, 8)               # branded round grabber, not the default texture
+	t.set_icon("grabber", "HSlider", knob)
+	t.set_icon("grabber_highlight", "HSlider", knob)
+	t.set_icon("grabber_disabled", "HSlider", _dot_icon(Palette.TEXT_FAINT, 8))
 
-	# scrollbars — slim slate grabbers on a near-invisible track
+	# scrollbars — cyan-tinted grabbers (more visible than the old slate) on a near-invisible track
 	for sb_type in ["VScrollBar", "HScrollBar"]:
-		t.set_stylebox("scroll", sb_type, _flat(Color(0, 0, 0, 0.25), Color(0, 0, 0, 0), 0, 4, 2))
-		t.set_stylebox("grabber", sb_type, _flat(Color(0.32, 0.38, 0.48, 0.7), Color(0, 0, 0, 0), 0, 4, 0))
-		t.set_stylebox("grabber_highlight", sb_type, _flat(Color(0.42, 0.49, 0.60, 0.9), Color(0, 0, 0, 0), 0, 4, 0))
-		t.set_stylebox("grabber_pressed", sb_type, _flat(Palette.ACCENT2, Color(0, 0, 0, 0), 0, 4, 0))
+		t.set_stylebox("scroll", sb_type, _flat(Color(Palette.SB_INK, 0.3), Color(0, 0, 0, 0), 0, 4, 2))
+		t.set_stylebox("grabber", sb_type, _flat(Color(Palette.SB_CYAN, 0.4), Color(0, 0, 0, 0), 0, 4, 0))
+		t.set_stylebox("grabber_highlight", sb_type, _flat(Color(Palette.SB_CYAN, 0.7), Color(0, 0, 0, 0), 0, 4, 0))
+		t.set_stylebox("grabber_pressed", sb_type, _flat(Palette.SB_CYAN, Color(0, 0, 0, 0), 0, 4, 0))
 
-	# right-click context menus
-	t.set_stylebox("panel", "PopupMenu", _flat(Palette.BG, Palette.BORDER_BRIGHT, 1, 6, 6))
-	t.set_stylebox("hover", "PopupMenu", _flat(Palette.BG_HOVER, Color(0, 0, 0, 0), 0, 4, 2))
-	t.set_color("font_color", "PopupMenu", Palette.TEXT)
-	t.set_color("font_hover_color", "PopupMenu", Palette.TEXT_BRIGHT)
+	# right-click context menus + OptionButton dropdowns — navy body, cyan rail, cyan-lit hover
+	t.set_stylebox("panel", "PopupMenu", _flat(Palette.BG_PANEL, Color(Palette.SB_CYAN, 0.35), 1, 6, 6))
+	t.set_stylebox("hover", "PopupMenu", _flat(Color(Palette.SB_CYAN, 0.18), Color(0, 0, 0, 0), 0, 4, 2))
+	t.set_color("font_color", "PopupMenu", Palette.TEXT_BRIGHT)
+	t.set_color("font_hover_color", "PopupMenu", Palette.SB_CYAN)
+	t.set_color("font_accelerator_color", "PopupMenu", Palette.TEXT_DIM)
+	t.set_color("font_separator_color", "PopupMenu", Color(Palette.SB_CYAN, 0.4))
 
 	# separators — P10: the rule under every window title reads as a subtle cyan rail
 	var sep := StyleBoxLine.new()
@@ -110,8 +130,50 @@ static func _build() -> Theme:
 	vsep.vertical = true
 	t.set_stylebox("separator", "VSeparator", vsep)
 
-	# progress bars (future HUD bars can lean on these defaults)
-	t.set_stylebox("background", "ProgressBar", _flat(Color(0, 0, 0, 0.55), Palette.BORDER, 1, 4, 1))
-	t.set_stylebox("fill", "ProgressBar", _flat(Palette.ACCENT2, Color(0, 0, 0, 0), 0, 4, 1))
+	# progress bars — bright SB_CYAN fill (was soft ACCENT2)
+	t.set_stylebox("background", "ProgressBar", _flat(Color(Palette.SB_INK, 0.55), Color(Palette.SB_CYAN, 0.2), 1, 4, 1))
+	t.set_stylebox("fill", "ProgressBar", _flat(Palette.SB_CYAN, Color(0, 0, 0, 0), 0, 4, 1))
+
+	# native hover tooltips — were unstyled (default pale Godot box); now the pattern's ink+cyan
+	var tip := _flat(Color(Palette.SB_INK, 0.98), Color(Palette.SB_CYAN, 0.5), 1, 5, 8)
+	t.set_stylebox("panel", "TooltipPanel", tip)
+	t.set_color("font_color", "TooltipLabel", Palette.TEXT_BRIGHT)
+
+	# CheckBox on/off glyphs in the pattern colors (default was Godot's grey tick)
+	t.set_icon("unchecked", "CheckBox", _check_icon(false))
+	t.set_icon("checked", "CheckBox", _check_icon(true))
 
 	return t
+
+# a small filled disc texture (slider grabber) — SB_* branded, drawn to an Image
+static func _dot_icon(col: Color, d: int) -> ImageTexture:
+	var img := Image.create(d, d, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var r := d * 0.5
+	for y in d:
+		for x in d:
+			var dist := Vector2(x + 0.5 - r, y + 0.5 - r).length()
+			if dist <= r:
+				img.set_pixel(x, y, Color(col, 1.0) if dist <= r - 1.0 else Color(col, 0.5))
+	return ImageTexture.create_from_image(img)
+
+# a 18px checkbox glyph: cyan-railed box, lime fill + tick when checked
+static func _check_icon(checked: bool) -> ImageTexture:
+	var s := 18
+	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	for y in s:
+		for x in s:
+			var edge := x <= 1 or x >= s - 2 or y <= 1 or y >= s - 2
+			if edge:
+				img.set_pixel(x, y, Color(Palette.SB_CYAN, 0.85 if checked else 0.55))
+			elif checked:
+				img.set_pixel(x, y, Color(Palette.SB_LIME, 0.22))
+	if checked:                                            # a chunky tick
+		for i in range(4, 8):
+			img.set_pixel(i, i + 4, Color(Palette.SB_LIME, 1.0))
+			img.set_pixel(i, i + 5, Color(Palette.SB_LIME, 1.0))
+		for i in range(8, 14):
+			img.set_pixel(i, 16 - i, Color(Palette.SB_LIME, 1.0))
+			img.set_pixel(i, 17 - i, Color(Palette.SB_LIME, 1.0))
+	return ImageTexture.create_from_image(img)

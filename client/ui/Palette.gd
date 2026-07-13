@@ -35,6 +35,7 @@ const SHIELD := Color(0.5, 0.72, 1.0)
 const LAVENDER := Color("#cdbcff")
 const HP := Color(0.3, 0.85, 0.4)
 const HP_LOW := Color(0.9, 0.3, 0.3)
+const SUCCESS := Color("#9fe8a0")      # the "ready/done/equipped/NEW" green (was hand-typed ~7×)
 
 # --- sports-tech pattern tokens (HUD frame language; source: docs/ideas-not-in/hud ui/
 #     match-found-tokens.json — deep navy / graphite surfaces, cyan rails, lime ready, orange warn) ---

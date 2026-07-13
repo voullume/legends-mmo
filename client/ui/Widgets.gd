@@ -33,6 +33,9 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 	t.text = title
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE      # let the drag reach the header
+	var tf := HudFonts.display_variant(Palette.SIZE_TITLE, 0.06)   # window titles wear the display face
+	if tf != null:
+		t.add_theme_font_override("font", tf)
 	t.add_theme_font_size_override("font_size", Palette.SIZE_TITLE)
 	t.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
 	head.add_child(t)
@@ -186,13 +189,114 @@ static func _restore_window(root: Control, pc: PanelContainer, title: String, mi
 	else:
 		pc.position = Vector2(maxf(0.0, (vp.x - pc.size.x) * 0.5), maxf(0.0, (vp.y - pc.size.y) * 0.5))
 
-# A section header inside a panel body.
+# A section header inside a panel body — the display face + cyan, so panels section like the HUD.
 static func section(text: String) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = text.to_upper()
+	var f := HudFonts.display_variant(Palette.SIZE_SECTION, 0.16)
+	if f != null:
+		l.add_theme_font_override("font", f)
 	l.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
-	l.add_theme_color_override("font_color", Palette.ACCENT2)
+	l.add_theme_color_override("font_color", Palette.SB_CYAN)
 	return l
+
+# A data-panel tile stylebox: SB_NAVY body + cyan rail (no rarity) OR a rarity border, chamfer-ish
+# corners, brighter body + cyan-lit rail on hover. THE one tile look — replaces the three inline
+# copies (_rarity_box / _inv_tile / _build_item_tile). `border` null → the plain cyan-rail tile.
+static func tile_box(border = null, hover := false) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.SB_NAVY.lightened(0.10 if hover else 0.03), 0.94)
+	if border == null:
+		sb.set_border_width_all(1)
+		sb.border_color = Color(Palette.SB_CYAN, 0.6 if hover else 0.32)
+	else:
+		sb.set_border_width_all(2)
+		sb.border_color = (border as Color).lightened(0.15) if hover else border
+	sb.set_corner_radius_all(5)
+	sb.set_content_margin_all(7)
+	return sb
+
+# A segmented-control toggle button: ACTIVE = filled cyan pill + bright text; inactive = flat text.
+# Fixes the sort/filter/mode toggles that only signalled state by font color.
+static func toggle_btn(text: String, active: bool, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.SB_CYAN, 0.20) if active else Color(0, 0, 0, 0)
+	sb.set_border_width_all(1)
+	sb.border_color = Color(Palette.SB_CYAN, 0.8) if active else Color(Palette.SB_CYAN, 0.12)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 9.0
+	sb.content_margin_right = 9.0
+	sb.content_margin_top = 3.0
+	sb.content_margin_bottom = 3.0
+	var hv: StyleBoxFlat = sb.duplicate()
+	hv.bg_color = Color(Palette.SB_CYAN, 0.28 if active else 0.10)
+	for st in ["normal", "pressed", "focus"]:
+		b.add_theme_stylebox_override(st, sb)
+	b.add_theme_stylebox_override("hover", hv)
+	b.add_theme_color_override("font_color", Palette.SB_CYAN if active else Palette.TEXT_DIM)
+	b.add_theme_color_override("font_hover_color", Palette.TEXT_BRIGHT)
+	b.add_theme_color_override("font_pressed_color", Palette.SB_CYAN if active else Palette.TEXT_DIM)
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	return b
+
+# A tab row: buttons whose SELECTED one shows a cyan pill. Returns {root, buttons, select} —
+# call select(i) to re-highlight after a switch. Fixes "which tab am I on?" (leaderboards etc.).
+static func tab_row(labels: Array, on_select: Callable) -> Dictionary:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 4)
+	var btns := []
+	var state := {"sel": 0}
+	var restyle := func() -> void:
+		for i in btns.size():
+			_style_tab(btns[i], i == int(state["sel"]))
+	for i in labels.size():
+		var b := Button.new()
+		b.text = str(labels[i])
+		b.focus_mode = Control.FOCUS_NONE
+		var idx := i
+		b.pressed.connect(func() -> void:
+			state["sel"] = idx
+			restyle.call()
+			if on_select.is_valid():
+				on_select.call(idx))
+		btns.append(b)
+		hb.add_child(b)
+	restyle.call()
+	return {"root": hb, "buttons": btns, "select": func(i: int) -> void:
+		state["sel"] = i
+		restyle.call()}
+
+static func _style_tab(b: Button, active: bool) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.SB_CYAN, 0.16) if active else Color(Palette.SB_NAVY, 0.5)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 11.0
+	sb.content_margin_right = 11.0
+	sb.content_margin_top = 4.0
+	sb.content_margin_bottom = 4.0
+	sb.border_width_bottom = 2 if active else 0        # cyan underline on the active tab
+	sb.border_color = Palette.SB_CYAN
+	for st in ["normal", "pressed", "hover", "focus"]:
+		b.add_theme_stylebox_override(st, sb if st != "hover" else _tab_hover(active))
+	b.add_theme_color_override("font_color", Palette.TEXT_BRIGHT if active else Palette.TEXT_DIM)
+	b.add_theme_color_override("font_hover_color", Palette.TEXT_BRIGHT)
+	b.add_theme_color_override("font_pressed_color", Palette.TEXT_BRIGHT)
+
+static func _tab_hover(active: bool) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Palette.SB_CYAN, 0.22 if active else 0.09)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 11.0
+	sb.content_margin_right = 11.0
+	sb.content_margin_top = 4.0
+	sb.content_margin_bottom = 4.0
+	sb.border_width_bottom = 2 if active else 0
+	sb.border_color = Palette.SB_CYAN
+	return sb
 
 # Dim wrapped helper copy (the "how this works" line under a title).
 static func hint(text: String) -> Label:

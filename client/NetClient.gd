@@ -1399,14 +1399,9 @@ func _hint_tile(text: String) -> Label:
 	return l
 
 # rarity-bordered tile background (shared by the shop + forge grids)
+# the shared tile stylebox — now the ONE pattern-language factory (SB_NAVY body + rarity/cyan rail)
 func _rarity_box(border: Color, hover: bool) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.17, 0.20, 0.25, 0.96) if hover else Color(0.10, 0.12, 0.16, 0.92)
-	sb.set_border_width_all(2)
-	sb.border_color = border
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(7)
-	return sb
+	return Widgets.tile_box(border, hover)
 
 # a reusable grid tile: rarity-bordered panel + a bbcode header (full info), optional action row (real
 # Buttons), hover→compare tooltip, and optional left/right-click callbacks on the panel body itself.
@@ -1437,6 +1432,7 @@ func _grid_tile(border: Color, header_bb: String, tip_item, owned: Array, extra:
 		p.add_theme_stylebox_override("panel", sb)
 		if _tooltip != null: _tooltip.visible = false)
 	if on_left is Callable or on_right is Callable:
+		p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND   # affordance: the card is clickable
 		var press := {"pos": Vector2.ZERO, "btn": 0}   # fire on release WITHOUT drag → a scroll-drag can't buy
 		p.gui_input.connect(func(ev) -> void:
 			if ev is InputEventMouseButton:
@@ -1509,18 +1505,14 @@ func _inv_tile(it: Dictionary) -> Button:
 	if bool(it.get("locked", false)):
 		prefix += "🔒 "
 	b.text = prefix + str(it.get("name", "?"))
-	b.add_theme_color_override("font_color", col)
-	b.add_theme_color_override("font_hover_color", col.lightened(0.2))
-	b.add_theme_color_override("font_pressed_color", col)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.10, 0.12, 0.16, 0.92)
-	sb.set_border_width_all(2)
-	sb.border_color = col
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(7)
-	b.add_theme_stylebox_override("normal", sb)
-	var sbh: StyleBoxFlat = sb.duplicate()
-	sbh.bg_color = Color(0.17, 0.20, 0.25, 0.96)
+	# common items were near-white on grey (low contrast) — lift the common tier to bright text
+	var txt: Color = Palette.TEXT_BRIGHT if str(it.get("rarity", "common")) == "common" else col
+	b.add_theme_color_override("font_color", txt)
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	b.add_theme_color_override("font_pressed_color", txt)
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND   # affordance: tiles are clickable
+	b.add_theme_stylebox_override("normal", Widgets.tile_box(col, false))
+	var sbh := Widgets.tile_box(col, true)
 	b.add_theme_stylebox_override("hover", sbh)
 	b.add_theme_stylebox_override("pressed", sbh)
 	b.add_theme_stylebox_override("focus", sbh)
@@ -3871,20 +3863,15 @@ func _build_item_tile(it: Dictionary) -> Button:
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.focus_mode = Control.FOCUS_NONE
 	var placed := bool(it.get("placed", false))
-	var col := Color.html("#9fe8a0") if placed else Color.html("#cfd6df")
+	var col: Color = Palette.SUCCESS if placed else Palette.TEXT_BRIGHT
+	var rail: Color = Palette.SB_LIME if placed else Palette.SB_CYAN   # placed=lime, unplaced=cyan rail
 	b.text = ("✔ " if placed else "") + str(it.get("model", it.get("name", "?")))
 	b.add_theme_color_override("font_color", col)
-	b.add_theme_color_override("font_hover_color", col.lightened(0.2))
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
 	b.tooltip_text = str(it.get("model", "?")) + ("  · placed in your Locker Room" if placed else "  · in your Build tab (place it in your Locker Room)")
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.10, 0.12, 0.16, 0.92)
-	sb.set_border_width_all(2)
-	sb.border_color = col
-	sb.set_corner_radius_all(4)
-	sb.set_content_margin_all(7)
-	b.add_theme_stylebox_override("normal", sb)
-	b.add_theme_stylebox_override("hover", sb)
-	b.add_theme_stylebox_override("pressed", sb)
+	b.add_theme_stylebox_override("normal", Widgets.tile_box(rail, false))   # now with a real hover state
+	b.add_theme_stylebox_override("hover", Widgets.tile_box(rail, true))
+	b.add_theme_stylebox_override("pressed", Widgets.tile_box(rail, true))
 	return b
 
 # ---- Builder Mode P3b: the Locker Room build editor (F4 in your own unlocked room) ----------------------------
