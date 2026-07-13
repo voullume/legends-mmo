@@ -246,6 +246,7 @@ func _enter_mode() -> void:
 	_build_unit_frames()                          # P7: hostile target + friendly focus modules
 	_build_interact_prompt()                      # P8: the ONE proximity prompt module (7 hints unified)
 	_build_bottom_nav()                           # P9: clickable panel shortcuts (real keybinds only)
+	_build_minimap()                              # minimap: schematic top-down module (snapshot-only)
 	_lb_set_on(false)                             # eager: registers the builder-panel module pre-F4
 	_update_quest_tracker()                       # eager: registers the tracker module (hidden while
 	                                              # questless) so edit mode can place it pre-quests
@@ -253,6 +254,9 @@ func _enter_mode() -> void:
 	var ua := OS.get_cmdline_user_args()
 	if "--meter" in ua:                           # dev-only: open the §4a meter on boot (pairs with --shot)
 		_toggle_meter()
+	if "--minimap" in ua:                         # dev-only: force-show the (off-by-default) minimap + sample content for --shot
+		HudLayout.set_field("minimap", "visible", true)
+		_mm_module_preview(true)
 	if "--hudedit" in ua:                         # dev-only: open HUD edit mode (pairs with --shot)
 		_hud_edit_toggle()
 	if "--bannertest" in ua:                      # dev-only: fire a demo hero banner (pure client)
@@ -1703,7 +1707,7 @@ func _update_quest_tracker() -> void:
 		# module registration LAST — on_variant fires inside register (re-entering this function),
 		# so the title row must already exist. Anchored top-right: the list grows leftward.
 		HudLayout.register("quest_tracker", _qt_root, {"label": "Quest Tracker",
-			"defaults": {"anchor": "top_right", "ox": -20.0, "oy": 150.0},
+			"defaults": {"anchor": "top_right", "ox": -20.0, "oy": 150.0},   # unchanged (minimap is off by default)
 			"ref_size": Vector2(240, 110), "preview": _quest_tracker_preview,
 			"variants": ["standard", "compact", "collapsed"], "on_variant": _qt_set_variant})
 	var trow_node := _quest_tracker_title.get_parent()
@@ -3944,7 +3948,7 @@ func _lb_set_on(on: bool) -> void:
 		_lb_lbl.add_theme_color_override("font_color", Color(0.78, 0.95, 0.8))
 		bvb.add_child(_lb_lbl)
 		HudLayout.register("builder_panel", _lb_root, {"label": "Builder Panel",
-			"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 44.0},
+			"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 44.0},   # unchanged
 			"ref_size": Vector2(330, 84), "preview": _lb_panel_preview})
 	if _lb_root != null:
 		_lb_root.visible = on
@@ -5583,6 +5587,108 @@ func _ip_render() -> void:
 func _ip_module_preview(on: bool) -> void:
 	_ip_preview = on
 	_ip_render()
+
+# ---- Minimap (P9 audit → build): a schematic top-down of EXACTLY what the snapshot carries.
+# The server interest-filters fighters before they ever reach the client, so drawing
+# `_state.fighters` verbatim reveals NOTHING beyond what nameplates already show — the
+# no-hidden-info rule holds by construction. Pure client, zero protocol change. One module;
+# custom _draw redrawn on a 10 Hz timer (never per frame), all mouse-transparent.
+const MM_SIZE := Vector2(176, 176)
+var _mm_root: Control = null
+var _mm_canvas: Control = null
+var _mm_preview := false
+
+func _build_minimap() -> void:
+	var fd: Dictionary = HudFrame.fitted(HudFrame.Tier.PANEL, {"body_alpha": 0.85})
+	_mm_root = fd["root"]
+	_hud.add_child(_mm_root)
+	_mm_canvas = Control.new()
+	_mm_canvas.custom_minimum_size = MM_SIZE
+	_mm_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	(fd["body"] as MarginContainer).add_child(_mm_canvas)
+	_mm_canvas.draw.connect(_mm_draw)
+	var t := Timer.new()
+	t.wait_time = 0.1
+	t.autostart = true
+	add_child(t)
+	t.timeout.connect(func() -> void:
+		if _mm_canvas.is_visible_in_tree():
+			_mm_canvas.queue_redraw())
+	# default HIDDEN: a brand-new always-on module must not land on a returning player's saved
+	# layout (default position changes never reach players who already saved) — opt in via F2
+	HudLayout.register("minimap", _mm_root, {"label": "Minimap",
+		"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 12.0, "visible": false},
+		"ref_size": Vector2(204, 204), "min_scale": 0.7, "max_scale": 1.5, "preview": _mm_module_preview})
+
+func _mm_module_preview(on: bool) -> void:
+	_mm_preview = on
+	if _mm_canvas != null:
+		_mm_canvas.queue_redraw()
+
+func _mm_frame(area: Rect2) -> void:                 # play-area outline + a faint quarter grid
+	_mm_canvas.draw_rect(area, Color(Palette.SB_CYAN, 0.25), false, 1.0)
+	for i in range(1, 4):
+		var fx := area.position.x + area.size.x * i / 4.0
+		var fy := area.position.y + area.size.y * i / 4.0
+		_mm_canvas.draw_line(Vector2(fx, area.position.y), Vector2(fx, area.end.y), Color(Palette.SB_CYAN, 0.06), 1.0)
+		_mm_canvas.draw_line(Vector2(area.position.x, fy), Vector2(area.end.x, fy), Color(Palette.SB_CYAN, 0.06), 1.0)
+
+# white camera-forward arrow. Only correct under a UNIFORM (letterbox) scale — with a uniform
+# scale the raw fwd vector points the same way the player's blip actually slides (W → tip).
+func _mm_arrow(center: Vector2) -> void:
+	var fwd := Vector2(-sin(_yaw), -cos(_yaw))
+	var side := Vector2(-fwd.y, fwd.x)
+	_mm_canvas.draw_colored_polygon(PackedVector2Array([center + fwd * 7.0,
+		center - fwd * 3.0 + side * 4.0, center - fwd * 3.0 - side * 4.0]), Color(1, 1, 1, 0.95))
+
+func _mm_draw() -> void:
+	var sz: Vector2 = _mm_canvas.size
+	if _state.is_empty():
+		_mm_frame(Rect2(Vector2.ZERO, sz))
+		if _mm_preview:                              # HUD-edit pre-connect: sample content
+			_mm_canvas.draw_circle(sz * 0.3, 3.0, WorldUI.HOSTILE)
+			_mm_canvas.draw_circle(sz * Vector2(0.7, 0.4), 3.0, Color(0.55, 0.85, 1.0))
+			_mm_arrow(sz * 0.5)
+		return
+	var aw := _aw()
+	var ah := _ah()
+	if aw <= 0.0 or ah <= 0.0:
+		_mm_frame(Rect2(Vector2.ZERO, sz))
+		return
+	# LETTERBOX: one uniform scale so the map isn't stretched into an ellipse and the heading
+	# arrow stays true (a non-uniform x/y scale desyncs the arrow from actual on-map travel)
+	var s := minf(sz.x / aw, sz.y / ah)
+	var off := (sz - Vector2(aw, ah) * s) * 0.5
+	_mm_frame(Rect2(off, Vector2(aw, ah) * s))
+	var to_px := func(px: float, py: float) -> Vector2:
+		return off + Vector2(clampf(px, 0.0, aw), clampf(py, 0.0, ah)) * s
+	# portals: cyan diamonds
+	for p in _state.get("portals", []):
+		var pp: Vector2 = to_px.call(float(p.get("x", 0.0)), float(p.get("y", 0.0)))
+		_mm_canvas.draw_colored_polygon(PackedVector2Array([pp + Vector2(0, -4), pp + Vector2(4, 0),
+			pp + Vector2(0, 4), pp + Vector2(-4, 0)]), Color(Palette.SB_CYAN, 0.9))
+	# home-base service pads: color-coded squares (null off the home map)
+	for entry in [["shop", Palette.CREDITS], ["forge", Palette.SB_ORANGE], ["questgiver", Palette.ACCENT2],
+			["practice", Palette.TOKENS], ["build_shop", Palette.LAVENDER], ["locker_portal", Palette.ACCENT]]:
+		var pad = _home_pad(str(entry[0]))
+		if pad != null:
+			var sq: Vector2 = to_px.call(float(pad.get("x", 0.0)), float(pad.get("y", 0.0)))
+			_mm_canvas.draw_rect(Rect2(sq - Vector2(3, 3), Vector2(6, 6)), entry[1])
+	# fighters + self need a valid self reference — until assign_fighter lands (a reliable RPC that
+	# can arrive AFTER an unreliable snapshot), skip them so mobs never miscolor as friendly and
+	# the local player never draws as a stray arrow-less dot
+	var lpf = _find_fighter(_player_id)
+	if _player_id == "" or lpf == null:
+		return
+	for f in _state.get("fighters", []):
+		if not bool(f.get("alive", true)) or str(f.get("id", "")) == _player_id:
+			continue
+		var fp: Vector2 = to_px.call(float(f.get("x", 0.0)), float(f.get("y", 0.0)))
+		var col: Color = WorldUI.DUMMY
+		if not bool(f.get("dummy", false)):
+			col = WorldUI.HOSTILE if _hostile_pair(lpf, f) else WorldUI.friendly_plate(_class_vfx_color(str(f.get("classId", ""))))
+		_mm_canvas.draw_circle(fp, 4.0 if str(f.get("mobTier", "")) != "" else 3.0, col)
+	_mm_arrow(to_px.call(float(lpf.get("x", 0.0)), float(lpf.get("y", 0.0))))
 
 # ---- P9 bottom navigation: clickable shortcuts to the REAL panels with their REAL keybinds
 # (no invented entries; NetClient-only, so practice mode never shows unavailable items).
