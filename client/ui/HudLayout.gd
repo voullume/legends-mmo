@@ -86,6 +86,10 @@ static func register(id: String, node: Control, opts: Dictionary = {}) -> Contro
 	var wrapper := Control.new()
 	wrapper.name = "HudMod_" + id
 	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# HUD modules live in a z-band BELOW panels/windows/modals (z=0): the always-on HUD should
+	# sit UNDER anything the player opens (the loadout, inventory, etc.), regardless of whether a
+	# module registered before or after those panels. Still above the low-HP vignette (z=-20).
+	wrapper.z_index = -6
 	parent.add_child(wrapper)
 	# keep the node's stacking slot so z-order vs its z=0 siblings doesn't change
 	if node is CanvasItem and parent is Node:
