@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready modular arena boundary pylon for repeated placement around a futuristic sports field. Slim waist-high armored post with a broad graphite foot, dark-navy faceted body, one vertical cyan emitter channel, tiny neon-lime top status lamp and restrained orange mechanical clamp. Strong simple silhouette that remains readable when repeated, approximately 0.35m wide, 0.35m deep, 1.2m tall, medium-low-poly. The energy channel is a solid inset surface for an emissive game material, not transparent and not a beam. No fence, rope, laser beam, text, number, logo, character, room, wall, floor, cables, floating pieces, transparent parts or surrounding environment. One centered upright post with perfectly flat floor contact.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

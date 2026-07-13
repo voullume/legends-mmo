@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready straight arena cover barrier for repeated modular placement in a futuristic sports-fantasy field. Waist-high armored wall segment with a long clean rectangular body, broad graphite base, deep-navy panels, cyan inset horizontal rail, tiny neon-lime end indicators and restrained orange corner clamps. Approximately 2.4m long, 0.5m deep, 1.05m tall, medium-low-poly, flat ends for visual repetition, finished on both sides and stable on a perfectly flat bottom. No curve, corner, fence, text, logo, player, weapon, room, wall, floor, cables, hologram, transparent parts, floating pieces or surrounding environment. Centered as one connected object.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

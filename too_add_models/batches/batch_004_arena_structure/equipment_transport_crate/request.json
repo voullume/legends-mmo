@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready heavy rolling equipment transport crate for a futuristic athletic arena. Large rectangular graphite road case with deep-navy armored panels, cyan recessed edge rails, small neon-lime inventory indicator, restrained orange latches, four sturdy corner wheels and two folded side handles. Approximately 1.5m wide, 0.8m deep, 1.0m tall, medium-low-poly, closed lid, clean readable silhouette and stable connected construction. Designed as movable field dressing and substantial cover. No text, numbers, logo, loose equipment, weapons, character, room, wall, floor, cables, transparent parts, floating pieces or surrounding environment. Centered upright with all wheels contacting one flat plane.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

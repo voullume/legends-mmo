@@ -1,0 +1,24 @@
+{
+  "batch_id": "batch_003_arena_technology",
+  "purpose": "Create a reusable arena-technology prop family for objectives, information displays, boundaries, and lighting.",
+  "status": "complete",
+  "approved_credit_ceiling": 160,
+  "actual_credits_consumed": 160,
+  "generation": {
+    "provider": "Meshy",
+    "api": "v2/text-to-3d",
+    "model": "meshy-6",
+    "mode": "preview",
+    "should_remesh": true,
+    "target_polycount": 6500,
+    "target_formats": ["glb"]
+  },
+  "candidates": [
+    {"id": "zone_terminal", "task_id": "019f5a08-62f4-737b-bee7-c6cc6e344429", "refine_task_id": "019f5a1f-ca38-76dd-96dc-17d2f94a2386", "preview_triangles": 6120, "credits": 30, "decision": "approved"},
+    {"id": "leaderboard_kiosk", "task_id": "019f5a08-6ca6-71ca-884f-503fd69a19ae", "refine_task_id": "019f5a1f-ccd7-76de-981d-dc586a1dc0cb", "preview_triangles": 5478, "credits": 30, "decision": "approved"},
+    {"id": "bounty_terminal", "task_id": "019f5a13-3cf1-7679-b900-5e6bf925e046", "refine_task_id": "019f5a1f-cf3a-714d-b4ee-d827ffc3577b", "preview_triangles": 5938, "credits": 30, "decision": "approved"},
+    {"id": "boundary_pylon", "task_id": "019f5a13-48ca-767b-bdad-ed9f7a5f3786", "refine_task_id": "019f5a1f-d198-79f1-ba8c-7202369366d7", "preview_triangles": 6395, "credits": 30, "decision": "approved"},
+    {"id": "floodlight_bank", "task_id": "019f5a13-5471-7412-9f08-6c952daa08ee", "preview_triangles": 6120, "credits": 20, "decision": "rejected"},
+    {"id": "compact_scoreboard", "task_id": "019f5a13-6114-7681-914f-f70ee8cf68dd", "preview_triangles": 5944, "credits": 20, "decision": "rejected"}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "asset_id": "glitchyard_wall",
+  "status": "approved_source_candidate",
+  "intended_use": "Rugged modular Glitchyard industrial wall anchor",
+  "source_batch": "batch_001a_arena_wall_anchor",
+  "preview_task_id": "019f57e5-fe35-7348-bbbb-06c500d495b3",
+  "refine_task_id": "019f5808-a77a-7f34-bc81-8f44b522ba17",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 7,500 triangles",
+    "One opaque double-sided PBR material",
+    "Four embedded 2048x2048 textures",
+    "Resize/compress textures before repeated runtime use",
+    "Normalize scale and correct floor-contact pivot before integration",
+    "Approved specifically for the Glitchyard industrial family, not the clean championship arena family"
+  ]
+}
+

@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready futuristic player entrance gate for a premium sports-fantasy MMO arena. Large open walk-through arch with two armored side columns and one connected overhead header, graphite and deep-navy metal, electric-cyan inset rails, small neon-lime ready lights and restrained orange mechanical fasteners. Strong championship broadcast silhouette, approximately 4m wide, 1m deep, 3.5m tall, with a clear rectangular opening and stable flat column feet. Medium-low-poly, finished front and back. No text, logo, doors, player, stairs, wall, room, floor, tunnel, crowd, flags, hologram, transparent parts, floating pieces or surrounding environment. Centered upright as one connected object.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

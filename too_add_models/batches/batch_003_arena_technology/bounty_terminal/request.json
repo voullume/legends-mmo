@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready rugged bounty terminal for a competitive futuristic sports-fantasy MMO arena. Compact freestanding armored console with a broad angled blank screen, two side grip rails, a small scanner pad and one obvious orange interaction button. Graphite and deep-navy metal, electric-cyan seams, neon-lime ready indicator, harder asymmetrical industrial silhouette than a clean leaderboard kiosk. Approximately 0.9m wide, 0.7m deep, 1.45m tall, stable broad base, readable at third-person distance, medium-low-poly. Blank dark screen with no interface baked in. No text, letters, numbers, logo, skull, weapon, character, currency, room, wall, floor, wires, hologram, transparent surfaces, floating pieces or environment. Centered upright with flat bottom.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

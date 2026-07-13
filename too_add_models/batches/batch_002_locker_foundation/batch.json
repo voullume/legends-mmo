@@ -1,0 +1,24 @@
+{
+  "batch_id": "batch_002_locker_foundation",
+  "purpose": "Establish the first reusable locker-room furniture collection.",
+  "status": "complete",
+  "approved_credit_ceiling": 170,
+  "actual_credits_consumed": 170,
+  "generation": {
+    "provider": "Meshy",
+    "api": "v2/text-to-3d",
+    "model": "meshy-6",
+    "mode": "preview",
+    "should_remesh": true,
+    "target_polycount": 6500,
+    "target_formats": ["glb"]
+  },
+  "candidates": [
+    {"id": "single_locker", "task_id": "019f5859-d12e-73be-b073-f09049bc23fe", "refine_task_id": "019f589b-b954-7e91-bcfe-4afe1e91ad69", "credits": 30, "decision": "approved"},
+    {"id": "locker_bank", "task_id": "019f5859-dcb5-73c0-8b14-fe1b41891816", "credits": 20, "decision": "rejected"},
+    {"id": "player_bench", "task_id": "019f5859-e7e1-73b4-ac15-7734d4ff6a4e", "refine_task_id": "019f589b-bbce-7e12-bec9-0011310e23f7", "credits": 30, "decision": "approved"},
+    {"id": "equipment_shelf", "task_id": "019f5859-f106-73c5-bf07-4a9dbcb118da", "refine_task_id": "019f589b-be1d-73db-a8f8-76044d29a278", "credits": 30, "decision": "approved"},
+    {"id": "multi_sport_ball_rack", "approved_as": "sports_ball_rack", "task_id": "019f5859-fac3-7cde-afbb-d59e273c0978", "refine_task_id": "019f589b-c068-7e92-9a95-c12c05590d05", "credits": 30, "decision": "approved"},
+    {"id": "trophy_pedestal", "approved_as": "championship_trophy", "task_id": "019f585a-041a-7cdf-8642-b67fe8a888e5", "refine_task_id": "019f589b-c2bb-7e15-b01e-0d6c1436f6ef", "credits": 30, "decision": "approved"}
+  ]
+}

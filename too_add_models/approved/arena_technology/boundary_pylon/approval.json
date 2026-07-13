@@ -1,0 +1,18 @@
+{
+  "asset_id": "boundary_pylon",
+  "status": "approved_source_candidate",
+  "intended_use": "Repeated arena boundary, objective-state or route-marker pylon",
+  "source_batch": "batch_003_arena_technology",
+  "preview_task_id": "019f5a13-48ca-767b-bdad-ed9f7a5f3786",
+  "refine_task_id": "019f5a1f-d198-79f1-ba8c-7202369366d7",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 6,395 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures",
+    "Normalize scale and correct floor-contact pivot before integration",
+    "Reduce/compress textures aggressively because this prop may be repeated",
+    "Use Godot-controlled emissive materials for boundary or team-state color"
+  ]
+}

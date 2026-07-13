@@ -1,0 +1,19 @@
+{
+  "asset_id": "sports_ball_rack",
+  "status": "approved_source_candidate",
+  "intended_use": "Rolling clubhouse sports-ball storage rack",
+  "source_batch": "batch_002_locker_foundation",
+  "generated_candidate_id": "multi_sport_ball_rack",
+  "preview_task_id": "019f5859-fac3-7cde-afbb-d59e273c0978",
+  "refine_task_id": "019f589b-c068-7e92-9a95-c12c05590d05",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 6,468 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures",
+    "Normalize scale and correct floor-contact pivot before integration",
+    "Reduce/compress textures before repeated runtime use",
+    "Approved under a generic name because most contents read as soccer or generic balls"
+  ]
+}

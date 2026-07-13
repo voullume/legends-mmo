@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready empty field-side team dugout canopy for a futuristic sports-fantasy arena. Open-front shelter with a broad graphite roof, two deep-navy armored side walls and a low rear wall, cyan structural edge rails, tiny neon-lime status lights and restrained orange brackets. Approximately 4.5m wide, 1.8m deep, 2.4m tall, medium-low-poly, strong readable silhouette and flat floor-contact edges. Interior must remain empty so a separate approved player bench can be placed inside later. No built-in bench, seats, players, text, logo, advertisements, glass, floor slab, room, stadium, crowd, hologram, transparent parts, floating pieces or surrounding environment. Centered upright as one connected object.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

@@ -2179,31 +2179,10 @@ func _build_settings() -> void:
 		set_reduce_fx(on)
 		HudFrame.reduced = on)                   # pattern chrome drops its glow layers with the rest
 	vb.add_child(rfx)
-	# --- configurable-HUD P3: global scale + edit mode + layout reset ---
+	# --- HUD: layout profile + edit mode + resets. (The old global "UI scale" slider was
+	# removed — it rescaled the whole viewport and fought the per-module F2 sizing; ALL sizing is
+	# now done per-module in F2 edit mode, which is cleaner and doesn't "go crazy".)
 	vb.add_child(Widgets.section("HUD"))
-	var srow := HBoxContainer.new()
-	srow.add_theme_constant_override("separation", 10)
-	var slbl := Label.new()
-	slbl.text = "UI scale"
-	slbl.custom_minimum_size = Vector2(70, 0)
-	srow.add_child(slbl)
-	var ssl := HSlider.new()
-	ssl.min_value = HudLayout.UI_SCALE_MIN
-	ssl.max_value = HudLayout.UI_SCALE_MAX
-	ssl.step = 0.05
-	ssl.custom_minimum_size = Vector2(240, 0)
-	ssl.value = get_window().content_scale_factor
-	srow.add_child(ssl)
-	var sval := Label.new()
-	sval.text = "%d%%" % int(round(get_window().content_scale_factor * 100.0))
-	sval.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
-	srow.add_child(sval)
-	ssl.value_changed.connect(func(v: float) -> void:   # live preview; persisted on release only
-		get_window().content_scale_factor = v
-		sval.text = "%d%%" % int(round(v * 100.0)))
-	ssl.drag_ended.connect(func(_ch: bool) -> void:
-		HudLayout.set_ui_scale(ssl.value, get_window()))
-	vb.add_child(srow)
 	# P11: layout profile + bulk opacity + fit-to-screen live here too (per-module fine-tuning
 	# stays in F2 edit mode — settings holds only the whole-HUD knobs)
 	var prow := HBoxContainer.new()

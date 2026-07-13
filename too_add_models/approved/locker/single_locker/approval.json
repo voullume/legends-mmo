@@ -1,0 +1,18 @@
+{
+  "asset_id": "single_locker",
+  "status": "approved_source_candidate",
+  "intended_use": "Reusable single-player futuristic clubhouse locker",
+  "source_batch": "batch_002_locker_foundation",
+  "preview_task_id": "019f5859-d12e-73be-b073-f09049bc23fe",
+  "refine_task_id": "019f589b-b954-7e91-bcfe-4afe1e91ad69",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 5,686 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures",
+    "Normalize scale and correct floor-contact pivot before integration",
+    "Reduce/compress textures before repeated runtime use",
+    "Approved as the source unit for any future modular locker bank"
+  ]
+}

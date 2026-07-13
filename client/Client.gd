@@ -2668,10 +2668,10 @@ func _build_hud() -> void:
 	# UI-overhaul P0: ONE Theme restyles every Control. A CanvasLayer isn't a Control (no `theme`
 	# property), so the root Window carries it — it propagates to everything under _hud + popups.
 	get_window().theme = UITheme.get_theme()
-	# configurable-HUD P3: global accessibility scale (0.75–1.5) composes with the stretch config;
-	# every per-frame `vp` read tracks the scaled visible rect automatically. HudFrame mirrors
-	# reduce_fx so the pattern chrome skips its glow layers with the rest of the FX.
-	get_window().content_scale_factor = HudLayout.load_ui_scale()
+	# HUD sizing is per-module (F2 edit mode) only — the global content-scale is pinned to 1.0
+	# (the old Settings "UI scale" slider rescaled the whole viewport and fought the per-module
+	# scaling). HudFrame mirrors reduce_fx so the pattern chrome skips its glow with the rest.
+	get_window().content_scale_factor = 1.0
 	HudFrame.reduced = reduce_fx
 	_info = RichTextLabel.new()
 	_info.bbcode_enabled = true
