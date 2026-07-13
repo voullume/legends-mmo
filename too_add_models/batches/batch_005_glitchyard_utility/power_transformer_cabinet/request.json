@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready arena power transformer cabinet for a worn futuristic sports training yard. Squat freestanding electrical machine with a closed graphite armored cabinet, deep-navy access panels, two chunky protected top coils, cyan recessed power channels, neon-lime status lamps and restrained orange disconnect handles. Scuffed industrial Glitchyard design, approximately 1.4m wide, 0.8m deep, 1.6m tall, medium-low-poly, stable broad base and readable from an elevated camera. No writing, warning labels, numbers, logo, loose wires, fence, pole, room, wall, floor, character, lightning, transparent pieces, floating geometry or environment. Centered upright as one connected object.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

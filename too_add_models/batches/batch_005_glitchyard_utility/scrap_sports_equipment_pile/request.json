@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready compact pile of discarded athletic training equipment for environmental dressing in a futuristic Glitchyard. One connected low heap containing bent padded blocking shields, a damaged ball basket, broken training-cone shapes and bundled metal frame pieces. Worn graphite and deep-navy equipment with restrained cyan, neon-lime and orange remnants, readable as sports-facility scrap rather than household trash. Approximately 1.8m wide, 1.2m deep, 0.9m tall, medium-low-poly, dense stable footprint with no detached pieces. No readable text, logo, weapons, character, garbage bags, room, wall, floor, fire, smoke, transparent parts, floating geometry or surrounding environment. Centered on one flat ground plane.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

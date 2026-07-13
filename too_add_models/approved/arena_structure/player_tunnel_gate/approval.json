@@ -1,0 +1,19 @@
+{
+  "asset_id": "player_tunnel_gate",
+  "status": "approved_source_candidate",
+  "intended_use": "Rugged Glitchyard or away-arena player entrance gate",
+  "source_batch": "batch_004_arena_structure",
+  "preview_task_id": "019f5aab-154d-7d60-a6a8-dc299b64bef8",
+  "refine_task_id": "019f5ad3-67fb-7d1c-a486-1dbe399b619a",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 6,154 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures",
+    "Normalize scale and correct both column floor contacts and pivot before integration",
+    "Reduce/compress textures before runtime use",
+    "Generated geometry is intentionally rugged and irregular rather than a clean championship style",
+    "Inspect the threshold and walk-through clearance against player collision"
+  ]
+}

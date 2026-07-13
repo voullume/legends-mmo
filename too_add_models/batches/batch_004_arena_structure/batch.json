@@ -1,10 +1,10 @@
 {
   "batch_id": "batch_004_arena_structure",
   "purpose": "Establish reusable arena entrance, cover, access, storage, and team-shelter source props.",
-  "status": "preview_review",
-  "approved_credit_ceiling": 120,
+  "status": "complete",
+  "approved_credit_ceiling": 170,
   "proposed_preview_credit_ceiling": 120,
-  "actual_credits_consumed": 120,
+  "actual_credits_consumed": 170,
   "proposed_generation": {
     "provider": "Meshy",
     "api": "v2/text-to-3d",
@@ -15,11 +15,11 @@
     "target_formats": ["glb"]
   },
   "candidates": [
-    {"id": "player_tunnel_gate", "task_id": "019f5aab-154d-7d60-a6a8-dc299b64bef8", "preview_triangles": 6154, "credits": 20, "recommendation": "refine"},
-    {"id": "straight_cover_barrier", "task_id": "019f5aab-1e89-74ab-8b59-25e2caf6a3dc", "preview_triangles": 6008, "credits": 20, "recommendation": "refine"},
-    {"id": "spectator_safety_rail", "task_id": "019f5aab-28c7-78f2-a8fb-b79b63347098", "preview_triangles": 5704, "credits": 20, "recommendation": "refine"},
-    {"id": "arena_service_door", "task_id": "019f5aab-3417-74ad-bf96-965d5f10b8b4", "preview_triangles": 5436, "credits": 20, "recommendation": "refine"},
-    {"id": "equipment_transport_crate", "task_id": "019f5aab-3cc6-78f4-a9a5-59d6e14bf6c3", "preview_triangles": 6465, "credits": 20, "recommendation": "refine"},
-    {"id": "team_dugout_canopy", "task_id": "019f5aab-4733-74b3-aecc-2d9b11ba3030", "preview_triangles": 6286, "credits": 20, "recommendation": "reject"}
+    {"id": "player_tunnel_gate", "task_id": "019f5aab-154d-7d60-a6a8-dc299b64bef8", "refine_task_id": "019f5ad3-67fb-7d1c-a486-1dbe399b619a", "preview_triangles": 6154, "credits": 30, "decision": "approved"},
+    {"id": "straight_cover_barrier", "task_id": "019f5aab-1e89-74ab-8b59-25e2caf6a3dc", "refine_task_id": "019f5ad3-6a30-79e9-8884-2675f91f3fb4", "preview_triangles": 6008, "credits": 30, "decision": "approved"},
+    {"id": "spectator_safety_rail", "task_id": "019f5aab-28c7-78f2-a8fb-b79b63347098", "refine_task_id": "019f5ad3-6cca-782b-aceb-b5b6e763f1f5", "preview_triangles": 5704, "credits": 30, "decision": "approved"},
+    {"id": "arena_service_door", "task_id": "019f5aab-3417-74ad-bf96-965d5f10b8b4", "refine_task_id": "019f5ad3-6f3d-7d1d-9c48-4f45a9c803fb", "preview_triangles": 5436, "credits": 30, "decision": "approved"},
+    {"id": "equipment_transport_crate", "task_id": "019f5aab-3cc6-78f4-a9a5-59d6e14bf6c3", "refine_task_id": "019f5ad3-71e4-782c-bb17-dfd351f10cba", "preview_triangles": 6465, "credits": 30, "decision": "approved"},
+    {"id": "team_dugout_canopy", "task_id": "019f5aab-4733-74b3-aecc-2d9b11ba3030", "preview_triangles": 6286, "credits": 20, "decision": "rejected"}
   ]
 }

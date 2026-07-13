@@ -1,0 +1,19 @@
+{
+  "asset_id": "straight_cover_barrier",
+  "status": "approved_source_candidate",
+  "intended_use": "Repeated field cover and arena-route barrier segment",
+  "source_batch": "batch_004_arena_structure",
+  "preview_task_id": "019f5aab-1e89-74ab-8b59-25e2caf6a3dc",
+  "refine_task_id": "019f5ad3-6a30-79e9-8884-2675f91f3fb4",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 6,008 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures",
+    "Normalize scale and correct floor-contact pivot before integration",
+    "Reduce/compress textures aggressively because this prop may be repeated",
+    "Visually seam-test both ends before modular repetition",
+    "Use simple authored collision instead of generated mesh collision"
+  ]
+}

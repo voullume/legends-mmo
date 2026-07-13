@@ -1,0 +1,19 @@
+{
+  "asset_id": "equipment_transport_crate",
+  "status": "approved_source_candidate",
+  "intended_use": "Movable-looking field dressing, equipment storage and substantial cover",
+  "source_batch": "batch_004_arena_structure",
+  "preview_task_id": "019f5aab-3cc6-78f4-a9a5-59d6e14bf6c3",
+  "refine_task_id": "019f5ad3-71e4-782c-bb17-dfd351f10cba",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 6,465 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures and is approximately 9.7 MB",
+    "Normalize scale and align all wheel contacts before integration",
+    "Reduce/compress textures before runtime use",
+    "Use a simple authored collision box rather than generated mesh collision",
+    "Keep the case closed unless a separate open-state model is authored"
+  ]
+}

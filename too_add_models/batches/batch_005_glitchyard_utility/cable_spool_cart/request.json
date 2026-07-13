@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready rolling power-cable spool cart for a futuristic sports arena maintenance crew. One large thick cable reel mounted horizontally inside a rugged graphite two-wheel frame, deep-navy spool sides, neatly wound dark cable, cyan axle caps, neon-lime status marker and restrained orange hand grips. Compact weathered Glitchyard utility design, approximately 1.2m wide, 0.8m deep, 1.1m tall, medium-low-poly, stable kickstand and all parts connected. No loose trailing cable, text, logo, person, tools, room, wall, floor, electricity, transparent pieces, floating geometry or environment. Centered upright with wheels and stand touching one flat plane.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

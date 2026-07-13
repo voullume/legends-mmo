@@ -1,0 +1,10 @@
+{
+  "mode": "preview",
+  "prompt": "One isolated game-ready heavy industrial ventilation unit for a futuristic arena shed or rooftop. Rectangular graphite HVAC housing with deep-navy armored side panels, one large recessed circular front fan behind thick protective radial bars, cyan cooling seams, neon-lime service light and restrained orange corner clamps. Weathered Glitchyard machinery, approximately 1.6m wide, 1.0m deep, 1.4m tall, medium-low-poly, flat back, stable base and strong readable silhouette. Fan blades remain static and fully contained. No text, logo, ductwork, building, wall, roof, floor, character, smoke, transparent parts, floating geometry or environment. Centered upright as one connected object.",
+  "ai_model": "meshy-6",
+  "should_remesh": true,
+  "topology": "triangle",
+  "target_polycount": 6500,
+  "symmetry_mode": "auto",
+  "target_formats": ["glb"]
+}

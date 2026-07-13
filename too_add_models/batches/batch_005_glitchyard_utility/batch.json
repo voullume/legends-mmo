@@ -1,0 +1,25 @@
+{
+  "batch_id": "batch_005_glitchyard_utility",
+  "purpose": "Add reusable industrial utility and maintenance dressing for the Glitchyard, Target Court, sheds, and command areas.",
+  "status": "prepared_awaiting_preview_approval",
+  "approved_credit_ceiling": 0,
+  "proposed_preview_credit_ceiling": 120,
+  "actual_credits_consumed": 0,
+  "proposed_generation": {
+    "provider": "Meshy",
+    "api": "v2/text-to-3d",
+    "model": "meshy-6",
+    "mode": "preview",
+    "should_remesh": true,
+    "target_polycount": 6500,
+    "target_formats": ["glb"]
+  },
+  "candidates": [
+    {"id": "power_transformer_cabinet", "proposed_credits": 20},
+    {"id": "coolant_pump_station", "proposed_credits": 20},
+    {"id": "industrial_ventilation_unit", "proposed_credits": 20},
+    {"id": "cable_spool_cart", "proposed_credits": 20},
+    {"id": "maintenance_tool_cart", "proposed_credits": 20},
+    {"id": "scrap_sports_equipment_pile", "proposed_credits": 20}
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "asset_id": "spectator_safety_rail",
+  "status": "approved_source_candidate",
+  "intended_use": "Repeated spectator concourse and arena-edge safety railing",
+  "source_batch": "batch_004_arena_structure",
+  "preview_task_id": "019f5aab-28c7-78f2-a8fb-b79b63347098",
+  "refine_task_id": "019f5ad3-6cca-782b-aceb-b5b6e763f1f5",
+  "credits_consumed": 30,
+  "source_model": "meshy-6",
+  "integration_status": "not_integrated",
+  "technical_notes": [
+    "Approximately 5,704 triangles in the preview mesh",
+    "Refined GLB contains embedded large PBR textures",
+    "Normalize scale and correct floor-contact pivot before integration",
+    "Reduce/compress textures aggressively because this prop may be repeated",
+    "Remove the thin stray strand behind the guard panel during mesh cleanup",
+    "Use simple authored collision and seam-test repeated segments"
+  ]
+}
