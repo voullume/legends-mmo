@@ -528,13 +528,13 @@ func _render_charsheet() -> void:
 	var bonus: Dictionary = si.get("equip_bonus", {})
 	var fin: Dictionary = si if not si.is_empty() else (pf if pf != null else {})
 	var lines := ["[color=#7f93a8]Level %d[/color]    [color=#ffd24d]✦ Item Power %d[/color]\n" % [int(si.get("level", 0)), int(si.get("item_power", 0))]]
-	lines.append("[b]Attributes[/b]  [color=#7f93a8](base [color=#9fe8a0]+gear[/color])[/color]")
+	lines.append("[color=#00e5ff][b]Attributes[/b][/color]  [color=#7f93a8](base [color=#9fe8a0]+gear[/color])[/color]")
 	for st in STAT_KEYS:
 		var b: int = int(base.get(st, 0))
 		var g: int = int(bonus.get(st, 0))
 		var gtxt: String = "  [color=#9fe8a0]+%d[/color]" % g if g > 0 else ""
 		lines.append("  [color=#8a93a0]%s[/color]  [color=#cfd6df]%d[/color]%s" % [str(STAT_NAMES.get(st, st)), b + g, gtxt])
-	lines.append("\n[b]Combat[/b]")
+	lines.append("\n[color=#00e5ff][b]Combat[/b][/color]")
 	lines.append("  Max HP  [color=#cfd6df]%d[/color]" % int(fin.get("maxHP", 0)))
 	lines.append("  Damage  [color=#cfd6df]+%d%%[/color]" % int(round((float(fin.get("dmgMult", 1.0)) - 1.0) * 100.0)))
 	lines.append("  Crit  [color=#cfd6df]%d%%[/color] [color=#7f93a8]×%.2f[/color]" % [int(round(float(fin.get("crit", 0.0)) * 100.0)), float(fin.get("critMult", 1.6))])
@@ -551,12 +551,12 @@ func _render_charsheet() -> void:
 			active.append("  [color=#cdbcff]%s[/color] (%d pc) [color=#9fe8a0]+%d %s[/color]" % [
 				str(sdef.get("name", sid)), int(sb.get("count", 0)), int(sb["bonus"]), str(sb.get("stat", ""))])
 	if not active.is_empty():
-		lines.append("\n[b]Set Bonuses[/b]  [color=#7f93a8](epic+ pieces)[/color]")
+		lines.append("\n[color=#00e5ff][b]Set Bonuses[/b][/color]  [color=#7f93a8](epic+ pieces)[/color]")
 		lines.append_array(active)
 	# procs from equipped uniques (P6)
 	var myprocs = si.get("procs", [])
 	if myprocs is Array and not myprocs.is_empty():
-		lines.append("\n[b]Procs[/b]  [color=#7f93a8](from uniques)[/color]")
+		lines.append("\n[color=#00e5ff][b]Procs[/b][/color]  [color=#7f93a8](from uniques)[/color]")
 		for pr in myprocs:
 			var nm: String = str(GameData.PROC_CATALOG.get(str(pr.get("id", "")), {}).get("name", str(pr.get("id", ""))))
 			var trig: String = str(pr.get("trigger", "")).replace("on_", "on ")
@@ -1554,16 +1554,21 @@ func _rebuild_paperdoll(items: Array) -> void:
 
 func _paperdoll_slot(label: String, it) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(190, 28)
+	b.custom_minimum_size = Vector2(190, 34)       # 28 was a sub-standard hit target
 	b.clip_text = true
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if it == null:
 		b.text = "%s:  —" % label
 		b.disabled = true
-		b.add_theme_color_override("font_disabled_color", Color(0.38, 0.43, 0.49))
+		b.add_theme_color_override("font_disabled_color", Palette.TEXT_FAINT)
 		return b
 	b.text = "%s:  %s" % [label, str(it.get("name", "?"))]
-	b.add_theme_color_override("font_color", _item_color(it))
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var rc: Color = _item_color(it)
+	b.add_theme_color_override("font_color", Palette.TEXT_BRIGHT if str(it.get("rarity", "common")) == "common" else rc)
+	b.add_theme_stylebox_override("normal", Widgets.tile_box(rc, false))   # rarity border, matching the bag
+	b.add_theme_stylebox_override("hover", Widgets.tile_box(rc, true))
+	b.add_theme_stylebox_override("pressed", Widgets.tile_box(rc, true))
 	var iid := str(it.get("id", ""))
 	var slot := str(it.get("slot", ""))
 	var itc: Dictionary = it
@@ -4680,30 +4685,43 @@ func recv_admin(on: bool) -> void:
 
 func _build_admin_panel() -> void:
 	_admin_panel = PanelContainer.new()
+	var mg := MarginContainer.new()               # was jammed to the 4px theme margin
+	for s in ["left", "right", "top", "bottom"]:
+		mg.add_theme_constant_override("margin_" + s, 12)
+	_admin_panel.add_child(mg)
 	var vb := VBoxContainer.new()
-	_admin_panel.add_child(vb)
-	var title := Label.new()
-	title.text = "⚙ ADMIN  (F1)"
+	vb.add_theme_constant_override("separation", 6)
+	mg.add_child(vb)
+	var title := HudFonts.display_label("Admin", Palette.SIZE_SECTION, Palette.SB_ORANGE, 0.16)   # orange = the warn/dev semantic
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	vb.add_child(title)
-	var cmds := [
-		["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}],
-		["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}],
-		["God Mode", "god", {}], ["Heal", "heal", {}],
-		["→ Home", "goto", {"map": "home"}], ["→ Arena", "goto", {"map": "arena"}],
-		["→ GY1", "goto", {"map": "glitchyard_1"}], ["→ GY2", "goto", {"map": "glitchyard_2"}], ["→ GY3", "goto", {"map": "glitchyard_3"}],
-		["→ GY4", "goto", {"map": "glitchyard_4"}], ["→ GY5", "goto", {"map": "glitchyard_5"}], ["→ BOSS", "goto", {"map": "glitchyard_boss"}],
-		["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}],
+	# grouped so the 19 commands are scannable (was one undifferentiated tall column); teleports
+	# lay out as a grid to cut height
+	var groups := [
+		["Character", [["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}]], 2],
+		["Items", [["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}]], 2],
+		["Survival", [["God Mode", "god", {}], ["Heal", "heal", {}]], 2],
+		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}]], 4],
+		["Mobs", [["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}]], 3],
 	]
-	for c in cmds:
-		var b := Button.new()
-		b.text = str(c[0])
-		var cmd: String = str(c[1])
-		var args: Dictionary = c[2]
-		b.pressed.connect(func() -> void: _admin(cmd, args))
-		vb.add_child(b)
+	for grp in groups:
+		vb.add_child(Widgets.section(str(grp[0])))
+		var grid := GridContainer.new()
+		grid.columns = int(grp[2])
+		grid.add_theme_constant_override("h_separation", 4)
+		grid.add_theme_constant_override("v_separation", 4)
+		for c in grp[1]:
+			var b := Button.new()
+			b.text = str(c[0])
+			b.focus_mode = Control.FOCUS_NONE
+			var cmd: String = str(c[1])
+			var args: Dictionary = c[2]
+			b.pressed.connect(func() -> void: _admin(cmd, args))
+			grid.add_child(b)
+		vb.add_child(grid)
 	_hud.add_child(_admin_panel)
 	var vp: Vector2 = _hud.get_viewport().get_visible_rect().size
-	_admin_panel.position = Vector2(vp.x - 180.0, 70.0)
+	_admin_panel.position = Vector2(vp.x - 260.0, 70.0)
 	_admin_panel.visible = false
 
 func _admin(cmd: String, args: Dictionary) -> void:
