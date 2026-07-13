@@ -193,7 +193,7 @@ var _lb_reset_unix := 0              # P7d: next-reset epoch for a seasonal tab 
 var _drill_banner: Label = null
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
-var _sell_confirm: Panel = null
+var _sell_confirm: Control = null            # PanelContainer (sizes to content + draws the themed box)
 var _sell_items := []         # last-loaded inventory (Array[Dictionary]) — re-render toggles without re-fetch
 var _sell_selection := {}     # item_id -> true, the multi-select set in the SELL list
 var _sell_sort := "rarity"    # rarity | slot | power
@@ -2045,12 +2045,12 @@ func _render_qgiver() -> void:
 				drows.append(row)
 				dend = int(b.get("period_end", 0))
 		if not drows.is_empty():
-			_qgiver_rows.add_child(Widgets.section("✦ Daily Bounties  (resets in %s)" % _bounty_countdown(dend)))
+			_qgiver_rows.add_child(Widgets.section("Daily Bounties  (resets in %s)" % _bounty_countdown(dend)))
 			for r in drows:
 				_qgiver_rows.add_child(r)
 			any = true
 		if not wrows.is_empty():
-			_qgiver_rows.add_child(Widgets.section("✦ Weekly Bounty  (resets in %s)" % _bounty_countdown(wend)))
+			_qgiver_rows.add_child(Widgets.section("Weekly Bounty  (resets in %s)" % _bounty_countdown(wend)))
 			for r in wrows:
 				_qgiver_rows.add_child(r)
 			any = true
@@ -2566,7 +2566,7 @@ func _render_camp() -> void:
 	_camp_rows.add_child(khint)
 	# --- Audibles (P5): the repeatable Pages sink — per-run consumables for your NEXT Camp run ---
 	_camp_rows.add_child(HSeparator.new())
-	_camp_rows.add_child(Widgets.section("📋 Audibles — spend Pages on your next Camp run"))
+	_camp_rows.add_child(Widgets.section("Audibles — spend Pages on your next Camp run"))
 	var pend := _my_pending_audible()
 	var queued := []
 	if str(pend.get("affix", "")) != "":
@@ -3652,7 +3652,7 @@ func _confirm_sell_selected() -> void:
 # generic confirm modal (reused by the bulk-sell flow). on_yes runs if the player confirms.
 func _show_sell_confirm(prompt: String, on_yes: Callable) -> void:
 	_close_sell_confirm()
-	_sell_confirm = Panel.new()
+	_sell_confirm = PanelContainer.new()          # Container → sizes to content + actually draws the themed box
 	var mg := MarginContainer.new()               # breathing room (was jammed to the 4px theme margin)
 	for s in ["left", "right", "top", "bottom"]:
 		mg.add_theme_constant_override("margin_" + s, 16)
