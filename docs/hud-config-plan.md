@@ -375,7 +375,46 @@ the self-arrow ~11–15°); skip fighters/self until a valid self-reference (pre
 mis-colored mobs); hidden default + reverted the quest_tracker/builder default nudges.
 `--minimap` dev flag. Verified: 46 tests exit 0, boot clean, clean render screenshot.
 
-## REMAINING
+## MENU-THEMING PASS (2026-07-13, commits 7aa25b8…9255322) — separate from the HUD program
+
+Owner asked to bring the rest of the menus/screens onto the HUD's sports-tech pattern and fix
+readability. Audited every non-HUD surface (workflow) → the Theme already covered every Control
+type; the gap was panels bypassing it with bespoke inline styleboxes + old-palette accents.
+Done (mostly central, so one change lifts many panels):
+- **UITheme**: accents repointed from the pre-pattern palette (gold ACCENT / soft-cyan ACCENT2)
+  to SB_CYAN/SB_LIME — buttons (navy body + cyan rail + cyan press, was flat grey/gold),
+  OptionButton/MenuButton, LineEdit/TextEdit, sliders (+ procedural cyan grabber knob),
+  scrollbars, PopupMenu, ProgressBar; NEW TooltipPanel/TooltipLabel (native tooltips were
+  unstyled); procedural CheckBox cyan-box/lime-tick glyphs.
+- **Widgets**: NEW `tile_box()` (replaces the SAME inline stylebox duplicated in _rarity_box/
+  _inv_tile/_build_item_tile → restyles Inventory/Shop/Forge/Craft/Build tiles), `toggle_btn()`
+  (filled-cyan active pill), `tab_row()` (cyan-underline active tab); `section()` + window
+  titles use the display font WITH a `display_safe()` guard (Sportbound Strike is caps-only w/
+  limited punctuation — parens/symbols/sentences fall back to the body font). `Palette.SUCCESS`.
+- **Login (Account.gd)**: display-font "LEGENDS MMO" wordmark + radial navy→ink backdrop +
+  display card titles + cyan title rules.
+- **Biggest usability fixes**: Quest Giver Accept/Turn In/Claim were bbcode [url] TEXT LINKS →
+  real button rows (`_qg_action_row`); Leaderboard 5 tabs were indistinguishable → tab_row;
+  Inventory/Shop sort+filter toggles → toggle_btn; sell-confirm → PanelContainer + orange
+  Confirm; framed dye swatches (dark dyes were invisible); tiles get a pointing-hand cursor +
+  common items lifted to readable contrast.
+- Adversarial review (3-finder + verify): qgiver rewrite / leaderboard / theme = ZERO defects;
+  2 low bugs fixed (sell-confirm 0×0 Panel→PanelContainer; section ✦/📋 tofu → glyphs dropped).
+
+**Optional remaining polish** (audit flagged, NOT done — all cosmetic, none blocking): charsheet
+is still one dense RichTextLabel blob (could split into Widgets.section blocks); admin F1 panel
+ungrouped (dev tool); quest-journal read-only bbcode wall; paperdoll cells 28px / no rarity
+border; camp intensity tiers could be Widgets.tile cards; ~2 big RichTextLabels (charsheet,
+quest journal) still use retyped bbcode hex literals instead of Palette.hex. Owner playtest of
+the re-themed menus owed.
+
+⚠ TEST-HYGIENE NOTE: my screenshot runs polluted the owner's real user://settings.cfg with test
+module values (removed the bad `minimap` entry; hotbar 1.6 / chat 0.7 may be mine or theirs).
+Live client `--shot` runs read+write the owner's settings.cfg (user:// can't be redirected for
+a live client) — future runs must restore from scratchpad/owner_settings.clean and never inject
+test values into the live file.
+
+## REMAINING (HUD program)
 
 - **P12 branding/licensing gate — OWNER DECISIONS, not code**: (1) keep "Legends MMO" or adopt
   Sportbound identity (logos are reference-only until decided); (2) production display font:
