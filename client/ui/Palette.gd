@@ -6,9 +6,9 @@ extends RefCounted
 
 # --- surfaces / chrome ---
 const BG := Color(0.05, 0.06, 0.09)                    # backdrop / near-opaque tooltip ground
-const BG_PANEL := Color(0.043, 0.058, 0.095, 0.985)    # pop-up panel chrome — dark, near-opaque navy
-                                                       # (was a lighter 0.94: the busy 3D world bled
-                                                       #  through pop-up windows and washed out text)
+const BG_PANEL := Color(0.043, 0.058, 0.095, 1.0)      # pop-up panel chrome — SOLID dark navy.
+                                                       # (0.94→0.985 still bled the busy 3D world
+                                                       #  through windows; data menus must be opaque)
 const BG_INSET := Color(0.10, 0.12, 0.16, 0.92)        # tiles / inset boxes / buttons at rest
 const BG_HOVER := Color(0.17, 0.20, 0.25, 0.96)        # hovered tile/button
 const BG_PRESSED := Color(0.07, 0.085, 0.115, 0.98)

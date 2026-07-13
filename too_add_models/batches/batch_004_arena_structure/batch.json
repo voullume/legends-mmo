@@ -1,7 +1,7 @@
 {
   "batch_id": "batch_004_arena_structure",
   "purpose": "Establish reusable arena entrance, cover, access, storage, and team-shelter source props.",
-  "status": "preview_generating",
+  "status": "preview_review",
   "approved_credit_ceiling": 120,
   "proposed_preview_credit_ceiling": 120,
   "actual_credits_consumed": 120,
@@ -15,11 +15,11 @@
     "target_formats": ["glb"]
   },
   "candidates": [
-    {"id": "player_tunnel_gate", "task_id": "019f5aab-154d-7d60-a6a8-dc299b64bef8", "credits": 20},
-    {"id": "straight_cover_barrier", "task_id": "019f5aab-1e89-74ab-8b59-25e2caf6a3dc", "credits": 20},
-    {"id": "spectator_safety_rail", "task_id": "019f5aab-28c7-78f2-a8fb-b79b63347098", "credits": 20},
-    {"id": "arena_service_door", "task_id": "019f5aab-3417-74ad-bf96-965d5f10b8b4", "credits": 20},
-    {"id": "equipment_transport_crate", "task_id": "019f5aab-3cc6-78f4-a9a5-59d6e14bf6c3", "credits": 20},
-    {"id": "team_dugout_canopy", "task_id": "019f5aab-4733-74b3-aecc-2d9b11ba3030", "credits": 20}
+    {"id": "player_tunnel_gate", "task_id": "019f5aab-154d-7d60-a6a8-dc299b64bef8", "preview_triangles": 6154, "credits": 20, "recommendation": "refine"},
+    {"id": "straight_cover_barrier", "task_id": "019f5aab-1e89-74ab-8b59-25e2caf6a3dc", "preview_triangles": 6008, "credits": 20, "recommendation": "refine"},
+    {"id": "spectator_safety_rail", "task_id": "019f5aab-28c7-78f2-a8fb-b79b63347098", "preview_triangles": 5704, "credits": 20, "recommendation": "refine"},
+    {"id": "arena_service_door", "task_id": "019f5aab-3417-74ad-bf96-965d5f10b8b4", "preview_triangles": 5436, "credits": 20, "recommendation": "refine"},
+    {"id": "equipment_transport_crate", "task_id": "019f5aab-3cc6-78f4-a9a5-59d6e14bf6c3", "preview_triangles": 6465, "credits": 20, "recommendation": "refine"},
+    {"id": "team_dugout_canopy", "task_id": "019f5aab-4733-74b3-aecc-2d9b11ba3030", "preview_triangles": 6286, "credits": 20, "recommendation": "reject"}
   ]
 }

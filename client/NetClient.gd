@@ -202,7 +202,7 @@ var _sell_loading := false    # re-entrancy guard for the SELL list load (mirror
 var _sell_pending := false    # a reload was requested while one was in flight
 var _quests := {}             # quest_id -> {progress, completed} — server-pushed, server-authoritative
 var _quest_panel: Control = null
-var _quest_label: RichTextLabel = null
+var _quest_rows: VBoxContainer = null        # journal: sectioned quest cards (was one bbcode blob)
 var _quest_tracker: VBoxContainer = null    # always-on HUD list of active quests
 var _quest_tracker_title: Label = null
 var _qt_root: Control = null                # P6: the tracker's PANEL chassis (the module node)
@@ -1783,11 +1783,27 @@ func _build_questlog() -> void:
 	_quest_panel = p["root"]
 	_hud.add_child(_quest_panel)
 	var vb: VBoxContainer = p["body"]
-	_quest_label = RichTextLabel.new()
-	_quest_label.bbcode_enabled = true
-	_quest_label.scroll_active = true
-	_quest_label.custom_minimum_size = Vector2(520, 440)
-	vb.add_child(_quest_label)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(520, 440)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	_quest_rows = VBoxContainer.new()
+	_quest_rows.add_theme_constant_override("separation", 5)
+	_quest_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_quest_rows)
+
+# a read-only journal card: a rail-colored tile framing a rich quest line (name/progress/desc)
+func _journal_card(bb: String, rail: Color) -> PanelContainer:
+	var c := PanelContainer.new()
+	c.add_theme_stylebox_override("panel", Widgets.tile_box(rail, false))
+	var l := RichTextLabel.new()
+	l.bbcode_enabled = true
+	l.fit_content = true
+	l.scroll_active = false
+	l.custom_minimum_size = Vector2(476, 0)
+	l.text = bb
+	c.add_child(l)
+	return c
 
 func _toggle_questlog() -> void:
 	if _quest_panel == null:
@@ -1805,11 +1821,16 @@ func _toggle_questlog() -> void:
 		_render_questlog()
 
 func _render_questlog() -> void:
-	if _quest_label == null:
+	if _quest_rows == null:
 		return
+	for c in _quest_rows.get_children():
+		c.queue_free()
+	var dim := Palette.hex(Palette.TEXT_DIM)
+	var faint := Palette.hex(Palette.TEXT_FAINT)
+	var body := Palette.hex(Palette.TEXT)
 	var pf = _find_fighter(_player_id)
 	var lvl := int(pf.get("level", 1)) if pf != null else 1
-	var active := []
+	var active := []      # [{bb, ready}]
 	var avail := []
 	var locked := []
 	var done := []
@@ -1823,39 +1844,42 @@ func _render_questlog() -> void:
 		if _quests.has(qid):
 			var st = _quests[qid]
 			if bool(st.get("completed", false)):
-				done.append("[color=#6b7686]✓ %s[/color]" % nm)
+				done.append("[color=%s]✓ %s[/color]" % [dim, nm])
 			else:
 				var prog := int(st.get("progress", 0))
 				if prog >= cnt:
-					active.append("[color=#9fe8a0]%s  (%d/%d) — ready, turn in at the Quest Giver[/color]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, desc])
+					active.append({"bb": "[b][color=%s]%s[/color][/b]  [color=%s](ready — turn in at the Quest Giver)[/color]\n[color=%s]%s[/color]" % [Palette.hex(Palette.SUCCESS), nm, Palette.hex(Palette.SUCCESS), dim, desc], "ready": true})
 				else:
-					active.append("[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]\n   [color=#7f93a8]%s[/color]" % [nm, prog, cnt, desc])
+					active.append({"bb": "[b][color=%s]%s[/color][/b]  [color=%s]%d/%d[/color]\n[color=%s]%s[/color]" % [body, nm, Palette.hex(Palette.ACCENT2), prog, cnt, dim, desc], "ready": false})
 		else:
 			var prereq := str(q.get("prereq", ""))
 			var minl := int(q.get("min_level", 1))
 			var prereq_ok: bool = prereq == "" or (_quests.has(prereq) and bool(_quests[prereq].get("completed", false)))
 			if lvl >= minl and prereq_ok:
-				avail.append("[color=#dfe6f0]%s[/color]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [nm, desc, _reward_text(q)])
+				avail.append("[b][color=%s]%s[/color][/b]\n[color=%s]%s[/color]  [color=%s](reward: %s)[/color]" % [body, nm, dim, desc, faint, _reward_text(q)])
 			else:
 				var reason: String = ("needs lvl %d" % minl) if lvl < minl else ("requires: %s" % _esc(_prereq_name(prereq)))
-				locked.append("[color=#5a6472]🔒 %s  (%s)[/color]" % [nm, reason])
-	var out := ["[color=#7f93a8]Accept & turn in quests at the [color=#ffd24d]Quest Giver[/color] in the Home Base (press E near it).[/color]"]
-	out.append(_secret_teaser())
+				locked.append("[color=%s]🔒 %s  (%s)[/color]" % [faint, nm, reason])
+	_quest_rows.add_child(_qg_info("[color=%s]Accept & turn in quests at the [color=%s]Quest Giver[/color] in the Home Base (press E near it).[/color]" % [dim, Palette.hex(Palette.ACCENT)]))
+	var teaser := _secret_teaser()
+	if teaser != "":
+		_quest_rows.add_child(_qg_info(teaser))
 	if not active.is_empty():
-		out.append("[b][color=#8ad6ff]Active[/color][/b]")
-		out.append_array(active)
+		_quest_rows.add_child(Widgets.section("Active"))
+		for a in active:
+			_quest_rows.add_child(_journal_card(a["bb"], Palette.SB_LIME if a["ready"] else Palette.SB_CYAN))
 	if not avail.is_empty():
-		out.append("\n[b][color=#9fe8a0]Available[/color][/b]")
-		out.append_array(avail)
+		_quest_rows.add_child(Widgets.section("Available"))
+		for a in avail:
+			_quest_rows.add_child(_journal_card(a, Palette.SUCCESS))
 	if not locked.is_empty():
-		out.append("\n[b][color=#7f93a8]Locked[/color][/b]")
-		out.append_array(locked)
+		_quest_rows.add_child(Widgets.section("Locked"))
+		_quest_rows.add_child(_qg_info("\n".join(locked)))
 	if not done.is_empty():
-		out.append("\n[b][color=#6b7686]Completed[/color][/b]")
-		out.append_array(done)
+		_quest_rows.add_child(Widgets.section("Completed"))
+		_quest_rows.add_child(_qg_info("\n".join(done)))
 	if active.is_empty() and avail.is_empty() and locked.is_empty() and done.is_empty():
-		out.append("[color=#7f93a8]No quests available yet.[/color]")
-	_quest_label.text = "\n".join(out)
+		_quest_rows.add_child(_qg_info("[color=%s]No quests available yet.[/color]" % dim))
 
 # the gated-boss unlock teaser: quest-chain progress + Master Key status, without spoiling the specifics
 # (the Camp panel already names the Final Lesson / Head Coach Arena, so this only tantalizes).
@@ -2576,19 +2600,30 @@ func _render_camp() -> void:
 	for c in _camp_rows.get_children():
 		c.queue_free()
 	for tier in range(1, mx + 1):
+		var top := tier == mx
+		var card := PanelContainer.new()                   # each tier is a selectable difficulty card
+		card.add_theme_stylebox_override("panel", Widgets.tile_box(Palette.SB_LIME if top else Palette.SB_CYAN, false))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
+		card.add_child(row)
 		var lbl := Label.new()
-		var top := tier == mx
-		lbl.text = "Intensity %d%s" % [tier, "   ◈ NEW — clear to advance" if top else ""]
-		if top: lbl.add_theme_color_override("font_color", Palette.SUCCESS)
-		lbl.custom_minimum_size = Vector2(360, 0)
+		lbl.text = "Intensity %d" % tier
+		lbl.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
+		lbl.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
+		lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(lbl)
+		if top:
+			var chip := Widgets.chip("NEW — clear to advance", Palette.SB_LIME)
+			chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(chip)
+		var spacer := Control.new()
+		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(spacer)
 		var btn := Button.new()
-		btn.text = "Enter  I%d" % tier
+		btn.text = "Enter"
 		btn.pressed.connect(_on_enter_camp.bind(tier))
 		row.add_child(btn)
-		_camp_rows.add_child(row)
+		_camp_rows.add_child(card)
 	# --- attunement (P2): Playbook Pages + the Master Key forge ---
 	var sep := HSeparator.new()
 	_camp_rows.add_child(sep)
@@ -2596,13 +2631,13 @@ func _render_camp() -> void:
 	prow.add_theme_constant_override("separation", 10)
 	var plbl := Label.new()
 	plbl.text = "◈ Playbook Pages:  %d / %d" % [_my_pages(), _key_cost()]
-	plbl.add_theme_color_override("font_color", Color(0.31, 0.83, 1.0))
+	plbl.add_theme_color_override("font_color", Palette.TOKENS)
 	plbl.custom_minimum_size = Vector2(360, 0)
 	prow.add_child(plbl)
 	if _has_key():
 		var done := Label.new()
 		done.text = "🔑 Master Key forged"
-		done.add_theme_color_override("font_color", Color(1.0, 0.82, 0.3))
+		done.add_theme_color_override("font_color", Palette.ACCENT)
 		prow.add_child(done)
 	else:
 		var kbtn := Button.new()
@@ -2613,7 +2648,7 @@ func _render_camp() -> void:
 	_camp_rows.add_child(prow)
 	var khint := Label.new()
 	khint.text = "The Master Key + every quest done opens the secret boss. Earn Pages from Circuit clears (more at higher Intensity) + the Head Coach."
-	khint.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	khint.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	khint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_camp_rows.add_child(khint)
 	# --- Audibles (P5): the repeatable Pages sink — per-run consumables for your NEXT Camp run ---
