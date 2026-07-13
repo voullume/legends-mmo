@@ -220,6 +220,36 @@ func _run() -> void:
 		"on_variant": func(v: String) -> void: vcalls2.append(v)})
 	ok(vcalls2 == ["bars"], "saved variant applied (once) on re-register, got %s" % [vcalls2])
 
+	# --- minimap-style module: DEFAULT hidden, enabled in F2, must persist across logout/login
+	HudLayoutS.reset_registry()
+	HudLayoutS.cfg_path = TEST_CFG
+	if FileAccess.file_exists(TEST_CFG):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_CFG))   # pristine — no saved layout
+	var host7 := Control.new()
+	host7.size = Vector2(1600, 900)
+	root.add_child(host7)
+	var mm := Control.new()
+	mm.size = Vector2(204, 204)
+	host7.add_child(mm)
+	HudLayoutS.register("minimap", mm, {"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 12.0, "visible": false}})
+	ok(bool(HudLayoutS.layout("minimap")["visible"]) == false, "minimap defaults hidden")
+	HudLayoutS.set_field("minimap", "visible", true)     # player enables it in F2
+	HudLayoutS.mark_custom()
+	ok(bool(HudLayoutS.layout("minimap")["visible"]) == true, "minimap shows after enable")
+	HudLayoutS.save()                                    # F2 exit
+	# simulate logout → login: statics wiped, fresh registration reading the saved cfg
+	HudLayoutS.reset_registry()
+	HudLayoutS.cfg_path = TEST_CFG
+	var host8 := Control.new()
+	host8.size = Vector2(1600, 900)
+	root.add_child(host8)
+	var mm2 := Control.new()
+	mm2.size = Vector2(204, 204)
+	host8.add_child(mm2)
+	HudLayoutS.register("minimap", mm2, {"defaults": {"anchor": "top_right", "ox": -12.0, "oy": 12.0, "visible": false}})
+	ok(bool(HudLayoutS.layout("minimap")["visible"]) == true, "minimap STAYS enabled after logout/login, got %s" % HudLayoutS.layout("minimap")["visible"])
+	ok((mm2.get_parent() as Control).visible == true, "minimap wrapper actually visible after relogin")
+
 	print("[hud_layout_test] %d checks, %d failures" % [checks, fails])
 	if FileAccess.file_exists(TEST_CFG):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(TEST_CFG))

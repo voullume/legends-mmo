@@ -80,7 +80,7 @@ var _loot_roll_deadline := 0.0                 # secs left before auto-pass
 var _loot_roll_timer_lbl: Label = null
 var _inv_panel: Control
 var _sheet_panel: Control                    # character sheet (K) — computed base+gear stats + item power
-var _sheet_label: RichTextLabel
+var _sheet_rows: VBoxContainer               # sectioned stat CARDS (Attributes / Combat / Sets / Procs)
 var _sheet_sig := 0                          # sig-guard: `self` rides the change-detected META → skip the per-snapshot rebuild
 var _inv_items := []                          # last-loaded inventory cache (for hover tooltips)
 var _gear_count := 0                          # cached count of GEAR rows (category != 'build') → near-cap warning
@@ -496,11 +496,34 @@ func _build_charsheet() -> void:
 	_sheet_panel = p["root"]
 	_hud.add_child(_sheet_panel)
 	var vb: VBoxContainer = p["body"]
-	_sheet_label = RichTextLabel.new()
-	_sheet_label.bbcode_enabled = true
-	_sheet_label.scroll_active = true
-	_sheet_label.custom_minimum_size = Vector2(400, 380)
-	vb.add_child(_sheet_label)
+	var sc := ScrollContainer.new()                        # bounded region (journal/inventory pattern): a fully
+	sc.custom_minimum_size = Vector2(404, 440)             # decked build (sets + procs) scrolls instead of
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED   # clipping off-screen unreachable
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL      # fill a larger (persisted) window — no dead space
+	vb.add_child(sc)
+	_sheet_rows = VBoxContainer.new()
+	_sheet_rows.add_theme_constant_override("separation", 8)
+	_sheet_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_sheet_rows)
+
+# One stat CARD: cyan/gold-rail tile + optional display-font section header + tokenized bbcode body.
+func _sheet_card(title: String, bb: String, rail: Color = Palette.SB_CYAN) -> void:
+	var c := PanelContainer.new()
+	c.add_theme_stylebox_override("panel", Widgets.tile_box(rail, false))
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	c.add_child(box)
+	if title != "":
+		box.add_child(Widgets.section(title))
+	var l := RichTextLabel.new()
+	l.bbcode_enabled = true
+	l.fit_content = true
+	l.scroll_active = false
+	l.custom_minimum_size = Vector2(360, 0)
+	l.text = bb
+	box.add_child(l)
+	_sheet_rows.add_child(c)
 
 func _toggle_charsheet() -> void:
 	if _sheet_panel == null:
@@ -515,35 +538,48 @@ func _toggle_charsheet() -> void:
 
 # render from the server's per-player `self` block (applied, capped, post-FORMAT_MODS — never raw item amts)
 func _render_charsheet() -> void:
-	if _sheet_label == null:
+	if _sheet_rows == null:
 		return
 	var si: Dictionary = _state.get("self", {})
 	var sig := str(si).hash()                     # self changes rarely (rides the META) → skip the redundant per-snapshot rebuild
-	if sig == _sheet_sig and _sheet_label.text != "":
+	if sig == _sheet_sig and _sheet_rows.get_child_count() > 0:
 		return
 	_sheet_sig = sig
+	for c in _sheet_rows.get_children():
+		c.queue_free()
+	var dim := Palette.hex(Palette.TEXT_DIM)
+	var body := Palette.hex(Palette.TEXT)
+	var gear := Palette.hex(Palette.XP)
+	var gold := Palette.hex(Palette.ACCENT)
 	var pf = _find_fighter(_player_id)
 	var cls_id: String = str(si.get("classId", "")) if si.has("classId") else (str(pf.get("classId", "")) if pf != null else "")
 	if cls_id == "" or not GameData.CLASSES.has(cls_id):
-		_sheet_label.text = "[color=#7f93a8]loading…[/color]"
+		_sheet_card("", "[color=%s]loading…[/color]" % dim)
 		return
 	var base: Dictionary = GameData.CLASSES[cls_id]["stats"]
 	var bonus: Dictionary = si.get("equip_bonus", {})
 	var fin: Dictionary = si if not si.is_empty() else (pf if pf != null else {})
-	var lines := ["[color=#7f93a8]Level %d[/color]    [color=#ffd24d]✦ Item Power %d[/color]\n" % [int(si.get("level", 0)), int(si.get("item_power", 0))]]
-	lines.append("[color=#00e5ff][b]Attributes[/b][/color]  [color=#7f93a8](base [color=#9fe8a0]+gear[/color])[/color]")
+	# header card (gold rail): level + item power
+	_sheet_card("", "[color=%s]Level %d[/color]    [color=%s]✦ Item Power %d[/color]" % [
+		dim, int(si.get("level", 0)), gold, int(si.get("item_power", 0))], Palette.ACCENT)
+	# attributes card
+	var arows := ["[color=%s](base [color=%s]+gear[/color])[/color]" % [dim, gear]]
 	for st in STAT_KEYS:
 		var b: int = int(base.get(st, 0))
 		var g: int = int(bonus.get(st, 0))
-		var gtxt: String = "  [color=#9fe8a0]+%d[/color]" % g if g > 0 else ""
-		lines.append("  [color=#8a93a0]%s[/color]  [color=#cfd6df]%d[/color]%s" % [str(STAT_NAMES.get(st, st)), b + g, gtxt])
-	lines.append("\n[color=#00e5ff][b]Combat[/b][/color]")
-	lines.append("  Max HP  [color=#cfd6df]%d[/color]" % int(fin.get("maxHP", 0)))
-	lines.append("  Damage  [color=#cfd6df]+%d%%[/color]" % int(round((float(fin.get("dmgMult", 1.0)) - 1.0) * 100.0)))
-	lines.append("  Crit  [color=#cfd6df]%d%%[/color] [color=#7f93a8]×%.2f[/color]" % [int(round(float(fin.get("crit", 0.0)) * 100.0)), float(fin.get("critMult", 1.6))])
-	lines.append("  Move Speed  [color=#cfd6df]%d[/color]" % int(round(float(fin.get("ms", 0.0)))))
-	lines.append("  Cooldown Reduction  [color=#cfd6df]%d%%[/color]" % int(round(float(fin.get("cdr", 0.0)) * 100.0)))
-	lines.append("  Clutch (low HP)  [color=#cfd6df]+%d%% dmg[/color] · [color=#cfd6df]%d%% DR[/color]" % [int(round(float(fin.get("clutchDmg", 0.0)) * 100.0)), int(round(float(fin.get("clutchDR", 0.0)) * 100.0))])
+		var gtxt: String = "  [color=%s]+%d[/color]" % [gear, g] if g > 0 else ""
+		arows.append("[color=%s]%s[/color]  [color=%s]%d[/color]%s" % [dim, str(STAT_NAMES.get(st, st)), body, b + g, gtxt])
+	_sheet_card("Attributes", "\n".join(arows))
+	# combat card
+	var crows := []
+	crows.append("Max HP  [color=%s]%d[/color]" % [body, int(fin.get("maxHP", 0))])
+	crows.append("Damage  [color=%s]+%d%%[/color]" % [body, int(round((float(fin.get("dmgMult", 1.0)) - 1.0) * 100.0))])
+	crows.append("Crit  [color=%s]%d%%[/color] [color=%s]×%.2f[/color]" % [body, int(round(float(fin.get("crit", 0.0)) * 100.0)), dim, float(fin.get("critMult", 1.6))])
+	crows.append("Move Speed  [color=%s]%d[/color]" % [body, int(round(float(fin.get("ms", 0.0))))])
+	crows.append("Cooldown Reduction  [color=%s]%d%%[/color]" % [body, int(round(float(fin.get("cdr", 0.0)) * 100.0))])
+	crows.append("Clutch (low HP)  [color=%s]+%d%% dmg[/color] · [color=%s]%d%% DR[/color]" % [
+		body, int(round(float(fin.get("clutchDmg", 0.0)) * 100.0)), body, int(round(float(fin.get("clutchDR", 0.0)) * 100.0))])
+	_sheet_card("Combat", "\n".join(crows))
 	# active set bonuses (P5) — from equipped EPIC+ pieces, stacking above the 60 cap
 	var sets: Dictionary = si.get("set_bonus", {})
 	var active := []
@@ -551,15 +587,14 @@ func _render_charsheet() -> void:
 		var sb: Dictionary = sets[sid]
 		if int(sb.get("bonus", 0)) > 0:
 			var sdef: Dictionary = GameData.SET_DEFS.get(sid, {})
-			active.append("  [color=#cdbcff]%s[/color] (%d pc) [color=#9fe8a0]+%d %s[/color]" % [
-				str(sdef.get("name", sid)), int(sb.get("count", 0)), int(sb["bonus"]), str(sb.get("stat", ""))])
+			active.append("[color=%s]%s[/color] (%d pc) [color=%s]+%d %s[/color]" % [
+				Palette.hex(Palette.LAVENDER), str(sdef.get("name", sid)), int(sb.get("count", 0)), gear, int(sb["bonus"]), str(sb.get("stat", ""))])
 	if not active.is_empty():
-		lines.append("\n[color=#00e5ff][b]Set Bonuses[/b][/color]  [color=#7f93a8](epic+ pieces)[/color]")
-		lines.append_array(active)
+		_sheet_card("Set Bonuses", "[color=%s](epic+ pieces)[/color]\n" % dim + "\n".join(active), Palette.LAVENDER)
 	# procs from equipped uniques (P6)
 	var myprocs = si.get("procs", [])
 	if myprocs is Array and not myprocs.is_empty():
-		lines.append("\n[color=#00e5ff][b]Procs[/b][/color]  [color=#7f93a8](from uniques)[/color]")
+		var prows := ["[color=%s](from uniques)[/color]" % dim]
 		for pr in myprocs:
 			var nm: String = str(GameData.PROC_CATALOG.get(str(pr.get("id", "")), {}).get("name", str(pr.get("id", ""))))
 			var trig: String = str(pr.get("trigger", "")).replace("on_", "on ")
@@ -573,8 +608,8 @@ func _render_charsheet() -> void:
 				"HEAL": desc = "heal %d HP" % int(round(amt))
 				"HASTE": desc = "+%d%% move speed for %.0fs" % [int(round(amt * 100.0)), float(pr.get("dur", 3.0))]
 				"GUARD": desc = "-%d%% dmg taken for %.0fs" % [int(round(amt * 100.0)), float(pr.get("dur", 3.0))]
-			lines.append("  [color=#ffb454]✦ %s[/color] [color=#7f93a8](%s)[/color] %s" % [nm, trig, desc])
-	_sheet_label.text = "\n".join(lines)
+			prows.append("[color=%s]✦ %s[/color] [color=%s](%s)[/color] %s" % [gold, nm, dim, trig, desc])
+		_sheet_card("Procs", "\n".join(prows), Palette.ACCENT)
 
 # ============================================================ Locker Loadout (paperdoll)
 # A full-screen gear + stats screen (the "Locker Loadout" design): two slot columns flanking a live 3D
