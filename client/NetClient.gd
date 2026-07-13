@@ -241,6 +241,7 @@ func _enter_mode() -> void:
 	_build_questlog()
 	_build_qgiver_dialog()
 	_build_settings()
+	_build_controls()                             # the keybind reference (Settings → Controls)
 	_build_locker()
 	_build_disconnect_overlay()
 	_build_event_banner()
@@ -293,6 +294,8 @@ func _dev_open_panel() -> void:
 		"vendor": _toggle_vendor()
 		"qgiver": _toggle_qgiver()
 		"locker": _toggle_locker()
+		"controls": _toggle_controls()
+		"settings2": _toggle_settings()
 	if which == "locker" and "--sel" in OS.get_cmdline_user_args():
 		await get_tree().create_timer(1.5).timeout   # dev: select main_hand to show the detail panel
 		_select_locker_slot("main_hand", 0)
@@ -2276,10 +2279,75 @@ func _build_settings() -> void:
 	vb.add_child(_settings_reset_note)
 	var sep := HSeparator.new()
 	vb.add_child(sep)
+	var controls_btn := Button.new()             # the full keybind reference (retired from the always-on HUD line)
+	controls_btn.text = "Controls"
+	controls_btn.tooltip_text = "See every keyboard + mouse control"
+	controls_btn.pressed.connect(_toggle_controls)
+	vb.add_child(controls_btn)
 	var logout := Button.new()                   # log out → back to the login screen (no more quit-and-relaunch)
 	logout.text = "Log Out"
 	logout.pressed.connect(func() -> void: logout_requested.emit())
 	vb.add_child(logout)
+
+# The full control reference — grouped keycap rows. Replaces the always-on bottom keybind line;
+# reachable from Settings → Controls. Static content (no per-frame work); built once, lazily.
+const CONTROLS := [
+	["Movement & Combat", [["W A S D", "Move (camera-relative)"], ["1 – 8", "Use abilities"], ["LMB", "Basic attack"]]],
+	["Camera", [["RMB drag", "Rotate camera"], ["Mouse wheel", "Zoom in / out"]]],
+	["Targeting", [["Tab", "Target nearest enemy"], ["Ctrl + Tab", "Target an ally"], ["Click party frame", "Target that ally"], ["Esc", "Clear target"]]],
+	["Party", [["RMB a player", "Invite to your party"]]],
+	["Panels", [["I", "Inventory"], ["K", "Character sheet"], ["J", "Quest journal"], ["U", "Locker loadout"], ["G", "Wardrobe (dyes)"], ["T", "Talents"], ["B", "Bench (paragon)"], ["L", "Leaderboards"], ["N", "DPS / HPS meter"], ["O", "Settings"]]],
+	["At a home-base pad", [["B", "Shop"], ["F", "Forge"], ["E", "Quest giver"], ["V", "Practice vendor"], ["C", "Camp circuit"], ["P", "Build shop"], ["Y", "Buy your locker room"]]],
+	["HUD & Chat", [["F2", "Edit HUD layout"], ["Enter", "Open / send chat"], ["Esc", "Close panel / cancel"], ["F4", "Build mode (in your locker)"], ["H", "Build help (in your locker)"]]],
+]
+var _controls_panel: Control = null
+
+func _build_controls() -> void:
+	var p := Widgets.panel("Controls", "Esc", 460.0, _toggle_controls)
+	_controls_panel = p["root"]
+	_hud.add_child(_controls_panel)
+	var vb: VBoxContainer = p["body"]
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(420, 480)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 4)
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(rows)
+	for grp in CONTROLS:
+		rows.add_child(Widgets.section(str(grp[0])))
+		for entry in grp[1]:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 12)
+			var cap := PanelContainer.new()      # keycap chip (matches the hotbar / interact prompt)
+			var csb := StyleBoxFlat.new()
+			csb.bg_color = Color(Palette.SB_INK, 0.9)
+			csb.set_border_width_all(1)
+			csb.border_color = Color(Palette.SB_CYAN, 0.4)
+			csb.set_corner_radius_all(3)
+			csb.content_margin_left = 7.0
+			csb.content_margin_right = 7.0
+			csb.content_margin_top = 2.0
+			csb.content_margin_bottom = 2.0
+			cap.add_theme_stylebox_override("panel", csb)
+			cap.custom_minimum_size = Vector2(128, 0)
+			var kl := Label.new()
+			kl.text = str(entry[0])
+			kl.add_theme_color_override("font_color", Palette.SB_CYAN)
+			cap.add_child(kl)
+			row.add_child(cap)
+			var dl := Label.new()
+			dl.text = str(entry[1])
+			dl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			dl.add_theme_color_override("font_color", Palette.TEXT)
+			row.add_child(dl)
+			rows.add_child(row)
+
+func _toggle_controls() -> void:
+	if _controls_panel == null:
+		return
+	_controls_panel.visible = not _controls_panel.visible
 
 func _settings_status(msg: String) -> void:
 	if _settings_reset_note != null:
@@ -6066,6 +6134,10 @@ func _unhandled_input(e: InputEvent) -> void:
 				_qgiver_panel.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif _controls_panel != null and _controls_panel.visible:
+				_controls_panel.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			elif _settings_panel != null and _settings_panel.visible:
 				_settings_panel.visible = false
 				get_viewport().set_input_as_handled()
@@ -6272,10 +6344,6 @@ func _update_hud() -> void:
 	if bool(_vit_cache.get("zone_pvp", false)) != pvp:
 		_vit_cache["zone_pvp"] = pvp
 		_zone_label.add_theme_color_override("font_color", Palette.DANGER if pvp else Palette.ACCENT2)
-	var hints := "WASD · 1-8 abilities · LMB basic · RMB camera ([b]right-click a player[/b] = invite) · [b]Tab[/b] enemy · [b]Ctrl+Tab[/b]/frame = ally · [b]I[/b] bag · [b]U[/b] locker · [b]K[/b] sheet · [b]J[/b] journal · [b]N[/b] meter · [b]G[/b] wardrobe · [b]L[/b] boards · [b]O[/b] options"
-	if str(_vit_cache.get("hints", "")) != hints:
-		_vit_cache["hints"] = hints
-		_bar.text = "[color=#7f93a8]%s[/color]" % hints
 	_update_hotbar(pf)                           # the visual skill bar (shared with local mode)
 
 func _zone_name(map: String) -> String:

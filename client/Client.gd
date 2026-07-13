@@ -2690,6 +2690,7 @@ func _build_hud() -> void:
 	_bar.add_theme_font_size_override("normal_font_size", Palette.SIZE_CAPTION)
 	_bar.add_theme_font_size_override("bold_font_size", Palette.SIZE_CAPTION)
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bar.visible = false                          # keybind cheat-sheet moved to Settings → Controls (was bottom clutter)
 	_hud.add_child(_bar)
 	# skill bar (hotbar) + hover tooltip — P5: the HBox keeps every slot behavior; it rides in a
 	# PANEL-tier chassis, and the chassis root is what the "hotbar" module positions/scales
@@ -3655,11 +3656,5 @@ func _update_hud() -> void:
 		Palette.DANGER_SOFT if not pf["alive"] else (Palette.ACCENT2 if _bots_frozen else Palette.TEXT_DIM))
 	_zone_banner.visible = true
 	_vit_set("zone", _zone_label, "PRACTICE ARENA")
-	var controls := "WASD move · 1-8 abilities · LMB basic · [b]Tab[/b] target · RMB-drag camera · wheel zoom · [b]N[/b] meter · [b]P[/b] pause bots · [b]R[/b] reset"
-	if not class_locked:
-		controls += " · [b]C[/b] class"
-	if str(_vit_cache.get("hints", "")) != controls:      # the keybind line lives bottom-left now (_bar)
-		_vit_cache["hints"] = controls
-		_bar.text = "[color=#7f93a8]%s[/color]" % controls
-	_info.text = ""
+	_info.text = ""                               # (keybind cheat-sheet retired — see the Controls viewer)
 	_update_hotbar(pf)                           # the visual skill bar replaces the old text row
