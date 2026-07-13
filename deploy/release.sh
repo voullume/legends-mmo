@@ -92,12 +92,26 @@ if ! git push --atomic origin main "$TAG"; then
   exit 1
 fi
 
+echo ""
+echo "==> Released $TAG (pushed main + tag). CI is building ghcr.io/voullume/legends-mmo:$TAG."
+
+# --- client binaries: export + publish the versioned GitHub release (exact saved client copy) ------
+# Non-fatal: the version is already tagged + pushed, so a client-export hiccup must NOT undo it — it
+# just means re-running deploy/publish_client.sh $TAG. Set SKIP_CLIENT=1 to ship server-only.
+if [ "${SKIP_CLIENT:-0}" = "1" ]; then
+  echo "==> SKIP_CLIENT=1 — skipping client export/publish (server-image only)."
+elif [ -x deploy/publish_client.sh ]; then
+  echo "==> Building + publishing the client for $TAG ..."
+  if ! deploy/publish_client.sh "$TAG"; then
+    echo "!!! Client export/publish FAILED — but $TAG is already tagged + pushed (server image is fine)."
+    echo "    Retry just the client:  deploy/publish_client.sh $TAG"
+  fi
+fi
+
 cat <<EOF
 
-==> Released $TAG (pushed main + tag).
-    CI (.github/workflows/build-server-image.yml) is now building the exact image:
-      ghcr.io/voullume/legends-mmo:$TAG   (+ :latest, :<sha>)
-    Watch it:   https://github.com/voullume/legends-mmo/actions
-    Then deploy to the droplet (pulls :latest = this version once CI finishes):
+==> $TAG done.
+    Watch the image build:  https://github.com/voullume/legends-mmo/actions
+    Deploy the server (pulls :latest = this version once CI finishes):
       ssh root@<host> 'curl -fsSL https://raw.githubusercontent.com/voullume/legends-mmo/main/deploy/setup.sh | sudo -E bash'
 EOF
