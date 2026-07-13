@@ -58,6 +58,17 @@ func _bg() -> void:
 	mark.offset_left = -400.0
 	mark.offset_right = 400.0
 	add_child(mark)
+	# build/version stamp under the wordmark (source of truth: project.godot config/version)
+	var ver := Label.new()
+	ver.text = "v" + str(ProjectSettings.get_setting("application/config/version", "?"))
+	ver.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	ver.offset_top = 150.0
+	ver.offset_left = -400.0
+	ver.offset_right = 400.0
+	ver.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ver.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
+	ver.add_theme_color_override("font_color", Palette.TEXT_FAINT)
+	add_child(ver)
 
 func _panel(title: String, width := 460) -> CenterContainer:
 	var center := CenterContainer.new()
@@ -216,8 +227,8 @@ func _load_or_create() -> void:
 	_character = c.get("character")
 	if _character != null:
 		var cl: Dictionary = GameData.CLASSES.get(_character["class"], {})
-		_enter_label.text = "[b]%s[/b]\n[color=#9fb4c8]%s · %s · level %d[/color]" % [
-			_character.get("name", "?"), cl.get("name", _character["class"]), cl.get("role", ""), int(_character.get("level", 1))]
+		_enter_label.text = "[b]%s[/b]\n[color=%s]%s · %s · level %d[/color]" % [
+			_character.get("name", "?"), Palette.hex(Palette.INFO), cl.get("name", _character["class"]), cl.get("role", ""), int(_character.get("level", 1))]
 		_goto(_enter)
 	else:
 		_goto(_create)
@@ -232,14 +243,14 @@ func _class_detail(cid: String) -> String:
 	var c: Dictionary = GameData.CLASSES[cid]
 	var s: Dictionary = c["stats"]
 	var col: String = c.get("color", "#cccccc")
-	var t := "[color=%s][font_size=22][b]%s[/b][/font_size][/color]   [color=#9fb4c8]%s · %s[/color]\n" % [col, c["name"], c["sport"], c["role"]]
-	t += "[color=#7f93a8]PWR %d   PRE %d   SPD %d   END %d   INS %d   CLU %d[/color]\n\n" % [s["PWR"], s["PRE"], s["SPD"], s["END"], s["INS"], s["CLU"]]
+	var t := "[color=%s][font_size=22][b]%s[/b][/font_size][/color]   [color=%s]%s · %s[/color]\n" % [col, c["name"], Palette.hex(Palette.INFO), c["sport"], c["role"]]
+	t += "[color=%s]PWR %d   PRE %d   SPD %d   END %d   INS %d   CLU %d[/color]\n\n" % [Palette.hex(Palette.TEXT_DIM), s["PWR"], s["PRE"], s["SPD"], s["END"], s["INS"], s["CLU"]]
 	t += "[b]Abilities[/b]\n"
 	for ab in c["abilities"]:
 		var tag := ""
-		if ab.get("basic", false): tag = "  [color=#9fe8a0][b]BASIC[/b][/color]"
-		elif ab.get("ult", false): tag = "  [color=#ffd24d][b]ULT[/b][/color]"
-		t += "• [b]%s[/b]%s  [color=#7f93a8](%s)[/color]\n    [color=#8aa0b4]%s[/color]\n" % [ab["name"], tag, ab["type"], _ability_nums(ab)]
+		if ab.get("basic", false): tag = "  [color=%s][b]BASIC[/b][/color]" % Palette.hex(Palette.SUCCESS)
+		elif ab.get("ult", false): tag = "  [color=%s][b]ULT[/b][/color]" % Palette.hex(Palette.ACCENT)
+		t += "• [b]%s[/b]%s  [color=%s](%s)[/color]\n    [color=%s]%s[/color]\n" % [ab["name"], tag, Palette.hex(Palette.TEXT_DIM), ab["type"], Palette.hex(Palette.INFO), _ability_nums(ab)]
 	return t
 
 func _ability_nums(ab: Dictionary) -> String:

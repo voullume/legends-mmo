@@ -8,6 +8,7 @@ name: build-server-image
 on:
   push:
     branches: [main]
+    tags: ['v*']               # a release tag (deploy/release.sh) → an exact vX.Y.Z image copy
   workflow_dispatch: {}        # also runnable on demand from the Actions tab
 
 jobs:
@@ -25,13 +26,24 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Derive image tags: :latest + :<sha> on main; :vX.Y.Z + :X.Y.Z (+ :latest) on a release tag.
+      # The vX.Y.Z image is the immutable "exact saved copy" of that deployed version.
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/voullume/legends-mmo
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ github.sha }}
+            type=ref,event=tag
+            type=semver,pattern={{version}}
       - name: Build + push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ghcr.io/voullume/legends-mmo:latest
-            ghcr.io/voullume/legends-mmo:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

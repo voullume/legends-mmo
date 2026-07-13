@@ -37,6 +37,9 @@ elif [ -n "$REPO_URL" ]; then
 fi
 [ -f "$APP_DIR/Dockerfile" ] || { echo "ERROR: no code at $APP_DIR — set REPO_URL (first run), or upload the repo there."; exit 1; }
 cd "$APP_DIR"
+VERSION="$(sed -n 's/^config\/version="\([0-9.]*\)"/\1/p' project.godot | head -1)"
+REV="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"   # tolerate the non-git upload path
+echo "    deploying Legends MMO v${VERSION:-?}  @ $REV"
 
 # Resolve the service key: use the env var if given (and remember it, shell-quoted so re-sourcing
 # can't break), else reuse a saved one (tolerating a malformed old .env). Re-runs need no args.
@@ -101,11 +104,12 @@ fi
 IP="$(curl -fsSL --max-time 5 https://api.ipify.org 2>/dev/null || echo '<this-VPS-IP>')"
 cat <<EOF
 
-==> Done — zone server running on UDP ${PORT} (DTLS).
+==> Done — Legends MMO v${VERSION:-?} running on UDP ${PORT} (DTLS).
     Players connect:    godot --path . -- --online ${IP} --dtls
     Live logs:          docker logs -f legends-zone
     Restart / stop:     docker restart legends-zone   |   docker stop legends-zone
-    Update + redeploy:  re-run this script (it pulls latest, rebuilds, restarts).
+    Cut + ship a new version:  deploy/release.sh [patch|minor|major] "note"  (bumps + tags),
+                               then re-run this script (pulls the new :latest).
 
     NOTE: also open UDP ${PORT} in your provider's firewall / security group (separate from ufw).
 EOF

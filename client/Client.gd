@@ -3593,7 +3593,7 @@ func _on_slot_hover(i: int) -> void:
 		return
 	var hab: Dictionary = GameData.CLASSES[str(pf["classId"])]["abilities"][i]
 	if _ability_locked(pf, str(hab["key"])):     # gameplay-length P2: locked → show the unlock requirement, not the stat sheet
-		_tt_label.text = "[b]%s[/b]  [color=#7f93a8]%s[/color]\n[color=#ffd24d]🔒 Unlocks at Level %d[/color]" % [str(hab["name"]), str(hab["type"]), GameData.ability_unlock_level(str(pf["classId"]), str(hab["key"]))]
+		_tt_label.text = "[b]%s[/b]  [color=%s]%s[/color]\n[color=%s]🔒 Unlocks at Level %d[/color]" % [str(hab["name"]), Palette.hex(Palette.TEXT_DIM), str(hab["type"]), Palette.hex(Palette.ACCENT), GameData.ability_unlock_level(str(pf["classId"]), str(hab["key"]))]
 	else:
 		_tt_label.text = _ability_tooltip(hab, pf)
 	_tooltip.visible = true
@@ -3613,29 +3613,29 @@ func _on_slot_unhover() -> void:
 
 # the skill's real numbers, computed from the player's current stats + gear
 func _ability_tooltip(ab: Dictionary, pf: Dictionary) -> String:
-	var L := ["[b]%s[/b]  [color=#7f93a8]%s[/color]" % [ab["name"], str(ab["type"])]]
+	var L := ["[b]%s[/b]  [color=%s]%s[/color]" % [ab["name"], Palette.hex(Palette.TEXT_DIM), str(ab["type"])]]
 	var dm: float = float(pf.get("dmgMult", 1.0))
 	var mhp: float = float(pf.get("maxHP", 1000.0))
 	if ab.has("dmg"):
-		L.append("Damage: [color=#ff9a6b]%d[/color]" % int(round(float(ab["dmg"]) * dm)))
+		L.append("Damage: [color=%s]%d[/color]" % [Palette.hex(Palette.DMG), int(round(float(ab["dmg"]) * dm))])
 		var cr: float = float(pf.get("crit", 0.0))
 		if cr > 0.0:
 			L.append("Crit: %d%% for %.1f×" % [int(round(cr * 100.0)), float(pf.get("critMult", 1.5))])
 	if ab.has("healPct"):
-		L.append("Heal: [color=#9fe8a0]%d[/color]" % int(round(float(ab["healPct"]) * mhp)))
+		L.append("Heal: [color=%s]%d[/color]" % [Palette.hex(Palette.SUCCESS), int(round(float(ab["healPct"]) * mhp))])
 	if ab.has("shieldPct"):
-		L.append("Shield: [color=#9fd0ff]%d[/color]" % int(round(float(ab["shieldPct"]) * mhp)))
+		L.append("Shield: [color=%s]%d[/color]" % [Palette.hex(Palette.SHIELD_NUM), int(round(float(ab["shieldPct"]) * mhp))])
 	if ab.has("range"):
-		L.append("[color=#9fb4c8]Range: %d[/color]" % int(ab["range"]))
+		L.append("[color=%s]Range: %d[/color]" % [Palette.hex(Palette.INFO), int(ab["range"])])
 	if ab.has("dist"):
-		L.append("[color=#9fb4c8]Dash: %d[/color]" % int(ab["dist"]))
+		L.append("[color=%s]Dash: %d[/color]" % [Palette.hex(Palette.INFO), int(ab["dist"])])
 	if ab.has("stun"):
-		L.append("[color=#d7c27a]Stun: %.1fs[/color]" % float(ab["stun"]))
+		L.append("[color=%s]Stun: %.1fs[/color]" % [Palette.hex(Palette.CC), float(ab["stun"])])
 	if ab.has("slow"):
-		L.append("[color=#d7c27a]Slow: %d%% for %.1fs[/color]" % [int(float(ab["slow"]["amt"]) * 100.0), float(ab["slow"]["dur"])])
+		L.append("[color=%s]Slow: %d%% for %.1fs[/color]" % [Palette.hex(Palette.CC), int(float(ab["slow"]["amt"]) * 100.0), float(ab["slow"]["dur"])])
 	if ab.has("dur"):
-		L.append("[color=#9fb4c8]Duration: %.1fs[/color]" % float(ab["dur"]))
-	L.append("[color=#7f93a8]Cooldown: %.1fs[/color]" % float(ab.get("cd", 0.0)))
+		L.append("[color=%s]Duration: %.1fs[/color]" % [Palette.hex(Palette.INFO), float(ab["dur"])])
+	L.append("[color=%s]Cooldown: %.1fs[/color]" % [Palette.hex(Palette.TEXT_DIM), float(ab.get("cd", 0.0))])
 	return "\n".join(L)
 
 func _update_hud() -> void:

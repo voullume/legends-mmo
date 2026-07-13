@@ -39,6 +39,12 @@ const HP := Color(0.3, 0.85, 0.4)
 const HP_LOW := Color(0.9, 0.3, 0.3)
 const SUCCESS := Color("#9fe8a0")      # the "ready/done/equipped/NEW" green (was hand-typed ~7×)
 
+# --- ability-tooltip / class-preview number colors (centralizes the skill-card palette) ---
+const DMG := Color("#ff9a6b")          # damage numbers
+const SHIELD_NUM := Color("#9fd0ff")   # shield numbers (lighter than the SHIELD combat ring)
+const CC := Color("#d7c27a")           # crowd control — stun / slow
+const INFO := Color("#9fb4c8")         # range / dash / duration / secondary tooltip info
+
 # --- sports-tech pattern tokens (HUD frame language; source: docs/ideas-not-in/hud ui/
 #     match-found-tokens.json — deep navy / graphite surfaces, cyan rails, lime ready, orange warn) ---
 const SB_NAVY := Color("#0B1324")
