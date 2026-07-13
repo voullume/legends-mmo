@@ -186,6 +186,7 @@ var _lb_panel: Control = null
 var _lb_rows: VBoxContainer = null
 var _lb_status: Label = null
 var _lb_cat := "drill"
+var _lb_tabs := {}                           # Widgets.tab_row handle (highlight the active board)
 var _lb_entries := []
 var _lb_season := 0                  # P7d: current season of the active tab (0 = all-time board)
 var _lb_reset_unix := 0              # P7d: next-reset epoch for a seasonal tab (0 = no countdown)
@@ -209,7 +210,7 @@ var _qt_count: Label = null                 # body-font "(J) · N" suffix beside
 var _qt_variant := "standard"               # standard / compact / collapsed
 var _qt_preview := false                    # HUD-edit mode: show placeholder rows when questless
 var _qgiver_panel: Control = null           # the home-base quest-giver dialog (accept / turn in)
-var _qgiver_label: RichTextLabel = null
+var _qgiver_rows: VBoxContainer = null       # P: real accept/turn-in/claim BUTTON rows (was bbcode links)
 var _qgiver_root: Node3D = null             # the 3D quest-giver marker in the home base
 var _qgiver_sig := ""
 var _near_qgiver := false
@@ -1901,12 +1902,47 @@ func _build_qgiver_dialog() -> void:
 	_qgiver_panel = p["root"]
 	_hud.add_child(_qgiver_panel)
 	var vb: VBoxContainer = p["body"]
-	_qgiver_label = RichTextLabel.new()
-	_qgiver_label.bbcode_enabled = true
-	_qgiver_label.scroll_active = true
-	_qgiver_label.custom_minimum_size = Vector2(520, 440)
-	_qgiver_label.meta_clicked.connect(_on_quest_meta)
-	vb.add_child(_qgiver_label)
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(520, 440)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(sc)
+	_qgiver_rows = VBoxContainer.new()               # rows: section headers, action rows, info lines
+	_qgiver_rows.add_theme_constant_override("separation", 5)
+	_qgiver_rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(_qgiver_rows)
+
+# an action row: a REAL button (Accept / Turn In / Claim) + a rich description — replaces the
+# old bbcode [url] text links (glyph-only hit targets with no button affordance)
+func _qg_action_row(label: String, accent: Color, on_press: Callable, desc_bb: String) -> HBoxContainer:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	var b := Button.new()
+	b.text = label
+	b.custom_minimum_size = Vector2(92, 32)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.add_theme_color_override("font_color", accent)
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	hb.add_child(b)
+	var d := RichTextLabel.new()
+	d.bbcode_enabled = true
+	d.fit_content = true
+	d.scroll_active = false
+	d.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	d.custom_minimum_size = Vector2(400, 0)
+	d.text = desc_bb
+	hb.add_child(d)
+	return hb
+
+func _qg_info(bb: String) -> RichTextLabel:
+	var l := RichTextLabel.new()
+	l.bbcode_enabled = true
+	l.fit_content = true
+	l.scroll_active = false
+	l.custom_minimum_size = Vector2(500, 0)
+	l.text = bb
+	return l
 
 func _toggle_qgiver() -> void:
 	if _qgiver_panel == null:
@@ -1924,13 +1960,17 @@ func _toggle_qgiver() -> void:
 		_render_qgiver()
 
 func _render_qgiver() -> void:
-	if _qgiver_label == null:
+	if _qgiver_rows == null:
 		return
+	for c in _qgiver_rows.get_children():
+		c.queue_free()
+	var faint := Palette.hex(Palette.TEXT_FAINT)
+	var body := Palette.hex(Palette.TEXT)
 	var pf = _find_fighter(_player_id)
 	var lvl := int(pf.get("level", 1)) if pf != null else 1
-	var ready := []
-	var avail := []
-	var active := []
+	var ready := []      # {qid, nm, reward}
+	var avail := []      # {qid, nm, desc, reward}
+	var active := []     # bbcode strings (info-only)
 	for qid in Quests.display_order():
 		var q = Quests.get_quest(qid)
 		if q == null:
@@ -1944,30 +1984,41 @@ func _render_qgiver() -> void:
 				continue
 			var prog := int(st.get("progress", 0))
 			if prog >= cnt:
-				ready.append("[url=turnin|%s][color=#ffd24d][b][Turn In][/b][/color][/url]  [color=#9fe8a0]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [qid, nm, _reward_text(q)])
+				ready.append({"qid": qid, "nm": nm, "reward": _reward_text(q)})
 			else:
-				active.append("[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]" % [nm, prog, cnt])
+				active.append("[color=%s]%s[/color]  [color=%s]%d/%d[/color]" % [body, nm, Palette.hex(Palette.ACCENT2), prog, cnt])
 		else:
 			var prereq := str(q.get("prereq", ""))
 			var minl := int(q.get("min_level", 1))
 			var prereq_ok: bool = prereq == "" or (_quests.has(prereq) and bool(_quests[prereq].get("completed", false)))
 			if lvl >= minl and prereq_ok:
-				avail.append("[url=accept|%s][color=#9fe8a0][b][Accept][/b][/color][/url]  [color=#dfe6f0]%s[/color]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](reward: %s)[/color]" % [qid, nm, desc, _reward_text(q)])
-	var out := []
+				avail.append({"qid": qid, "nm": nm, "desc": desc, "reward": _reward_text(q)})
+	var any := false
 	if not ready.is_empty():
-		out.append("[b][color=#ffd24d]Ready to turn in[/color][/b]")
-		out.append_array(ready)
+		_qgiver_rows.add_child(Widgets.section("Ready to turn in"))
+		for r in ready:
+			var rid := str(r["qid"])
+			_qgiver_rows.add_child(_qg_action_row("Turn In", Palette.SUCCESS,
+				func() -> void: _on_quest_meta("turnin|" + rid),
+				"[color=%s]%s[/color]  [color=%s](reward: %s)[/color]" % [Palette.hex(Palette.SUCCESS), r["nm"], faint, r["reward"]]))
+		any = true
 	if not avail.is_empty():
-		out.append(("\n" if not ready.is_empty() else "") + "[b][color=#9fe8a0]Available[/color][/b]")
-		out.append_array(avail)
+		_qgiver_rows.add_child(Widgets.section("Available"))
+		for a in avail:
+			var aid := str(a["qid"])
+			_qgiver_rows.add_child(_qg_action_row("Accept", Palette.SB_CYAN,
+				func() -> void: _on_quest_meta("accept|" + aid),
+				"[color=%s]%s[/color]\n[color=%s]%s[/color]  [color=%s](reward: %s)[/color]" % [body, a["nm"], Palette.hex(Palette.TEXT_DIM), a["desc"], faint, a["reward"]]))
+		any = true
 	if not active.is_empty():
-		out.append("\n[b][color=#8ad6ff]In progress[/color][/b]")
-		out.append_array(active)
-	# P6b: daily/weekly bounties — server-pushed via the HOME snapshot META, claimed here at the same NPC.
+		_qgiver_rows.add_child(Widgets.section("In progress"))
+		_qgiver_rows.add_child(_qg_info("\n".join(active)))
+		any = true
+	# P6b: daily/weekly bounties — server-pushed via the HOME snapshot META, claimed here.
 	var bounties = _state.get("bounties", [])
 	if bounties is Array and not (bounties as Array).is_empty():
-		var dlines := []
-		var wlines := []
+		var drows := []
+		var wrows := []
 		var dend := 0
 		var wend := 0
 		for b in bounties:
@@ -1977,28 +2028,34 @@ func _render_qgiver() -> void:
 			var bnm: String = _esc(str(b.get("name", "")))
 			var bcnt := int(b.get("count", 1))
 			var bprog := int(b.get("progress", 0))
-			var line := ""
+			var row: Control
 			if bool(b.get("claimed", false)):
-				line = "[color=#6b7686]✓ %s — claimed[/color]" % bnm
+				row = _qg_info("[color=%s]✓ %s — claimed[/color]" % [faint, bnm])
 			elif bprog >= bcnt:
-				line = "[url=bounty_claim|%s][color=#ffd24d][b][Claim][/b][/color][/url]  [color=#9fe8a0]%s[/color]  [color=#5a6472](%s)[/color]" % [bid, bnm, _reward_text(b)]
+				var cid := bid
+				row = _qg_action_row("Claim", Palette.ACCENT,
+					func() -> void: _on_quest_meta("bounty_claim|" + cid),
+					"[color=%s]%s[/color]  [color=%s](%s)[/color]" % [Palette.hex(Palette.SUCCESS), bnm, faint, _reward_text(b)])
 			else:
-				line = "[color=#dfe6f0]%s[/color]  [color=#8ad6ff]%d/%d[/color]\n   [color=#7f93a8]%s[/color]  [color=#5a6472](%s)[/color]" % [bnm, bprog, bcnt, _esc(str(b.get("desc", ""))), _reward_text(b)]
+				row = _qg_info("[color=%s]%s[/color]  [color=%s]%d/%d[/color]\n[color=%s]%s[/color]  [color=%s](%s)[/color]" % [body, bnm, Palette.hex(Palette.ACCENT2), bprog, bcnt, Palette.hex(Palette.TEXT_DIM), _esc(str(b.get("desc", ""))), faint, _reward_text(b)])
 			if bool(b.get("weekly", false)):
-				wlines.append(line)
+				wrows.append(row)
 				wend = int(b.get("period_end", 0))
 			else:
-				dlines.append(line)
+				drows.append(row)
 				dend = int(b.get("period_end", 0))
-		if not dlines.is_empty():
-			out.append("\n[b][color=#ffd24d]✦ Daily Bounties[/color][/b]  [color=#5a6472](resets in %s)[/color]" % _bounty_countdown(dend))
-			out.append_array(dlines)
-		if not wlines.is_empty():
-			out.append("\n[b][color=#cdbcff]✦ Weekly Bounty[/color][/b]  [color=#5a6472](resets in %s)[/color]" % _bounty_countdown(wend))
-			out.append_array(wlines)
-	if out.is_empty():
-		out.append("[color=#7f93a8]Nothing for you right now — come back after you level up or finish a quest.[/color]")
-	_qgiver_label.text = "\n".join(out)
+		if not drows.is_empty():
+			_qgiver_rows.add_child(Widgets.section("✦ Daily Bounties  (resets in %s)" % _bounty_countdown(dend)))
+			for r in drows:
+				_qgiver_rows.add_child(r)
+			any = true
+		if not wrows.is_empty():
+			_qgiver_rows.add_child(Widgets.section("✦ Weekly Bounty  (resets in %s)" % _bounty_countdown(wend)))
+			for r in wrows:
+				_qgiver_rows.add_child(r)
+			any = true
+	if not any:
+		_qgiver_rows.add_child(_qg_info("[color=%s]Nothing for you right now — come back after you level up or finish a quest.[/color]" % Palette.hex(Palette.TEXT_DIM)))
 
 # P6b: a display-only countdown to the next UTC reset, from the server-pushed period_end epoch (never fed to the sim).
 func _bounty_countdown(period_end: int) -> String:
@@ -3020,17 +3077,12 @@ func _build_leaderboard() -> void:
 	_lb_panel = p["root"]
 	_hud.add_child(_lb_panel)
 	var vb: VBoxContainer = p["body"]
-	var tabs := HBoxContainer.new()
-	tabs.add_theme_constant_override("separation", 8)
-	vb.add_child(tabs)
-	for cat in LB_CATS:
-		var b := Button.new()
-		b.text = str(cat[1])
-		b.pressed.connect(_on_lb_category.bind(str(cat[0])))
-		tabs.add_child(b)
+	var short := ["2-Min Drill", "Fastest Clear", "Fastest Kill", "Gear Score", "Intensity"]  # tab labels fit the header
+	_lb_tabs = Widgets.tab_row(short, func(i: int) -> void: _on_lb_category(str(LB_CATS[i][0])))
+	vb.add_child(_lb_tabs["root"])
 	_lb_status = Label.new()
 	_lb_status.add_theme_font_size_override("font_size", 15)
-	_lb_status.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	_lb_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	vb.add_child(_lb_status)
 	_lb_rows = VBoxContainer.new()
 	_lb_rows.add_theme_constant_override("separation", 3)
@@ -3043,6 +3095,9 @@ func _toggle_leaderboard() -> void:
 	_lb_panel.visible = not _lb_panel.visible
 	if _lb_panel.visible:
 		if _locker_panel != null: _locker_panel.visible = false
+		for i in LB_CATS.size():                   # sync the tab highlight to the current board
+			if str(LB_CATS[i][0]) == _lb_cat and _lb_tabs.has("select"):
+				(_lb_tabs["select"] as Callable).call(i)
 		_on_lb_category(_lb_cat)                   # fetch the current tab on open
 
 func _on_lb_category(cat: String) -> void:
@@ -3598,17 +3653,42 @@ func _confirm_sell_selected() -> void:
 func _show_sell_confirm(prompt: String, on_yes: Callable) -> void:
 	_close_sell_confirm()
 	_sell_confirm = Panel.new()
+	var mg := MarginContainer.new()               # breathing room (was jammed to the 4px theme margin)
+	for s in ["left", "right", "top", "bottom"]:
+		mg.add_theme_constant_override("margin_" + s, 16)
+	_sell_confirm.add_child(mg)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 8)
-	_sell_confirm.add_child(vb)
+	vb.add_theme_constant_override("separation", 10)
+	mg.add_child(vb)
+	var head := HudFonts.display_label("Confirm", Palette.SIZE_SECTION, Palette.SB_ORANGE, 0.16)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	vb.add_child(head)
 	var lbl := Label.new()
 	lbl.text = prompt
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.custom_minimum_size = Vector2(300, 0)
 	vb.add_child(lbl)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	vb.add_child(row)
-	var yes := Button.new()
+	var yes := Button.new()                        # destructive → orange-lit, distinct from Cancel
 	yes.text = "Confirm"
+	yes.add_theme_color_override("font_color", Palette.SB_ORANGE)
+	yes.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	var ysb := StyleBoxFlat.new()
+	ysb.bg_color = Color(Palette.SB_ORANGE, 0.16)
+	ysb.set_border_width_all(1)
+	ysb.border_color = Color(Palette.SB_ORANGE, 0.8)
+	ysb.set_corner_radius_all(5)
+	ysb.content_margin_left = 13.0
+	ysb.content_margin_right = 13.0
+	ysb.content_margin_top = 5.0
+	ysb.content_margin_bottom = 5.0
+	yes.add_theme_stylebox_override("normal", ysb)
+	var yhv: StyleBoxFlat = ysb.duplicate()
+	yhv.bg_color = Color(Palette.SB_ORANGE, 0.28)
+	yes.add_theme_stylebox_override("hover", yhv)
+	yes.add_theme_stylebox_override("pressed", yhv)
 	yes.pressed.connect(func() -> void:
 		on_yes.call()
 		_close_sell_confirm())
