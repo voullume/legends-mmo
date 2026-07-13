@@ -1244,7 +1244,7 @@ func _render_inv_tiles() -> void:
 	_inv_controls.add_child(_ctrl_label("sort:"))
 	for key in ["rarity", "type", "power", "build"]:   # "build" = the Builder-Mode furniture tab
 		var k_l: String = key
-		_inv_controls.add_child(_ctrl_btn(key.capitalize(), Palette.ACCENT if _inv_sort_mode == key else Palette.TEXT_DIM, func() -> void:
+		_inv_controls.add_child(Widgets.toggle_btn(key.capitalize(), _inv_sort_mode == key, func() -> void:
 			_inv_sort_mode = k_l
 			_render_inv_tiles()))
 	var spacer := Control.new()
@@ -1474,7 +1474,7 @@ func _ctrl_label(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	l.add_theme_color_override("font_color", Color(0.5, 0.58, 0.66))
+	l.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	return l
 
 # true if this (unequipped) item is a strict Item-Power upgrade over what it would replace in its slot,
@@ -3491,7 +3491,7 @@ func _render_shop_sell() -> void:
 	sortrow.add_child(_ctrl_label("sort:"))
 	for key in ["rarity", "slot", "power"]:
 		var k_l: String = key
-		sortrow.add_child(_ctrl_btn(key.capitalize(), (Color.html("#ffd24d") if _sell_sort == key else dim), func() -> void:
+		sortrow.add_child(Widgets.toggle_btn(key.capitalize(), _sell_sort == key, func() -> void:
 			_sell_sort = k_l
 			_render_shop_sell()))
 	_shop_sell_controls.add_child(sortrow)
@@ -3501,7 +3501,7 @@ func _render_shop_sell() -> void:
 	for sl in ["", "head", "chest", "legs", "hands", "feet", "main_hand", "off_hand", "neck", "ring", "trinket"]:
 		var sl_l: String = sl
 		var lbl2: String = "All" if sl == "" else sl.capitalize()
-		slotrow.add_child(_ctrl_btn(lbl2, (Color.html("#ffd24d") if _sell_filter_slot == sl else dim), func() -> void:
+		slotrow.add_child(Widgets.toggle_btn(lbl2, _sell_filter_slot == sl, func() -> void:
 			_sell_filter_slot = sl_l
 			_render_shop_sell()))
 	_shop_sell_controls.add_child(slotrow)

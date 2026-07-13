@@ -2704,11 +2704,11 @@ func _build_hud() -> void:
 	_tooltip.visible = false
 	_tooltip.z_index = 4096                       # always draw on top of panels (it's a sibling under _hud)
 	_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE   # never eat clicks meant for the UI under it
-	var ttsb := StyleBoxFlat.new()                # near-opaque dark bg so item details read clearly over the scene
-	ttsb.bg_color = Color(0.05, 0.06, 0.09, 0.98)
+	var ttsb := StyleBoxFlat.new()                # near-opaque ink + cyan rail (the pattern tooltip look)
+	ttsb.bg_color = Color(Palette.SB_INK, 0.98)
 	ttsb.set_border_width_all(1)
-	ttsb.border_color = Color(0.38, 0.43, 0.52, 0.95)
-	ttsb.set_corner_radius_all(4)
+	ttsb.border_color = Color(Palette.SB_CYAN, 0.5)
+	ttsb.set_corner_radius_all(5)
 	ttsb.set_content_margin_all(9)
 	_tooltip.add_theme_stylebox_override("panel", ttsb)
 	_tt_label = RichTextLabel.new()
@@ -2974,7 +2974,7 @@ func _build_vitals() -> void:
 	# near-cap inventory warning — big red text right under the currency tray (shown within 5 of the 50-item cap)
 	_cap_warn = Label.new()
 	_cap_warn.add_theme_font_size_override("font_size", 22)
-	_cap_warn.add_theme_color_override("font_color", Color(1.0, 0.28, 0.24))
+	_cap_warn.add_theme_color_override("font_color", Palette.DANGER)
 	_cap_warn.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_cap_warn.add_theme_constant_override("outline_size", 5)
 	_cap_warn.visible = false
