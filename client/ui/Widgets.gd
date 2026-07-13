@@ -189,15 +189,30 @@ static func _restore_window(root: Control, pc: PanelContainer, title: String, mi
 	else:
 		pc.position = Vector2(maxf(0.0, (vp.x - pc.size.x) * 0.5), maxf(0.0, (vp.y - pc.size.y) * 0.5))
 
-# A section header inside a panel body — the display face + cyan, so panels section like the HUD.
+# The display (Sportbound Strike) face is caps-only with LIMITED punctuation (A-Z 0-9 space
+# . , : ! ? - _ / + & #). Anything else (parens, ✦, ◈, ·, em-dash, emoji) must NOT use it —
+# per client/ui/fonts/FONTS-README.md — so headers with symbols/sentences fall back to the body font.
+const _DISPLAY_OK := " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,:!?-_/+&#"
+static func display_safe(text: String) -> bool:
+	for ch in text.to_upper():
+		if not _DISPLAY_OK.contains(ch):
+			return false
+	return true
+
+# A section header inside a panel body — the display face + cyan when the text is display-safe,
+# else the body font (still cyan). Short "READY TO TURN IN" gets the identity; "✦ Daily Bounties
+# (resets in 2h)" stays readable in the body font.
 static func section(text: String) -> Label:
 	var l := Label.new()
-	l.text = text.to_upper()
-	var f := HudFonts.display_variant(Palette.SIZE_SECTION, 0.16)
-	if f != null:
-		l.add_theme_font_override("font", f)
 	l.add_theme_font_size_override("font_size", Palette.SIZE_SECTION)
 	l.add_theme_color_override("font_color", Palette.SB_CYAN)
+	if display_safe(text):
+		l.text = text.to_upper()
+		var f := HudFonts.display_variant(Palette.SIZE_SECTION, 0.16)
+		if f != null:
+			l.add_theme_font_override("font", f)
+	else:
+		l.text = text
 	return l
 
 # A data-panel tile stylebox: SB_NAVY body + cyan rail (no rarity) OR a rarity border, chamfer-ish
