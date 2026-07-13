@@ -2529,7 +2529,7 @@ func _render_camp() -> void:
 		var lbl := Label.new()
 		var top := tier == mx
 		lbl.text = "Intensity %d%s" % [tier, "   ◈ NEW — clear to advance" if top else ""]
-		if top: lbl.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		if top: lbl.add_theme_color_override("font_color", Palette.SUCCESS)
 		lbl.custom_minimum_size = Vector2(360, 0)
 		row.add_child(lbl)
 		var btn := Button.new()
@@ -2575,7 +2575,7 @@ func _render_camp() -> void:
 		queued.append("Extra Scouting")
 	var qlbl := Label.new()
 	qlbl.text = ("✓ Queued for next run: %s" % ", ".join(queued)) if not queued.is_empty() else "Nothing queued. Buy an Audible, then Enter a Camp run."
-	qlbl.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63) if not queued.is_empty() else Palette.TEXT_FAINT)
+	qlbl.add_theme_color_override("font_color", Palette.SUCCESS if not queued.is_empty() else Palette.TEXT_FAINT)
 	qlbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_camp_rows.add_child(qlbl)
 	for aid in GameData.AUDIBLE_CATALOG:
@@ -2692,8 +2692,13 @@ func _render_wardrobe() -> void:
 func _dye_row(id: String, dye_name: String, color_hex: String, owned: Array, equipped: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	var swatch := ColorRect.new()
-	swatch.color = Color(color_hex)
+	var swatch := PanelContainer.new()           # framed so dark/navy dyes still read against the panel
+	var ssb := StyleBoxFlat.new()
+	ssb.bg_color = Color(color_hex)
+	ssb.set_border_width_all(1)
+	ssb.border_color = Color(1, 1, 1, 0.35)
+	ssb.set_corner_radius_all(4)
+	swatch.add_theme_stylebox_override("panel", ssb)
 	swatch.custom_minimum_size = Vector2(26, 26)
 	row.add_child(swatch)
 	var lbl := Label.new()
@@ -2703,7 +2708,7 @@ func _dye_row(id: String, dye_name: String, color_hex: String, owned: Array, equ
 	if id == equipped:
 		var eq := Label.new()
 		eq.text = "✓ Equipped"
-		eq.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		eq.add_theme_color_override("font_color", Palette.SUCCESS)
 		row.add_child(eq)
 	elif id == "" or id in owned:
 		var btn := Button.new()
@@ -2848,7 +2853,7 @@ func _talent_row(cls: String, br: String, n: Dictionary, bflavor: Dictionary, ta
 	elif cur >= nmax:
 		var done := Label.new()
 		done.text = "✓ maxed"
-		done.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		done.add_theme_color_override("font_color", Palette.SUCCESS)
 		row.add_child(done)
 	else:
 		var btn := Button.new()
@@ -3151,7 +3156,7 @@ func _render_leaderboard() -> void:
 		var sc := Label.new()
 		var raw := int((e as Dictionary).get("score", 0))
 		sc.text = _fmt_ms(LB_CLEAR_CAP_MS - raw) if LB_TIME_CATS.has(_lb_cat) else str(raw)   # P7d: clear-time boards store CAP-elapsed → show the time
-		sc.add_theme_color_override("font_color", Color(0.62, 0.91, 0.63))
+		sc.add_theme_color_override("font_color", Palette.SUCCESS)
 		row.add_child(sc)
 		_lb_rows.add_child(row)
 
