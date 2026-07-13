@@ -417,9 +417,15 @@ bled through them; `BG_PANEL` was a lighter navy at 0.94, now a dark near-opaque
 Settings global "UI scale" slider was removed (it rescaled the whole viewport and fought the
 per-module F2 sizing); global content-scale pinned to 1.0, all sizing is per-module in F2 now.
 
-**Optional remaining polish** (all cosmetic, none blocking): charsheet + quest-journal are still
-RichTextLabel blobs using retyped bbcode hex literals (readable, just not Palette.hex-tokenized);
-camp intensity tiers could be Widgets.tile cards.
+Playtest round 3 (owner screenshots showed windows STILL washed out): BG_PANEL 0.985 → **1.0
+(fully SOLID)** — near-opaque still bled the bright emissive world labels through in-game (a
+headless bright-bg harness confirms 1.0 fully occludes). ⚠ NEEDS A CLIENT RELAUNCH to take
+effect. Also did the recommended sectioning: Quest Journal → sectioned quest CARDS (was a bbcode
+wall); Camp Circuit intensity tiers → selectable tile CARDS (lime rail + NEW chip + Enter);
+colors tokenized. Charsheet already has cyan headers + reads fine on the opaque panel.
+
+**Optional remaining polish** (minor): charsheet could be split into card-sections like the
+journal; a few big RichTextLabels still use retyped bbcode hex literals (readable, drift-risk).
 
 ⚠ TEST-HYGIENE NOTE: my screenshot runs polluted the owner's real user://settings.cfg with test
 module values (removed the bad `minimap` entry; hotbar 1.6 / chat 0.7 may be mine or theirs).
