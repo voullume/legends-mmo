@@ -73,5 +73,69 @@
 		"x": 377.0,
 		"y": 533.0,
 		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "cable_spool_cart",
+		"x": 450.0,
+		"y": 108.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.0,
+		"kind": "prop",
+		"model": "industrial_ventilation_unit",
+		"x": 620.0,
+		"y": 95.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.8,
+		"kind": "prop",
+		"model": "coolant_pump_station",
+		"x": 900.0,
+		"y": 110.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 1080.0,
+		"y": 72.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 1230.0,
+		"y": 72.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "maintenance_tool_cart",
+		"x": 520.0,
+		"y": 760.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.4,
+		"kind": "prop",
+		"model": "scrap_sports_equipment_pile",
+		"x": 760.0,
+		"y": 768.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.0,
+		"kind": "prop",
+		"model": "straight_cover_barrier",
+		"x": 1010.0,
+		"y": 775.0,
+		"yaw": 0.0
 	}
 ]

@@ -132,6 +132,7 @@ var _decals_sig := ""
 var _ground: MeshInstance3D                # floor planes, resized when the arena (map) size changes
 var _field: MeshInstance3D
 var _arena_sig := ""
+var _field_theme_sig := ""                 # current map name the field texture/tint is themed for
 var _proj_pool := []
 var _fx_active := []                       # {node, t, life, vel}
 var _shake := 0.0                          # current camera screen-shake magnitude (decays each frame)
@@ -558,6 +559,33 @@ func _mat(col) -> StandardMaterial3D:
 	m.albedo_color = (Color(col) if col is String else col)
 	return m
 
+# ---- ground/field texturing (client-only, no shared/ change) ------------------------------------------
+# The visible playfield (`_field`) gets a tiled albedo texture so maps read less flat. The texture + tint are
+# themed off the CURRENT map name (not size — ARENA and DRILL share 1200x800): the glitchyard/camp/drill combat
+# zones read as worn scrapyard concrete, everything else (home, the arena pitch, the locker) as mown turf. UVs
+# are scaled so one texture repeat ≈ `tile` world-units on any map size, keeping the tiling square on resize.
+const GROUND_TEX_DIR := "res://models/meshy/props/ground/"
+
+func _make_field_material(map: String) -> StandardMaterial3D:
+	var scrap := map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL
+	var tile := 7.0 if scrap else 5.0                     # world-units per texture repeat
+	var fm := StandardMaterial3D.new()
+	fm.albedo_texture = load(GROUND_TEX_DIR + ("scrapyard_albedo.png" if scrap else "turf_albedo.png"))
+	fm.albedo_color = (Color(0.74, 0.74, 0.72) if scrap else Color(0.74, 0.88, 0.66))   # keep each zone's colour identity
+	fm.uv1_scale = Vector3(_aw() * SCALE / tile, _ah() * SCALE / tile, 1.0)
+	fm.roughness = 0.96
+	return fm
+
+# Re-theme the field when the map changes (called each frame after _resize_arena; cheap early-out otherwise).
+func _apply_field_theme() -> void:
+	if _field == null:
+		return
+	var map := str(_state.get("map", ""))
+	if map == _field_theme_sig:
+		return
+	_field_theme_sig = map
+	_field.material_override = _make_field_material(map)
+
 # A held sport prop for the class, or null. The Batter carries a bat (a tapered cylinder); _spawn pins
 # it to the RightHand bone so it tracks the swing. (Balls are intentionally omitted — a ball stuck in
 # the hand reads oddly during a throw, where the projectile is its own FX.)
@@ -710,6 +738,13 @@ const DECO_PROPS := [
 	"chimney-small", "chimney-medium", "chimney-large", "detail-tank",
 	"bag", "barrier", "rack", "stadium",
 	"gear_forge", "quest_board", "sideline_stand", "power_core",   # admin-only Meshy landmarks (not in BUILD_CATALOG)
+	# ── generated admin decor (2026-07-13 props pass): all DECO-only (NOT in BUILD_CATALOG → build_buy refuses),
+	#    placed as footprint-0 pure-visual set-dressing this pass (collision is an optional Pass-2 via PROP_FOOTPRINT).
+	"single_locker", "player_bench", "equipment_shelf", "sports_ball_rack", "championship_trophy",           # locker set
+	"bounty_terminal", "leaderboard_kiosk", "zone_terminal", "boundary_pylon",                                # arena tech
+	"player_tunnel_gate", "arena_service_door", "equipment_transport_crate", "straight_cover_barrier", "spectator_safety_rail",  # arena structure
+	"championship_arena_wall", "glitchyard_wall",                                                             # environment walls
+	"cable_spool_cart", "coolant_pump_station", "industrial_ventilation_unit", "maintenance_tool_cart", "scrap_sports_equipment_pile",  # glitchyard utility (batch_005)
 ]
 
 # decal source for a map, priority: live editor working copy → data/decals/<map>.json → World.DECALS const.
@@ -1056,7 +1091,7 @@ func _build_world() -> void:
 	fp.size = Vector2(GameData.ARENA_W * SCALE, GameData.ARENA_H * SCALE)
 	field.mesh = fp
 	field.position.y = 0.01
-	field.material_override = _mat(Color(0.16, 0.30, 0.18))
+	field.material_override = _make_field_material(str(_state.get("map", "")))   # tiled turf/scrapyard by map
 	add_child(field)
 	_field = field
 
@@ -1423,6 +1458,7 @@ func _render_world(delta: float) -> void:
 		n["pflash"] = f["flash"]
 
 	_resize_arena()
+	_apply_field_theme()           # re-theme the field texture/tint when the map changes (client-only)
 	_render_portals()
 	_render_zones()
 	_render_obstacles()

@@ -1,0 +1,15 @@
+Ground / field textures
+=======================
+
+turf_albedo.png       — mown-pitch turf (home, arena, locker, safe zones)
+scrapyard_albedo.png  — worn industrial concrete (glitchyard / camp / drill combat zones)
+
+Source: SELF-GENERATED (no third-party / CC0 asset — no attribution required).
+  Generated procedurally by tools/gen_ground_textures.py (pure Python + Pillow).
+  256x256, seamless/tileable by construction:
+    - low-frequency variation = sum of INTEGER-frequency sinusoids (periodic over the tile)
+    - fine grain = a hash of (pixel_x, pixel_y) only (repeats identically when the tile repeats)
+  To regenerate or retune the palette:  python3 tools/gen_ground_textures.py
+
+Wired in client/Client.gd via _make_field_material()/_apply_field_theme() (client-only render;
+no shared/ change). uv1_scale tiles one repeat every ~5 (turf) / ~7 (scrapyard) world-units.

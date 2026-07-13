@@ -392,5 +392,109 @@
 		"x": 490.0,
 		"y": 597.0,
 		"yaw": 1.56
+	},
+	{
+		"h": 2.6,
+		"kind": "prop",
+		"model": "championship_trophy",
+		"x": 1080.0,
+		"y": 950.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.4,
+		"kind": "prop",
+		"model": "single_locker",
+		"x": 1000.0,
+		"y": 928.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.4,
+		"kind": "prop",
+		"model": "single_locker",
+		"x": 1045.0,
+		"y": 928.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.5,
+		"kind": "prop",
+		"model": "equipment_shelf",
+		"x": 955.0,
+		"y": 945.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.0,
+		"kind": "prop",
+		"model": "sports_ball_rack",
+		"x": 1132.0,
+		"y": 936.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.1,
+		"kind": "prop",
+		"model": "player_bench",
+		"x": 1080.0,
+		"y": 995.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.2,
+		"kind": "prop",
+		"model": "bounty_terminal",
+		"x": 610.0,
+		"y": 445.0,
+		"yaw": -1.5708
+	},
+	{
+		"h": 3.0,
+		"kind": "prop",
+		"model": "leaderboard_kiosk",
+		"x": 1180.0,
+		"y": 300.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.0,
+		"kind": "prop",
+		"model": "zone_terminal",
+		"x": 700.0,
+		"y": 268.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.5,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 540.0,
+		"y": 245.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.5,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 662.0,
+		"y": 245.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.0,
+		"kind": "prop",
+		"model": "player_tunnel_gate",
+		"x": 720.0,
+		"y": 958.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.3,
+		"kind": "prop",
+		"model": "equipment_transport_crate",
+		"x": 1372.0,
+		"y": 715.0,
+		"yaw": 0.5
 	}
 ]
