@@ -1,10 +1,10 @@
 {
   "batch_id": "batch_005_glitchyard_utility",
   "purpose": "Add reusable industrial utility and maintenance dressing for the Glitchyard, Target Court, sheds, and command areas.",
-  "status": "prepared_awaiting_preview_approval",
-  "approved_credit_ceiling": 0,
+  "status": "complete",
+  "approved_credit_ceiling": 170,
   "proposed_preview_credit_ceiling": 120,
-  "actual_credits_consumed": 0,
+  "actual_credits_consumed": 170,
   "proposed_generation": {
     "provider": "Meshy",
     "api": "v2/text-to-3d",
@@ -15,11 +15,11 @@
     "target_formats": ["glb"]
   },
   "candidates": [
-    {"id": "power_transformer_cabinet", "proposed_credits": 20},
-    {"id": "coolant_pump_station", "proposed_credits": 20},
-    {"id": "industrial_ventilation_unit", "proposed_credits": 20},
-    {"id": "cable_spool_cart", "proposed_credits": 20},
-    {"id": "maintenance_tool_cart", "proposed_credits": 20},
-    {"id": "scrap_sports_equipment_pile", "proposed_credits": 20}
+    {"id": "power_transformer_cabinet", "task_id": "019f5b5a-bcc9-772e-a339-072972f95484", "preview_triangles": 5712, "credits": 20, "decision": "rejected"},
+    {"id": "coolant_pump_station", "task_id": "019f5b5a-c6fd-772f-9ef0-7a81e045cd9f", "refine_task_id": "019f5c68-c171-722e-8cc3-90876730dfe2", "preview_triangles": 6418, "credits": 30, "decision": "approved"},
+    {"id": "industrial_ventilation_unit", "task_id": "019f5b5a-d10c-7ad1-a794-ce41ace0dc4b", "refine_task_id": "019f5c68-c3e9-722f-a808-2c05070b13f6", "preview_triangles": 6349, "credits": 30, "decision": "approved"},
+    {"id": "cable_spool_cart", "task_id": "019f5b5a-dbe6-7ada-9fc6-e68bda4ffed2", "refine_task_id": "019f5c68-c6a2-70f0-a181-8272a7ff9147", "preview_triangles": 6681, "credits": 30, "decision": "approved"},
+    {"id": "maintenance_tool_cart", "task_id": "019f5b5a-e7d9-7c8c-8793-278ad52e9df3", "refine_task_id": "019f5c68-c942-7235-b73e-a9b7ae94f05b", "preview_triangles": 5562, "credits": 30, "decision": "approved"},
+    {"id": "scrap_sports_equipment_pile", "task_id": "019f5b5a-f1ec-7ae6-b1c6-76d7514c602c", "refine_task_id": "019f5c68-cbf5-73cc-888f-b056f919806a", "preview_triangles": 6317, "credits": 30, "decision": "approved"}
   ]
 }
