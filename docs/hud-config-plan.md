@@ -348,5 +348,38 @@ registration. Recommended slot: its own small session (needs owner eyeball on li
 
 12 modules configurable: player_frame, hotbar, quest_tracker, chat, target_frame, focus_frame,
 party_frames, event_banner, interact_prompt, meter, builder_panel, bottom_nav.
-**NEXT = P10 (modal panel styling pass: pattern styleboxes for Widgets windows, global-scale
-sanity, consistent headers) → P11 settings consolidation → P12 branding/licensing gate.**
+
+## STATUS — P10 + P11 SHIPPED (a7842f9, b439c8a — same session)
+
+P10: window chrome joined the pattern (navy body + cyan-tinted rail via the ONE Theme; cyan
+title-rule separators); Build Shop added to the Esc cascade (the one window missing);
+verified Settings window at 100%/150% global scale (clamped, readable, grip reachable);
+`--opennow <panel>` dev flag. Deliberately skipped per spec: no window-manager expansion —
+headers/✕/size-persistence were already consistent.
+P11: Settings HUD section consolidated — profile dropdown (applies+saves), bulk HUD-opacity
+slider (HudLayout.set_all_opacity; per-module stays in F2), Fit Layout to Screen, plus the
+existing UI scale/Edit/Reset entries. "Reduce screen effects" documented as the reduced-
+HUD-motion option (it gates banner fades/toast slides/frame glow). Colorblind: no status is
+color-only by construction (numbers/wipes/ticks/text accompany every color cue).
+
+## STATUS — MINIMAP SHIPPED (commit ecd95f8, same session)
+
+13 modules now. Schematic top-down drawn from the interest-filtered snapshot only (no hidden
+info — adversarial review confirmed the server filters the fighter list + phased bosses were
+already world-visible). Custom `_draw`, 10 Hz visible-only timer, mouse-transparent.
+**Defaults HIDDEN** (opt in via F2) so it can't land on a returning player's saved layout —
+this is the safe default; a visible-by-default minimap for NEW players would need a
+`layout_version` bump + migration (owner call). 2-finder adversarial review (all confirmed,
+fixed pre-commit): letterbox uniform scale (non-square maps were stretching dots + desyncing
+the self-arrow ~11–15°); skip fighters/self until a valid self-reference (pre-assign race
+mis-colored mobs); hidden default + reverted the quest_tracker/builder default nudges.
+`--minimap` dev flag. Verified: 46 tests exit 0, boot clean, clean render screenshot.
+
+## REMAINING
+
+- **P12 branding/licensing gate — OWNER DECISIONS, not code**: (1) keep "Legends MMO" or adopt
+  Sportbound identity (logos are reference-only until decided); (2) production display font:
+  clear/replace the Sportbound Strike prototype (see client/ui/fonts/FONTS-README.md
+  checklist) before any commercial build; (3) final asset provenance/attribution doc.
+- Owner playtest of P7–P11 (unit frames, banners, prompt, meter-in-F2, nav, settings).
+- Push the commit train (de6a707…b439c8a) to GitHub when ready.
