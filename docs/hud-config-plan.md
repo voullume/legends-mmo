@@ -409,10 +409,17 @@ opens. Plus: charsheet section headers now cyan; admin F1 panel grouped (display
 Widgets.section groups + teleport grid, was 19 buttons in one column); paperdoll cells 34px +
 rarity border + pointing cursor.
 
-**Optional remaining polish** (audit flagged, NOT done — all cosmetic, none blocking): charsheet
-+ quest-journal are still RichTextLabel blobs using retyped bbcode hex literals (readable, just
-not Palette.hex-tokenized); camp intensity tiers could be Widgets.tile cards. Owner playtest of
-the re-themed menus owed.
+Playtest round 2 (owner screenshots): (1) the keybind cheat-sheet line (`_bar`) that ran along
+the screen bottom every frame was retired → a proper **Controls** viewer opened from Settings →
+Controls (grouped keycap rows). (2) Pop-up windows were washing out — the busy bright 3D world
+bled through them; `BG_PANEL` was a lighter navy at 0.94, now a dark near-opaque navy
+(0.043,0.058,0.095 @ 0.985) so windows fully occlude the world and text reads crisply. (3) The
+Settings global "UI scale" slider was removed (it rescaled the whole viewport and fought the
+per-module F2 sizing); global content-scale pinned to 1.0, all sizing is per-module in F2 now.
+
+**Optional remaining polish** (all cosmetic, none blocking): charsheet + quest-journal are still
+RichTextLabel blobs using retyped bbcode hex literals (readable, just not Palette.hex-tokenized);
+camp intensity tiers could be Widgets.tile cards.
 
 ⚠ TEST-HYGIENE NOTE: my screenshot runs polluted the owner's real user://settings.cfg with test
 module values (removed the bad `minimap` entry; hotbar 1.6 / chat 0.7 may be mine or theirs).
