@@ -85,8 +85,13 @@ apart, west→east gradient, elites east, portal drops >42 from reverse pads / >
   stab_away 92 asserts. **⚠ OWNER EYEBALLS PENDING:** the recolor-readability checkpoint (does the crimson
   rival read as a distinct boss now that tints render?) and at-level fight feel — both decide whether the
   optional Meshy batch triggers before S3.
-- **S3 — "The Finals District" (M, ~1.5-2)** 🔴 finals_1 + finals_2, `finals_gate` arm, grand_gallery
-  elite-plus, championship-court ground (or gold-tint fallback), quests 8–11, bounties, IP@22-24 pass.
+- **S3 — "The Finals District" (M, ~1.5-2)** 🔴 — ✅ **SHIPPED v1.4.0 (2026-07-14, `38ff9e0`)**. All planned
+  content + 11 review fixes, notably: the core-shield "shielded" cue generalized to ANY coreShield carrier
+  (the Gallery's DR was invisible); `gear_unknown` guards the login re-validation against transient DB
+  failures; tokens extended to the finals band (behaviorally asserted); the farm-ceiling pin made
+  behavioral; `min_ip` bounty view filter. **S4's `commissioner_ready` = L24 + IP 1200** (measured: sits
+  between the unlucky floor and the realistic L22-24 set ×1.15 — the stab IP@22-24 pass pins it).
+  stab_away 124 asserts.
 - **S4 — "The Final Whistle" (S-M, ~1.5)** 🔴 finals_boss + the_commissioner def, `commissioner_ready`
   arm, quest 12, Championship Gold dye, +50 Pages, boss_time category, **solo-viability playtest gate**.
 - **S5 — optional polish (S, ~1)** batch_006/007 prop integration (optimize pass), decor v2, away-band
