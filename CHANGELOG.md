@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.1.1 — 2026-07-14
+
+- fix: clean-import client build so props load
+
+_(rolls up commits since the previous tag; base 203cfd6)_
+
 ## v1.1.0 — 2026-07-14
 
 - Jump! Press Space to hop — now visible to other players (network protocol v2; older clients are prompted to update)
