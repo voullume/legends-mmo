@@ -50,7 +50,7 @@ jobs:
       - name: Run suites
         run: |
           set -u
-          SUITES="stab_auth stab_authority stab_economy stab_econ_atomic stab_sessions stab_protocol stab_trust \
+          SUITES="stab_auth stab_authority stab_economy stab_econ_atomic stab_sessions stab_protocol stab_trust stab_hop \
                   smoke_builder_p0 smoke_builder_p1 smoke_builder_p2 \
                   test_instancing test_residents test_res_chat test_res_party test_res_reports \
                   smoke_p2 smoke_p4 smoke_p5 test_heal_events test_procs \
