@@ -93,6 +93,8 @@ const RESIDENT_ULT_LOCK := 1.0e9                 # sentinel cooldown that never 
 const BOSS_GATE_LEVEL := 16                       # must be at least this level to enter GY_BOSS (tunable)
 const BOSS_GATE_IP := 800                         # AND at least this aggregate equipped item-power / gear score (tunable; ~top of the fresh-quester band, just below a full-rare set)
 const AWAY_GATE_LEVEL := 8                        # Phase 8: the Away Circuit opens once the Yard's on-ramp is outgrown (visible-but-locked, like boss_ready)
+const FINALS_GATE_LEVEL := 17                     # Phase 8 S3: the Finals district — level AND gear, deliberately NOT the raid kill
+const FINALS_GATE_IP := 800                       # (same bar as boss_ready: the away chain's graduation gear IS the Finals ticket)
 const HIDDEN_GATES := ["secret_key", "all_quests"]   # gated portals HIDDEN in the snapshot; boss_ready stays VISIBLE-but-locked (a known goal, not a surprise)
 const GATE_PROMPT_COOLDOWN_MS := 4000             # one "sealed pad" prompt per this interval while loitering on a locked gated pad
 const RESIDENT_ASSIST_RANGE := 280.0  # a resident's kill credits a player within this range of the mob
@@ -2067,7 +2069,9 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 		var gpf = _find(_session[pid]["fid"])
 		if gpf != null:
 			var gate := World.gate_for_map(str(gpf["map"]))
-			if gate != "" and not _portal_unlocked(pid, gate):
+			# gear_unknown: the inventory fetch failed transiently → item_power is 0-by-accident, not 0-by-fact.
+			# Skip ONLY the relocate (never bounce a geared player on a DB blip); pad USE still re-checks live.
+			if gate != "" and not _portal_unlocked(pid, gate) and not bool(_session[pid].get("gear_unknown", false)):
 				_relocate(gpf, _session[pid], World.HOME, World.HOME_SPAWN)
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
 		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
@@ -3411,6 +3415,9 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 			return int(s.get("level", 1)) >= BOSS_GATE_LEVEL and int(s.get("item_power", 0)) >= BOSS_GATE_IP
 		"away_gate":                             # Phase 8: the Away Circuit — level only (the biome IS the gear path)
 			return int(_session.get(pid, {}).get("level", 1)) >= AWAY_GATE_LEVEL
+		"finals_gate":                           # Phase 8 S3: the Finals — level + gear, NEVER the raid kill (a stalled raid must not block the capstone)
+			var fs = _session.get(pid, {})
+			return int(fs.get("level", 1)) >= FINALS_GATE_LEVEL and int(fs.get("item_power", 0)) >= FINALS_GATE_IP
 	return true
 
 # Why a visible-but-locked pad is sealed, for the throttled on-approach prompt ("" = stay silent — the
@@ -3422,6 +3429,8 @@ func _gate_locked_msg(gate: String) -> String:
 			return "The Head Coach Arena is sealed — reach level %d and gear score %d to enter." % [BOSS_GATE_LEVEL, BOSS_GATE_IP]
 		"away_gate":
 			return "The Away Games start at level %d — finish your Glitchyard training first." % AWAY_GATE_LEVEL
+		"finals_gate":
+			return "The Finals are sealed — reach level %d and gear score %d to enter." % [FINALS_GATE_LEVEL, FINALS_GATE_IP]
 	return ""
 
 # per-player portal list for the snapshot: gated portals the player hasn't unlocked are HIDDEN (the secret
@@ -3503,7 +3512,7 @@ func _award_kills() -> void:
 				continue
 			if victim.get("objective", false) and _is_instance(str(mapname)):   # the Circuit gatekeeper died → complete the run
 				_on_circuit_clear(str(mapname))                # (idempotent; instance mobs don't respawn so it fires once)
-			var gy := str(mapname).begins_with("glitchyard") or str(mapname).begins_with("away")   # the reward loop: Practice Tokens drop in the Glitchyard + the Away Circuit (Phase 8, owner-approved token extension)
+			var gy := str(mapname).begins_with("glitchyard") or str(mapname).begins_with("away") or str(mapname).begins_with("finals")   # the reward loop: Practice Tokens drop in the Glitchyard + the whole Away Circuit incl. the Finals (the plan's owner-approved "extend to the new 9-28 bands" decision)
 			# who gets credit? A real player who landed the blow — OR, when a POLITE AI resident finished a mob,
 			# the nearest engaged player (helping never robs you). The RUDE resident (+ unclaimed kills) → nobody.
 			var credit_pid := -1
@@ -3986,8 +3995,13 @@ func _apply_equipment(pid: int) -> void:
 	if f == null:
 		return
 	var inv = await supa.get_inventory_as(_session[pid]["access"])
-	if not inv.get("ok") or not _session.has(pid):
+	if not inv.get("ok"):
+		if _session.has(pid):                            # S3 review: a TRANSIENT inventory-fetch failure must not
+			_session[pid]["gear_unknown"] = true         # read as "no gear" — the login gate re-validation would
+		return                                           # bounce a legitimately-geared player out of an IP-gated zone
+	if not _session.has(pid):
 		return
+	_session[pid]["gear_unknown"] = false
 	var bonus := {}
 	var used := {}                                       # slot -> how many equipped items of it we've counted
 	var ip_total := 0                                    # gear score = sum of counted equipped items' item_power
@@ -4347,6 +4361,9 @@ const BOUNTY_DAILY := {
 	# re-export. min_level hides them from characters the away_gate would refuse anyway (view-filter only).
 	"d_roadgame": {"name": "Road Patrol",    "kind": "kill",    "match": {"map": "away_1"},                   "count": 15, "min_level": 8, "desc": "Defeat 15 on the Rival Practice Field.",     "rewards": {"credits": 650, "tokens": 25}},
 	"d_gauntlet": {"name": "Gauntlet Runner","kind": "kill",    "match": {"map": "away_2", "tier": "elite"},  "count": 4,  "min_level": 8, "desc": "Defeat 4 Visitors' Gauntlet elites.",        "rewards": {"tokens": 30, "pages": 30}},
+	# Phase 8 S3 (the Finals district) — view-filtered below finals_gate's level
+	"d_quarter":  {"name": "Quarter Patrol", "kind": "kill",    "match": {"map": "finals_1"},                 "count": 15, "min_level": 17, "min_ip": 800, "desc": "Defeat 15 in the Contenders' Quarter.",     "rewards": {"credits": 900, "pages": 30}},
+	"d_gallery":  {"name": "Gallery Runs",   "kind": "kill",    "match": {"map": "finals_2", "class": "grand_gallery"}, "count": 2, "min_level": 17, "min_ip": 800, "desc": "Break the Grand Gallery twice.",  "rewards": {"tokens": 40, "pages": 45}},
 	"d_drill":    {"name": "Drill Grind",    "kind": "drill",   "wave": 6,                                    "count": 1,  "desc": "Reach wave 6 of a Two-Minute Drill.",       "rewards": {"credits": 500, "pages": 45}},
 }
 # weekly pool — one bigger chase (resets on the UTC week, same Thursday-00:00 boundary as the Camp affix).
@@ -4458,10 +4475,12 @@ func _bounty_meta(pid: int) -> Array:
 	var out := []
 	for id in _active_bounty_ids():
 		var def := _bounty_def(id)
-		# Phase 8: rows carrying a min_level are hidden from characters below it (the away rows point into a
-		# level-gated biome a sub-8 char can't enter — showing an unreachable daily is just noise/frustration).
-		# The global rotation stays deterministic; only this per-player VIEW filters.
+		# Phase 8: rows carrying a min_level / min_ip are hidden from characters below them (the away/finals
+		# rows point into gated zones — showing an unreachable daily is just noise/frustration). The global
+		# rotation stays deterministic; only this per-player VIEW filters (S3: min_ip mirrors finals_gate).
 		if int(def.get("min_level", 0)) > int(_session.get(pid, {}).get("level", 1)):
+			continue
+		if int(def.get("min_ip", 0)) > int(_session.get(pid, {}).get("item_power", 0)):
 			continue
 		var st := _bounty_touch(pid, id)
 		var count := int(def.get("count", 1))
@@ -4822,12 +4841,14 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 					var cst = f.get("casting", null)       # Full Camp Reset telegraph countdown (scoreboard + screen tint)
 					if cst != null and str((cst.get("ab", {}) as Dictionary).get("type", "")) == "campreset":   # match the ult TYPE (Boss2's key is "totalreset")
 						d["ultCast"] = maxf(0.0, float(cst["total"]) - float(cst["t"]))
-					# P3: core-shield state — the boss takes coreShield% less damage while a team core lives (was invisible)
-					if float(GameData.CLASSES.get(str(f["classId"]), {}).get("coreShield", 0.0)) > 0.0:
-						for e in w["fighters"]:
-							if e["alive"] and e.get("isCore", false) and int(e["team"]) == int(f["team"]):
-								d["shielded"] = true
-								break
+				# P3 core-shield cue, S3-generalized: ANY mob whose def carries coreShield (phased boss OR the
+				# Grand Gallery elite-plus) shows shielded while a team core lives — the DR was server-active
+				# but invisible for non-phased carriers (the exact "was invisible" defect P3 fixed for bosses).
+				if float(GameData.CLASSES.get(str(f["classId"]), {}).get("coreShield", 0.0)) > 0.0:
+					for e in w["fighters"]:
+						if e["alive"] and e.get("isCore", false) and int(e["team"]) == int(f["team"]):
+							d["shielded"] = true
+							break
 			fs.append(d)
 	var ps := []
 	var pcls := {}                                # owner id → classId for the Tier-2 projectile tint; a full

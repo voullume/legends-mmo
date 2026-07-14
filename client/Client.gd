@@ -573,14 +573,15 @@ const GROUND_TEX_DIR := "res://models/meshy/props/ground/"
 func _make_field_material(map: String) -> StandardMaterial3D:
 	var scrap := map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL
 	var away := map.begins_with("away")                   # Phase 8: the Away Circuit reads as raked rival clay
-	var tile := 7.0 if (scrap or away) else 5.0           # world-units per texture repeat
+	var finals := map.begins_with("finals")               # Phase 8 S3: the Finals read as polished court hardwood
+	var tile := 7.0 if (scrap or away) else (6.0 if finals else 5.0)   # world-units per texture repeat
 	var fm := StandardMaterial3D.new()
-	var tex := "rival_clay_albedo.png" if away else ("scrapyard_albedo.png" if scrap else "turf_albedo.png")
+	var tex := "court_albedo.png" if finals else ("rival_clay_albedo.png" if away else ("scrapyard_albedo.png" if scrap else "turf_albedo.png"))
 	fm.albedo_texture = load(GROUND_TEX_DIR + tex)
-	var tint := Color(0.86, 0.78, 0.72) if away else (Color(0.74, 0.74, 0.72) if scrap else Color(0.74, 0.88, 0.66))
-	fm.albedo_color = tint                                # keep each zone's colour identity
+	var tint := Color(0.94, 0.86, 0.70) if finals else (Color(0.86, 0.78, 0.72) if away else (Color(0.74, 0.74, 0.72) if scrap else Color(0.74, 0.88, 0.66)))
+	fm.albedo_color = tint                                # keep each zone's colour identity (finals lean gold)
 	fm.uv1_scale = Vector3(_aw() * SCALE / tile, _ah() * SCALE / tile, 1.0)
-	fm.roughness = 0.96
+	fm.roughness = 0.96 if not finals else 0.6            # lacquered court sheen
 	return fm
 
 # Re-theme the field when the map changes (called each frame after _resize_arena; cheap early-out otherwise).

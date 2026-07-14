@@ -94,7 +94,7 @@ func _run() -> void:
 	# ---- 5. quests: prereq-free accept at 8+, progress + tokens through the REAL kill-award path ----
 	var q = Quests.get_quest("away1_roadgame")
 	ok(q != null and str(q["prereq"]) == "" and int(q["min_level"]) == 8, "quest: away1_roadgame is prereq-FREE at min_level 8 (the desert fix)")
-	ok(Quests.display_order().size() == Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.MIDGAME_ORDER.size(),
+	ok(Quests.display_order().size() == Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.FINALS_ORDER.size() + Quests.MIDGAME_ORDER.size(),
 		"quest: AWAY_ORDER wired into display_order (and NOT into the secret-gate ORDER)")
 	ok(Quests.ORDER.size() == 9, "quest: the secret-boss gate list is untouched (9)")
 	await srv._do_quest_accept(2, "away1_roadgame")
@@ -196,9 +196,9 @@ func _run() -> void:
 	ok(drop_d > 320.0, "geometry: the away_2 back-drop is outside the elite's aggro (%.0f > 320)" % drop_d)
 	# review: EVERY away forward pad keeps the ≥200 guard margin, and EVERY portal drop-point lands clear
 	# of the destination's obstacle collision circles (a drop inside a panel's block band strands arrivals)
-	for mp in ["away_1", "away_2", "away_3", "away_boss"]:
+	for mp in ["away_1", "away_2", "away_3", "away_boss", "finals_1", "finals_2"]:
 		for p in World.PORTALS.get(mp, []):
-			if p.has("to") and str(p["to"]).begins_with("away"):     # forward pads: check the guard margin
+			if p.has("to") and (str(p["to"]).begins_with("away") or str(p["to"]).begins_with("finals")):   # forward pads: guard margin
 				for row in World.MOBS.get(mp, []):
 					if str(row["tier"]) == "elite":
 						var gd := Vector2(float(p["x"]) - float(row["x"]), float(p["y"]) - float(row["y"])).length()
@@ -332,5 +332,114 @@ func _run() -> void:
 	ok(srv.BOUNTY_WEEKLY.has("w_rival"), "bounty: the weekly Away Win exists")
 	ok(Quests.kill_matches({"objective": {"type": "kill", "match": srv.BOUNTY_WEEKLY["w_rival"]["match"], "count": 1}},
 		{"tier": "boss", "map": "away_boss", "class": "rival_coach", "level": 16}), "bounty: w_rival matches the Rival Coach kill")
+
+	# ================================================================ S3 — "The Finals District"
+	# ---- 18. the district boots: rosters + the Gallery's court ----
+	ok(srv._worlds.has("finals_1") and srv._worlds.has("finals_2"), "S3 boot: finals_1 + finals_2 auto-boot")
+	ok(_mobs_in("finals_1").size() == 6, "finals_1: 6 spawns")
+	var gallery = null
+	var gcores := 0
+	for f in _mobs_in("finals_2"):
+		if str(f["classId"]) == "grand_gallery": gallery = f
+		if str(f["classId"]) == "rival_core": gcores += 1
+	ok(gallery != null and gcores == 2, "finals_2: the Grand Gallery + exactly 2 slow-respawn cores")
+	ok(str(gallery.get("mobTier", "")) == "elite", "grand_gallery: ELITE tier (a farmable skill-check, not a world event)")
+	var gdef: Dictionary = GameData.CLASSES["grand_gallery"]
+	ok(float(gdef.get("hpMult", 1.0)) >= 2.0 and float(gdef.get("coreShield", 0.0)) > 0.0,
+		"grand_gallery: elite-PLUS (hpMult + coreShield behind the slow cores — the S2 window lesson at endgame pace)")
+	ok(float(gdef.get("respawnS", 0.0)) >= 60.0 and float(gdef.get("respawnS", 0.0)) <= 600.0,
+		"grand_gallery: farmable-but-not-instant respawn (the elite-plus cadence)")
+	ok(srv.RIVAL_PAGES <= 20, "farm ceiling: rival pages stay under the HC 100/hr line")
+	# BEHAVIORAL farm-ceiling pin (review: the old assert was a hardcoded tautology): kill the gallery
+	# through the REAL award path and assert pages are untouched while tokens/xp pay (the finals token
+	# extension) — a future gallery pages hook now fails CI instead of shipping a 120s-respawn pages farm.
+	var farmer: Dictionary = await login("Farmer", 17, {"level": 22})
+	var fr = srv._find(farmer["fid"])
+	fr["map"] = "finals_2"                                     # stand the farmer in the gallery's zone for credit
+	srv._session[17]["map"] = "finals_2"
+	var pages0 := int(srv._session[17].get("pages", 0))
+	var ftok0 := int(srv._session[17].get("tokens", 0))
+	srv._worlds["finals_2"]["events"].append({"type": "kill", "victim": gallery["id"], "killer": farmer["fid"]})
+	srv._award_kills()
+	srv._worlds["finals_2"]["events"].clear()
+	await settle()
+	ok(int(srv._session[17].get("pages", 0)) == pages0, "farm ceiling: a gallery kill pays ZERO pages (behavioral, via the real award path)")
+	ok(int(srv._session[17].get("tokens", 0)) > ftok0, "tokens: the finals band pays Practice Tokens (the plan's owner-approved 9-28 extension)")
+	srv.drop_peer(17)
+	await settle()
+
+	# ---- 19. finals_gate: level + gear, NEVER the raid kill ----
+	var fresh: Dictionary = await login("Contender", 14, {"level": 17})
+	ok(not srv._portal_unlocked(14, "finals_gate"), "finals_gate: L17 with no gear is locked (IP half of the gate)")
+	srv._session[14]["item_power"] = 800
+	ok(srv._portal_unlocked(14, "finals_gate"), "finals_gate: L17 + IP800 unlocks — WITHOUT any away/raid quest (a stalled raid never blocks)")
+	_walk(14, 1480.0, 200.0)
+	ok(str(srv._session[14]["map"]) == "finals_1", "walk: the HOME Finals pad → finals_1")
+	_walk(14, 1820.0, 530.0)
+	ok(str(srv._session[14]["map"]) == "finals_2", "walk: finals_1 forward pad → finals_2")
+	var ff = srv._find(fresh["fid"])
+	ok(Vector2(ff["x"] - 1680.0, ff["y"] - 550.0).length() > 320.0, "walk: the finals_2 arrival is outside the Gallery's aggro")
+	_walk(14, 120.0, 550.0)
+	ok(str(srv._session[14]["map"]) == "finals_1", "walk: finals_2 back pad → finals_1")
+	srv.drop_peer(14)
+	await settle()
+	ok(World.gate_for_map("finals_1") == "finals_gate" and World.gate_for_map("finals_2") == "finals_gate",
+		"restore: both finals zones derive the login gate (deeper pads carry it — the S1 rule)")
+	var t4: Dictionary = await login("Tamper17", 15, {"level": 1, "last_map": "finals_2"})
+	ok(str(srv._session[15]["map"]) == "home", "restore: a tampered sub-gate last_map=finals_2 lands at HOME")
+	srv.drop_peer(15)
+	await settle()
+	# ...and the LEGIT restore: _apply_equipment runs BEFORE the gate re-validation (Server.gd auth
+	# sequence), so a geared L18 relogging inside finals_2 keeps its position (the stab_authority
+	# "Qualified" pattern — this pins the login ORDER, the likeliest regression for IP-half gates)
+	var qf: Dictionary = supa.add_character("QualifiedF", "striker", {"level": 18, "last_map": "finals_2"})
+	supa.insert_item(qf["char_id"], {"slot": "trinket", "rarity": "epic", "equipped": true, "item_power": 900})
+	srv.connect_peer(16)
+	await srv.authenticate(16, qf["token"], Protocol.hello())
+	await settle()
+	ok(str(srv._session[16]["map"]) == "finals_2", "restore: a LEGIT geared L18 resumes inside finals_2 (equipment loads before the gate re-check)")
+	srv.drop_peer(16)
+	await settle()
+	var dangling3 := 0
+	for mp in ["finals_1", "finals_2"]:
+		for p in World.PORTALS.get(mp, []):
+			if p.has("to") and not srv._worlds.has(str(p["to"])): dangling3 += 1
+	ok(dangling3 == 0, "pads: the finals chain has no dangling destinations (the Commissioner pad is withheld for S4)")
+
+	# ---- 20. the finals quest chain ----
+	ok(Quests.FINALS_ORDER.size() == 4 and Quests.display_order().size() ==
+		Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.FINALS_ORDER.size() + Quests.MIDGAME_ORDER.size(),
+		"quest: FINALS_ORDER wired into display_order; secret-gate ORDER untouched")
+	var fq = Quests.get_quest("finals1_contenders")
+	ok(str(fq["prereq"]) == "" and int(fq["min_level"]) == 17,
+		"quest: the finals chain opens on level alone — no away/raid prereq (matches the gate philosophy)")
+	ok(Quests.kill_matches(Quests.get_quest("finals2_gallery"), {"tier": "elite", "map": "finals_2", "class": "grand_gallery", "level": 25}),
+		"quest: the gallery quest matches by CLASS (won't credit the other finals_2 elites)")
+	for qid in ["finals1_machines", "finals2_gallery"]:
+		var it: Dictionary = Quests.get_quest(qid)["rewards"]["item"]
+		ok(int(it.get("ilvl", 0)) >= 24 and int(it.get("item_power", 0)) > 120,
+			"quest: %s epic carries explicit ilvl/item_power (the IP push toward commissioner_ready)" % qid)
+	ok(srv.BOUNTY_DAILY.has("d_quarter") and srv.BOUNTY_DAILY.has("d_gallery"), "bounty: the finals dailies exist (view-filtered at L17)")
+
+	# ---- 21. the IP@22-24 measurement (plan §S3 deliverable): sets S4's commissioner_ready IP number.
+	# A realistic L22-24 loadout = 9 rares at the finals drop band (mobLevel+5 → ilvl 24-30) + the two
+	# finals quest epics. The S4 target (1200, from the approved plan) must sit BETWEEN the unlucky floor
+	# and the realistic set ×1.15 — reachable with normal play, not free with it.
+	var COMMISSIONER_IP := 1200
+	var f_ilvls := [24, 25, 26, 26, 27, 28, 28, 29, 30]
+	# the 9 NON-epic slots — the quest epics occupy chest + off_hand, so the full 11-item loadout is legal
+	# under the 1-per-slot equip rule (review: the old list double-filled chest/off_hand)
+	var f_slots := ["head", "legs", "hands", "feet", "main_hand", "neck", "ring", "ring", "trinket"]
+	var ip_real := 0
+	var ip_low := 0
+	for i in f_slots.size():
+		ip_real += int(srv._make_item(f_slots[i], "rare", int(f_ilvls[i]))["item_power"])
+		ip_low += int(srv._make_item(f_slots[i], "uncommon", int(f_ilvls[i]))["item_power"])
+	var f_epics: int = int(Quests.get_quest("finals1_machines")["rewards"]["item"]["item_power"]) \
+		+ int(Quests.get_quest("finals2_gallery")["rewards"]["item"]["item_power"])   # read from the defs (review)
+	ip_real += f_epics
+	ip_low += f_epics
+	ok(COMMISSIONER_IP >= ip_low, "IP@22-24: the S4 gate (1200) is above the unlucky floor (%d) — it filters" % ip_low)
+	ok(COMMISSIONER_IP <= int(float(ip_real) * 1.15), "IP@22-24: ...and within reach of the realistic set (%d) — measured, not guessed" % ip_real)
 
 	finish("stab_away")

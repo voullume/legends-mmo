@@ -228,6 +228,41 @@ const QUESTS := {
 		"objective": {"type": "kill", "match": {"map": "away_boss", "tier": "boss"}, "count": 1},
 		"rewards": {"xp": 1600, "credits": 1000, "dye": "rival_crimson"},
 	},
+
+	# --- Phase 8 S3: the Finals district chain (18-25 capstone band). The FIRST quest has prereq "" —
+	# like finals_gate itself, the chain keys on level+gear, NEVER on the Head Coach kill (a stalled raid
+	# must not block the capstone branch). Quest epics again carry EXPLICIT ilvl/item_power (the IP push
+	# toward the S4 commissioner_ready gate; amounts match _make_item's epic budget at their ilvls).
+	"finals1_contenders": {
+		"name": "The Contenders' Quarter",
+		"desc": "The championship city is full of contenders warming up. Announce yourself — take down 20 in the Contenders' Quarter.",
+		"min_level": 17, "prereq": "",
+		"objective": {"type": "kill", "match": {"map": "finals_1"}, "count": 20},
+		"rewards": {"xp": 1800, "credits": 900, "tokens": 35},
+	},
+	"finals1_machines": {
+		"name": "Machine Section",
+		"desc": "An Iron Sled and a Gatling Ball Machine hold the Quarter's east end. Scrap 2 of its elites.",
+		"min_level": 18, "prereq": "finals1_contenders",
+		"objective": {"type": "kill", "match": {"map": "finals_1", "tier": "elite"}, "count": 2},
+		"rewards": {"xp": 2200, "credits": 1100, "tokens": 40,
+			"item": {"name": "Contender's Plate", "rarity": "epic", "slot": "chest", "bonus_stat": "END", "bonus_amt": 101, "ilvl": 24, "item_power": 125}},
+	},
+	"finals2_gate": {
+		"name": "Champions' Gate",
+		"desc": "Past the gate, the champions' escort drills at full strength. Put down 20 at the Champions' Gate.",
+		"min_level": 20, "prereq": "finals1_machines",
+		"objective": {"type": "kill", "match": {"map": "finals_2"}, "count": 20},
+		"rewards": {"xp": 2600, "credits": 1400, "tokens": 40},
+	},
+	"finals2_gallery": {
+		"name": "Break the Gallery",
+		"desc": "The Grand Gallery — a gilded cannon behind its power cores — rakes the east approach. Drop its cores to break the shield, then bring it down.",
+		"min_level": 21, "prereq": "finals2_gate",
+		"objective": {"type": "kill", "match": {"map": "finals_2", "class": "grand_gallery"}, "count": 1},
+		"rewards": {"xp": 3200, "credits": 1600, "tokens": 45,
+			"item": {"name": "Gallery Keeper's Guard", "rarity": "epic", "slot": "off_hand", "bonus_stat": "PRE", "bonus_amt": 107, "ilvl": 26, "item_power": 133}},
+	},
 }
 
 # stable display/iteration order (also the chain order). ORDER is the SECRET-BOSS GATE list (the server's
@@ -246,14 +281,18 @@ const MIDGAME_ORDER := ["mid1_proving", "mid2_circuit", "mid3_command", "mid4_de
 const AWAY_ORDER := ["away1_roadgame", "away1_blocker", "away2_gauntlet", "away2_medics",
 	"away3_stadium", "away3_elites", "rival_down"]
 
+# Phase 8 S3: the Finals chain — same governance rule as AWAY_ORDER (grows per slice, append-only;
+# NOTHING may ever gate on FINALS_ORDER completion — gate on individual quest ids if ever needed).
+const FINALS_ORDER := ["finals1_contenders", "finals1_machines", "finals2_gate", "finals2_gallery"]
+
 static func order() -> Array:
 	return ORDER
 
-# every quest in display order (original chain, the Away Circuit, then the mid-level spine) — for the
-# CLIENT log/tracker/giver only. The server keeps using ORDER for the gate and get_quest()/kill_matches()
-# for progress. (The away chain sits between the two: it's the 9-16 bridge from the Yard to the mid spine.)
+# every quest in display order (original chain, the Away Circuit, the Finals, then the mid-level spine) —
+# for the CLIENT log/tracker/giver only. The server keeps using ORDER for the gate and
+# get_quest()/kill_matches() for progress.
 static func display_order() -> Array:
-	return ORDER + AWAY_ORDER + MIDGAME_ORDER
+	return ORDER + AWAY_ORDER + FINALS_ORDER + MIDGAME_ORDER
 
 static func get_quest(qid: String) -> Variant:
 	return QUESTS.get(qid, null)

@@ -25,6 +25,8 @@ const AWAY1 := "away_1"                     # Rival Practice Field — lvl 9-10 
 const AWAY2 := "away_2"                     # Visitors' Gauntlet  — lvl 12-13, healer-camp lesson (field_medic) + the sled
 const AWAY3 := "away_3"                     # Rival Stadium       — lvl 15-16, the drill_sergeant guards the boss door (S2)
 const AWAY_BOSS := "away_boss"              # Rival Sideline      — THE RIVAL COACH (teaching boss: cores, no ult) (S2)
+const FINALS1 := "finals_1"                 # Contenders' Quarter — lvl 19-21, behind finals_gate (L17 + IP800) (S3)
+const FINALS2 := "finals_2"                 # Champions' Gate     — lvl 23-25 + THE GRAND GALLERY elite-plus (S3)
 # INSTANCE TEMPLATES (endgame P0+). Never created as a static shared world — the server spins up a private
 # per-party copy on demand (world key "<template>#<owner>"), scales it, and tears it down when empty. The
 # template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
@@ -52,6 +54,8 @@ const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Away Games portal drop
 const AWAY2_SPAWN := Vector2(200, 500)
 const AWAY3_SPAWN := Vector2(220, 550)
 const AWAYB_SPAWN := Vector2(140, 410)       # boss room: arrive far WEST, well clear of the central Rival Coach
+const FINALS1_SPAWN := Vector2(200, 520)
+const FINALS2_SPAWN := Vector2(200, 550)
 const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
 const CAMP_B_SPAWN := Vector2(180, 440)      # Circuit v2 "The Gauntlet" — arrive far west
 const CAMP_C_SPAWN := Vector2(180, 470)      # Circuit v2 "The Scrimmage" — arrive far west
@@ -78,6 +82,9 @@ const MAPS := {
 	AWAY2: {"type": "combat", "w": 1850, "h": 1000, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY2_SPAWN},
 	AWAY3: {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY3_SPAWN},
 	AWAY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": AWAYB_SPAWN},
+	# Phase 8 S3 — the Finals district (the 18-25 capstone band)
+	FINALS1: {"type": "combat", "w": 1900, "h": 1040, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": FINALS1_SPAWN},
+	FINALS2: {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": FINALS2_SPAWN},
 	# instance TEMPLATE (P0 = a single proving room; P1 expands it into the condensed multi-room Circuit)
 	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
 	CAMP_B: {"type": "combat", "w": 1600, "h": 900, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": CAMP_B_SPAWN},
@@ -118,6 +125,9 @@ const PORTALS := {
 		# Phase 8: the Away Circuit (second biome) — visible-but-locked until level 8 (away_gate; the server
 		# explains the requirement on approach, same UX as boss_ready).
 		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "away_gate", "label": "▶ Away Games"},
+		# Phase 8 S3: the Finals — visible-but-locked until L17 + gear 800 (deliberately keyed on level+IP,
+		# NOT the Head Coach kill, so a stalled raid never hard-blocks the capstone branch).
+		{"x": 1480.0, "y": 200.0, "to": FINALS1, "tx": 200.0, "ty": 520.0, "gate": "finals_gate", "label": "▶ The Finals"},
 		# south anchors: the PvP Arena (fronting a stadium) + your private Locker Room (fronting a house).
 		{"x": 720.0,  "y": 1040.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
 		# Builder Mode: walk on to enter your PRIVATE Locker Room. Per-CHARACTER instance (keyed by char_id). The
@@ -191,6 +201,16 @@ const PORTALS := {
 		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of
 		# the rack cover panel @1300,550 (the review caught the drop landing inside its collision band)
 		{"x": 80.0,   "y": 410.0,  "to": AWAY3, "tx": 1350.0, "ty": 550.0, "label": "◀ Rival Stadium"},
+	],
+	# Phase 8 S3 — the Finals district. finals_2's FORWARD pad (→ the Commissioner's arena) is withheld
+	# until S4 ships the destination (no dangling pads). Deeper pads carry finals_gate (the S1 restore rule).
+	FINALS1: [
+		{"x": 120.0,  "y": 520.0,  "to": HOME,    "tx": 900.0,  "ty": 780.0, "label": "◀ Home Base"},
+		{"x": 1820.0, "y": 530.0,  "to": FINALS2, "tx": 200.0,  "ty": 550.0, "gate": "finals_gate", "label": "▶ Champions' Gate"},
+	],
+	FINALS2: [
+		# back-drop lands at finals_1's spawn corridor — the only mid-band spot clear of both lane pairs
+		{"x": 120.0,  "y": 550.0,  "to": FINALS1, "tx": 200.0,  "ty": 530.0, "label": "◀ Contenders' Quarter"},
 	],
 	# Camp instance exit (resolved by TEMPLATE — every "camp#<owner>" instance shares this exit back to home).
 	CAMP: [
@@ -306,6 +326,25 @@ const MOBS := {
 		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 450.0, "y": 300.0},
 		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 790.0, "y": 300.0},
 		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 620.0, "y": 560.0},
+	],
+	FINALS1: [  # Contenders' Quarter — the capstone band's on-ramp; the instance elites make their open-world debut
+		{"class": "pop_dummy",       "level": 19, "tier": "minion", "x": 520.0,  "y": 360.0},
+		{"class": "whistle_cone",    "level": 20, "tier": "minion", "x": 520.0,  "y": 700.0},
+		{"class": "pop_dummy",       "level": 19, "tier": "minion", "x": 980.0,  "y": 360.0},
+		{"class": "chalk_liner",     "level": 20, "tier": "minion", "x": 980.0,  "y": 700.0},
+		{"class": "iron_sled",       "level": 20, "tier": "elite",  "x": 1340.0, "y": 360.0},
+		{"class": "gatling_machine", "level": 21, "tier": "elite",  "x": 1620.0, "y": 530.0},   # east guard (200 from the fwd pad)
+	],
+	FINALS2: [  # Champions' Gate — THE GRAND GALLERY (elite-plus, respawnS 120) guards the east behind its
+		# 2 slow cores (the S2 window lesson at endgame pace); the medic is a self-healing solo skill-check.
+		{"class": "away_blocker",   "level": 23, "tier": "minion", "x": 520.0,  "y": 380.0},
+		{"class": "spring_cone",    "level": 23, "tier": "minion", "x": 520.0,  "y": 720.0},
+		{"class": "line_judge",     "level": 24, "tier": "minion", "x": 1000.0, "y": 380.0},
+		{"class": "field_medic",    "level": 23, "tier": "elite",  "x": 1000.0, "y": 720.0},
+		{"class": "blitz_captain",  "level": 24, "tier": "elite",  "x": 1400.0, "y": 380.0},
+		{"class": "grand_gallery",  "level": 25, "tier": "elite",  "x": 1680.0, "y": 550.0},
+		{"class": "rival_core",     "level": 20, "tier": "minion", "x": 1540.0, "y": 440.0},
+		{"class": "rival_core",     "level": 20, "tier": "minion", "x": 1540.0, "y": 660.0},
 	],
 	# Camp Circuit instance TEMPLATE roster (P0 proving room — a spread of minions + one elite gatekeeper by
 	# the exit; P1 replaces this with the condensed multi-room circuit + Intensity scaling). mobLevel/tier are
@@ -497,6 +536,17 @@ const OBSTACLES := {
 		{"x": 380.0,  "y": 410.0, "prop": "barrier", "len": 140.0, "yaw": 1.5708},
 		{"x": 860.0,  "y": 410.0, "prop": "barrier", "len": 140.0, "yaw": 1.5708},
 		{"x": 620.0,  "y": 220.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 620.0, "y": 600.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
+	],
+	FINALS1: [
+		{"x": 740.0,  "y": 360.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 740.0,  "y": 700.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1180.0, "y": 530.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
+		{"x": 1620.0, "y": 380.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1620.0, "y": 680.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the gatling guard
+	],
+	FINALS2: [  # heavier cover — the Gallery's spread/carom volleys make these panels the fight's grammar
+		{"x": 740.0,  "y": 380.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 740.0,  "y": 720.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1230.0, "y": 550.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 1800.0, "y": 430.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},   # the Gallery court's LOS-break wall
+		{"x": 1680.0, "y": 400.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1680.0, "y": 700.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
 	CAMP: [  # proving-room cover: mid barriers split the lanes + bags flank the elite gatekeeper
 		{"x": 720.0,  "y": 300.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 720.0, "y": 560.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},

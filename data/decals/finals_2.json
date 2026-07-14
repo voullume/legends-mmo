@@ -1,0 +1,20 @@
+[
+	{"kind": "ring", "r": 130.0, "x": 520.0, "y": 380.0},
+	{"kind": "ring", "r": 130.0, "x": 520.0, "y": 720.0},
+	{"kind": "ring", "r": 120.0, "x": 1000.0, "y": 380.0},
+	{"kind": "ring", "r": 120.0, "x": 1000.0, "y": 720.0},
+	{"kind": "ring", "r": 150.0, "x": 1680.0, "y": 550.0},
+	{"kind": "cone", "x": 360.0, "y": 470.0},
+	{"kind": "cone", "x": 360.0, "y": 630.0},
+	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 460.0, "y": 120.0, "yaw": 0.0},
+	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 1000.0, "y": 120.0, "yaw": 0.0},
+	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 1540.0, "y": 120.0, "yaw": 0.0},
+	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 700.0, "y": 1010.0, "yaw": 3.14},
+	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 1200.0, "y": 1010.0, "yaw": 3.14},
+	{"h": 4.2, "kind": "prop", "model": "player_tunnel_gate", "x": 1930.0, "y": 750.0, "yaw": 1.57},
+	{"h": 3.4, "kind": "prop", "model": "championship_trophy", "x": 1850.0, "y": 180.0, "yaw": 0.6},
+	{"h": 2.8, "kind": "prop", "model": "spectator_safety_rail", "x": 300.0, "y": 1020.0, "yaw": 0.0},
+	{"h": 2.8, "kind": "prop", "model": "spectator_safety_rail", "x": 1860.0, "y": 1020.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 200.0, "y": 150.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 1800.0, "y": 960.0, "yaw": 0.0}
+]

@@ -1,0 +1,18 @@
+[
+	{"kind": "ring", "r": 130.0, "x": 520.0, "y": 360.0},
+	{"kind": "ring", "r": 130.0, "x": 520.0, "y": 700.0},
+	{"kind": "ring", "r": 120.0, "x": 980.0, "y": 360.0},
+	{"kind": "ring", "r": 120.0, "x": 980.0, "y": 700.0},
+	{"kind": "cone", "x": 350.0, "y": 450.0},
+	{"kind": "cone", "x": 350.0, "y": 600.0},
+	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 500.0, "y": 110.0, "yaw": 0.0},
+	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 1400.0, "y": 110.0, "yaw": 0.0},
+	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 700.0, "y": 950.0, "yaw": 3.14},
+	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 1200.0, "y": 950.0, "yaw": 3.14},
+	{"h": 3.6, "kind": "prop", "model": "leaderboard_kiosk", "x": 260.0, "y": 380.0, "yaw": 0.9},
+	{"h": 3.4, "kind": "prop", "model": "zone_terminal", "x": 260.0, "y": 660.0, "yaw": -0.9},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 190.0, "y": 140.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 1700.0, "y": 140.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 190.0, "y": 900.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 1700.0, "y": 900.0, "yaw": 0.0}
+]

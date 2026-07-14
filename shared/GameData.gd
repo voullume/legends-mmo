@@ -300,6 +300,23 @@ const CLASSES := {
 			{"key": "primewhistle", "name": "Whistle Burst", "type": "meleeAoe", "dmg": 26, "cd": 7.0, "radius": 155, "stun": 1.0, "cast": 0.4, "phase": 3},
 		],
 	},
+	# Phase 8 S3 — THE GRAND GALLERY: the Finals district's farmable ELITE-PLUS miniboss (the plan's
+	# "repeatable skill-check instead of a portal-blocking 30-min event"). Elite tier + hpMult 3.0 +
+	# coreShield 0.35 behind 2 slow-respawn rival_cores → the S2 core-window lesson at endgame pace.
+	# respawnS 120: farmable, but not an instant turret camp. Gold recolor + h 3.0 (silhouette by scale).
+	"grand_gallery": {
+		"name": "The Grand Gallery", "sport": "", "mob": true, "model": "ball_machine", "anim": "turret", "h": 3.0,
+		"face": 90.0,
+		"lane": 2, "color": "#D4AF37", "recolor": true, "stationary": true,
+		"hpMult": 3.0, "coreShield": 0.35, "respawnS": 120.0,
+		"stats": {"PWR": 56, "PRE": 48, "SPD": 8, "END": 46, "INS": 30, "CLU": 20},
+		"abilities": [
+			{"key": "galleryshot", "name": "Gallery Shot", "type": "projectile", "basic": true, "dmg": 40, "cd": 1.15, "range": 310, "speed": 440, "wobble": 1},
+			{"key": "galleryfan", "name": "Trophy Fan", "type": "spread", "dmg": 24, "count": 7, "arc": 0.9, "cd": 6.5, "range": 310, "speed": 430, "wobble": 1},
+			{"key": "gallerycarom", "name": "Gilded Carom", "type": "spread", "dmg": 44, "count": 2, "arc": 0.22, "cd": 9.0, "range": 320, "speed": 420, "bounces": 2},
+			{"key": "galleryburst", "name": "Golden Burst", "type": "projectile", "dmg": 96, "cd": 8.5, "range": 330, "speed": 380, "stun": 0.5},
+		],
+	},
 	# Phase 8 S2 — the Rival Sideline's cores. The GY power_core respawns on the 6-s minion cadence, which is
 	# correct for a 5-player raid splitting across cores but makes an ALL-DEAD shield window unreachable solo
 	# (the review's arithmetic: a solo needs ~8s/core; the first is back before the third dies). This variant

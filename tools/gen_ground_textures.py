@@ -69,3 +69,11 @@ build(
     octs=[(1,0,0.5,0.5),(0,1,1.7,0.5),(2,1,0.8,0.32),(1,2,1.9,0.32),(3,2,2.6,0.2),
           (2,4,0.4,0.16),(5,4,1.2,0.11),(7,5,2.0,0.08),(9,8,0.9,0.06)],
     dark=(122,64,44), light=(188,120,84), stripe_amp=0.045, stripe_freq=6.0, grain=0.30, tint_jitter=10.0)
+
+# Championship court (Phase 8 S3, the Finals): polished hardwood — warm tan with strong plank
+# stripes and a light lacquer speckle. The capstone district reads indoor/prestige.
+build(
+    os.path.join(OUT, "court_albedo.png"),
+    octs=[(1,0,1.1,0.5),(0,1,0.3,0.5),(2,1,2.2,0.3),(1,3,0.9,0.24),(4,2,1.6,0.14),
+          (3,5,0.5,0.10),(6,7,1.8,0.07),(10,9,2.4,0.05)],
+    dark=(146,100,58), light=(206,160,104), stripe_amp=0.085, stripe_freq=10.0, grain=0.22, tint_jitter=6.0)
