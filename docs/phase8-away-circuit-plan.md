@@ -76,9 +76,15 @@ apart, west→east gradient, elites east, portal drops >42 from reverse pads / >
   `peak_tick` rose from ~21-24ms (9 zones) to ~37-65ms spikes (11 zones) while load/RSS stayed flat
   (0.2/197MB) — watch the `[health]` line with players on; if peaks stay >33ms, consider a vCPU bump or
   zone sharding BEFORE S3/S4 add three more worlds. *(Forward pad to away_3 withheld — ships in S2.)*
-- **S2 — "Beat the Rival" (M, ~2 sessions)** 🔴 away_3 + away_boss, rival_coach def, boss-chrome client
-  generalizations, quests 5–7 (`rival_down` → raid bridge), Rival Crimson dye (exclusivity wiring),
-  +40-Pages hook, weekly bounty, IP800 measurement, respawn + readability decisions.
+- **S2 — "Beat the Rival" (M, ~2 sessions)** 🔴 — ✅ **SHIPPED v1.3.0 (2026-07-14, `78b9847`)**. All planned
+  content + 11 adversarial-review fixes, notably: the rival re-tuned to **exact numeric parity** with the
+  Head Coach (`hpMult 0.6`+`dmgScale 0.6` — it had out-statted the raid it feeds; parity now PINNED in
+  stab_away vs real spawned fighters); **`rival_core` respawnS 45** makes the shield window solo-earnable;
+  boss on the 30-min cadence + `RIVAL_PAGES 15` (was the game's best farm at 240 pages/hr); **the dye-sync
+  recolor wipe fixed** — every def-recolored mob (all P3a remix mobs included) now actually renders tinted.
+  stab_away 92 asserts. **⚠ OWNER EYEBALLS PENDING:** the recolor-readability checkpoint (does the crimson
+  rival read as a distinct boss now that tints render?) and at-level fight feel — both decide whether the
+  optional Meshy batch triggers before S3.
 - **S3 — "The Finals District" (M, ~1.5-2)** 🔴 finals_1 + finals_2, `finals_gate` arm, grand_gallery
   elite-plus, championship-court ground (or gold-tint fallback), quests 8–11, bounties, IP@22-24 pass.
 - **S4 — "The Final Whistle" (S-M, ~1.5)** 🔴 finals_boss + the_commissioner def, `commissioner_ready`
