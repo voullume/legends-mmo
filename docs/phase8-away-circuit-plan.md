@@ -92,8 +92,21 @@ apart, west→east gradient, elites east, portal drops >42 from reverse pads / >
   behavioral; `min_ip` bounty view filter. **S4's `commissioner_ready` = L24 + IP 1200** (measured: sits
   between the unlucky floor and the realistic L22-24 set ×1.15 — the stab IP@22-24 pass pins it).
   stab_away 124 asserts.
-- **S4 — "The Final Whistle" (S-M, ~1.5)** 🔴 finals_boss + the_commissioner def, `commissioner_ready`
-  arm, quest 12, Championship Gold dye, +50 Pages, boss_time category, **solo-viability playtest gate**.
+- **S4 — "The Final Whistle"** — 🔶 **OWNER-RESERVED (2026-07-14): the owner is bringing a SPECIAL
+  custom-made boss.** A sealed championship-gate tableau (client-only décor: tunnel gate + walls +
+  pylons + a terminal at finals_2's east end, where the S4 pad will go) marks the spot; no server
+  surface, no dangling pads. **Integration checklist when the boss is ready** (everything is proven
+  machinery): ① import the custom GLB (optimize via `gltf-transform` resize+simplify — NEVER Draco) or
+  recolor an existing one; ② the def — `mob:true, tier boss via spawn, phased` + whichever primitives
+  fit (`threshSummon` / `coreShield`+`coreCount` / `campreset` — the ult-warn plate will read the def's
+  `ultWarn` strings), boss chrome `plate` + `phases`, solo dial `dmgScale` (P7c scales HP only), optional
+  `respawnS`; ③ World rows — `finals_boss` MAPS/SPAWN (GY_SECRET pattern: 1440×940, spawn far west) +
+  MOBS (boss central + cores if used) + the cover-ring OBSTACLES if it has a campreset; ④ the finals_2
+  fwd pad `{gate: "commissioner_ready"}` + the gate arm at the **measured L24 + IP1200** + explainer;
+  ⑤ quest 12 appended to FINALS_ORDER (never gate on list completion) + Championship Gold dye
+  (non-buyable, champion pattern) + a Pages hook ≤ the 100/hr line + the boss_time-category decision;
+  ⑥ stab_away pins (roster, subset/parity, gates, restore, geometry) + the **solo+2-residents playtest
+  gate**; ⑦ recolor-readability eyeball. Ships shared/+client same commit.
 - **S5 — optional polish (S, ~1)** batch_006/007 prop integration (optimize pass), decor v2, away-band
   residents, music drop-ins.
 
