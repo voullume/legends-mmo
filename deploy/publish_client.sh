@@ -24,6 +24,18 @@ LINUX="dist/Legends-Linux-x86_64.x86_64"
 WIN="dist/Legends-Windows-x86_64.exe"
 MAC="dist/Legends-macOS.zip"
 
+# --- clean import before packing ---------------------------------------------------------------------
+# A stale local Godot import cache (e.g. after a project.godot version/protocol bump busts it) can leave
+# gitignored *.import files marked valid=false, so newly-added assets get PACKED UN-IMPORTED and load() to
+# null at runtime (empty world of props, missing textures — see the v1.1.0 prop regression). There is NO
+# import step before export today, so a build inherits whatever stale cache is on disk. Regenerate the
+# gitignored import artifacts from a clean slate first. COMMITTED .import files (the mipmapped ground
+# textures) are TRACKED, so `-o -i` skips them and their settings are preserved.
+echo "==> Clean-importing all resources before export (guards against a stale import cache) ..."
+git ls-files -o -i --exclude-standard -- '*.import' 2>/dev/null | xargs -r rm -f
+rm -rf .godot/imported
+godot --headless --path . --import
+
 echo "==> Exporting client binaries for $TAG ..."
 godot --headless --path . --export-release "Linux"          "$LINUX"
 godot --headless --path . --export-release "Windows Desktop" "$WIN"
