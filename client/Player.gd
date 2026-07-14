@@ -16,6 +16,10 @@ const GameData := preload("res://shared/GameData.gd")
 var class_id: String = "striker"
 # Shared by reference with state["controlled"][fighter_id]; the Sim reads & consumes it.
 var intent := {"mx": 0.0, "my": 0.0, "ability": ""}
+# Phase 0 cosmetic hop: Space sets this client-only flag (consumed by the Client's _update_hop). It is
+# deliberately NOT part of `intent` — the sim never sees it and the networked client never sends it, so
+# a jump can't imply movement, clear cover, or reach an elevated target (the sim is still flat 2-D).
+var hop_pressed := false
 
 func ability_keys() -> Array:
 	var ks := []
@@ -46,6 +50,9 @@ func poll(cam_yaw: float) -> void:
 func _unhandled_input(e: InputEvent) -> void:
 	var keys := ability_keys()
 	if e is InputEventKey and e.pressed and not e.echo:
+		if e.physical_keycode == KEY_SPACE:
+			hop_pressed = true            # cosmetic jump — client-only, not a sim intent (see Client._update_hop)
+			return
 		var idx := -1
 		match e.physical_keycode:
 			KEY_1: idx = 0

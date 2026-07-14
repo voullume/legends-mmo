@@ -17,7 +17,7 @@ extends RefCounted
 ## `BUILD` is a free-form build identifier carried in the hello for diagnostics; `hello()` leaves
 ## room for a capability list later — do NOT grow this into a negotiation framework.
 
-const VERSION := 1
+const VERSION := 2   # v2: Phase 0.5 networked cosmetic hop — new client→server submit_hop RPC + additive snapshot `hopT`
 const BUILD := ""
 
 static func hello() -> Dictionary:

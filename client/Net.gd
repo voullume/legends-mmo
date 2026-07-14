@@ -22,6 +22,13 @@ func submit_ability(key: String, seq: int) -> void:
 	if server != null:
 		server.submit_ability(multiplayer.get_remote_sender_id(), key, seq)
 
+# cosmetic jump (Phase 0.5): reliable one-shot so OTHER players see your hop. Purely visual — the server
+# only timestamps it and echoes a `hopT` in the snapshot; NO sim / collision / LOS / balance effect.
+@rpc("any_peer", "call_remote", "reliable")
+func submit_hop() -> void:
+	if server != null:
+		server.submit_hop(multiplayer.get_remote_sender_id())
+
 # `hello` carries the protocol handshake ({"protocol": int, "build": String} — see shared/Protocol.gd);
 # the default keeps the RPC arg-count compatible with older clients, which the server then rejects
 # with a useful reason (missing protocol version).

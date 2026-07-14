@@ -60,6 +60,10 @@ const SQUASH_AMT := 0.12                    # peak vertical squash fraction on a
 const RECOIL_DECAY := 6.5                   # recoil settle rate, 1/s → a hit's give plays out in ~0.15 s
 const RECOIL_CRIT := 1.45                   # crit recoil scale-up
 const RECOIL_KILL := 1.9                    # killing-blow recoil scale-up (re-arms the victim's give)
+# Phase 0 cosmetic hop — a client-only visual jump on the LOCAL avatar (no sim / collision / LOS effect)
+const HOP_H := 1.2                          # peak rise of the mesh, world units (parabola apex ≈ knee-height)
+const HOP_DUR := 0.45                       # seconds from takeoff back to the ground
+const HOP_SQUASH := 0.7                      # landing-pop strength fed to _add_recoil (dir ZERO → squash only)
 const SHARD_CAP := 24                       # hard cap on debris nodes — an AoE multi-kill recycles, never allocates
 const SHARD_LIFE := 0.55                    # seconds a shard flies before fading back to its pool
 const SHARD_G := 22.0                       # shard gravity, world units/s² (chunky arcade fall)
@@ -1166,6 +1170,92 @@ func _add_recoil(id, dir: Vector3, k: float) -> void:
 	n["recoil_dir"] = dir.normalized() if dir.length_squared() > 0.000001 else Vector3.ZERO
 	_recoiling[id] = true
 
+# Phase 0 cosmetic hop — a client-only visual jump on the LOCAL avatar. Space raises the character MESH on a
+# short parabola (model.position.y) and pops a landing squash; the holder/shadow/target-ring/camera all stay
+# grounded (guardrail 2 — reads as juice, never traversal). model.position.y is unowned by the recoil/squash
+# system (which drives x/z + rotation.x + scale), so the two never fight. This is NOT a sim intent — it never
+# enters the tick or reaches the server, so it can't clear cover or reach height. (Phase 0.5 nets it to remotes.)
+func _update_hop(delta: float) -> void:
+	if _player != null and _player.hop_pressed:
+		_player.hop_pressed = false
+		if not _hop_suppressed():                  # the same contexts that freeze movement/abilities also freeze the hop
+			_try_hop()
+	_drive_local_hop(delta)                        # local avatar: client-predicted arc (instant on press)
+	_drive_remote_hops()                           # other avatars: driven from the server-broadcast snapshot hopT (Phase 0.5)
+
+# The LOCAL player's hop is client-predicted: it plays the instant Space is pressed (no server round-trip), on its
+# own clock (n["hop_t"] elapsed seconds). Server-authoritative for OTHERS (see _drive_remote_hops), but the local
+# mesh must feel immediate — exactly how movement is predicted locally and lerped for remotes.
+func _drive_local_hop(delta: float) -> void:
+	var n = _nodes.get(_player_id)
+	if n == null:
+		return
+	var ht: float = float(n.get("hop_t", -1.0))
+	if ht < 0.0:                                   # sentinel: not airborne (also the fresh-respawn default → no stray hop)
+		return
+	if not is_instance_valid(n.get("model")):
+		n["hop_t"] = -1.0
+		return
+	var model: Node3D = n["model"]
+	var base_y: float = float(n.get("base_y", CHAR_Y))
+	var lf = _find_fighter(_player_id)             # abort the instant the player dies mid-arc: let the death collapse
+	if lf == null or not bool(lf.get("alive", true)):   # play from the GROUND, and don't pop a landing squash on the corpse
+		model.position.y = base_y
+		n["hop_t"] = -1.0
+		return
+	ht += delta
+	var t: float = ht / HOP_DUR
+	if t >= 1.0:
+		model.position.y = base_y                  # land exactly on the spawn baseline
+		n["hop_t"] = -1.0
+		_add_recoil(_player_id, Vector3.ZERO, HOP_SQUASH)   # landing pop: dir ZERO → squash only (no push/lean)
+		return
+	n["hop_t"] = ht
+	model.position.y = base_y + 4.0 * HOP_H * t * (1.0 - t)   # y = 4·H·t·(1−t): 0 at takeoff, H at apex, 0 on land
+
+# Phase 0.5 — render OTHER players' hops from the server-broadcast snapshot `hopT` (interest-managed, additive,
+# cosmetic). Offline-sandbox fighters never carry hopT, so this is a no-op there. The local player is skipped —
+# its own hop is predicted (above), so it never eats a round-trip of latency. A remote that finishes — or dies,
+# since the server drops hopT for a dead fighter — settles back to its grounded baseline.
+func _drive_remote_hops() -> void:
+	for f in _state.get("fighters", []):
+		var fid = f["id"]
+		if fid == _player_id:
+			continue
+		var rn = _nodes.get(fid)
+		if rn == null or not is_instance_valid(rn.get("model")):
+			continue
+		var rmodel: Node3D = rn["model"]
+		var rbase: float = float(rn.get("base_y", CHAR_Y))
+		if f.has("hopT"):
+			var t: float = clampf(float(f["hopT"]) / HOP_DUR, 0.0, 1.0)
+			rmodel.position.y = rbase + 4.0 * HOP_H * t * (1.0 - t)
+			rn["hop_remote"] = true
+		elif rn.get("hop_remote", false):
+			rmodel.position.y = rbase              # hop ended → settle back to the ground
+			rn["hop_remote"] = false
+
+func _try_hop() -> void:
+	var n = _nodes.get(_player_id)
+	if n == null or float(n.get("hop_t", -1.0)) >= 0.0:
+		return                                     # no local node, or already airborne (no double / air jump)
+	var f = _find_fighter(_player_id)
+	if f == null or not bool(f.get("alive", true)):
+		return                                     # dead / not in the world → no hop
+	n["hop_t"] = 0.0
+	_on_local_hop()                                # broadcast it so others see the jump (NetClient only; base = no-op)
+
+# Hook fired when a local hop actually starts. Base (offline sandbox) has no server → no-op; NetClient overrides
+# it to send a reliable submit_hop so other players see the jump.
+func _on_local_hop() -> void:
+	pass
+
+# Input-suppression gate for the cosmetic hop. The base (offline sandbox) only freezes input while editing the
+# HUD; NetClient overrides this to also suppress while chatting. Mirrors the intent-zeroing that holds movement
+# and abilities still in those modes, so the hop can't fire behind the HUD-edit overlay or the chat box.
+func _hop_suppressed() -> bool:
+	return hud_edit_on
+
 # ============================================================ match setup
 func _setup_match(player_class: String) -> void:
 	_teardown()
@@ -1326,6 +1416,7 @@ func _spawn(f: Dictionary) -> void:
 		# NOT fresh casts — an empty dict would phantom-fire every one of them as a cast tell.
 		"pcds": (f.get("cds", {}) as Dictionary).duplicate(),
 		"busy": "", "atk_clip": "", "atk_speed": 1.0, "died": false, "hit_cd": 0.0, "pflash": 0.0,
+		"base_y": model.position.y,   # cosmetic-hop baseline: the grounded mesh Y (CHAR_Y + yoff), set just above
 	}
 	if kit.has("mob"):     # static-GLB mob → procedural-animator state (skeletal clip path is unused, ap == null)
 		_nodes[f["id"]]["mobanim"] = {
@@ -1378,6 +1469,7 @@ func _process(delta: float) -> void:
 func _render_world(delta: float) -> void:
 	_sync_projectiles()
 	_update_fx(delta)
+	_update_hop(delta)                       # Phase 0 cosmetic jump on the local avatar (after _update_fx so a landing squash arms cleanly)
 	var pf = _find_fighter(_player_id)
 	if pf != null:
 		var tf := _world(pf)

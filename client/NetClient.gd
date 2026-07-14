@@ -4103,6 +4103,19 @@ func _world_build_allowed() -> bool:
 func _prediction_enabled() -> bool:
 	return net != null and _connected
 
+# online, the cosmetic hop is also frozen while chatting (and the grace frame after) — same suppression the
+# intent-zeroing applies to movement/abilities in _physics_process, so Space can't hop while typing/HUD-editing
+func _hop_suppressed() -> bool:
+	return hud_edit_on or _chatting or _chat_grace > 0
+
+# Phase 0.5: a local hop started → tell the server so OTHER players see it (reliable one-shot; the server
+# re-validates alive + rate-limits). Cosmetic only — never an ability/intent, so it can't affect the sim.
+func _on_local_hop() -> void:
+	if server != null:
+		server.submit_hop_local(1)
+	elif net != null and _connected:
+		net.submit_hop.rpc_id(1)
+
 func _locker_build_toggle() -> void:
 	if _lb_on:
 		_lb_set_on(false)

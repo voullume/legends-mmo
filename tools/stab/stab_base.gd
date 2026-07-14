@@ -69,7 +69,7 @@ func player_fighter_count() -> int:
 	return n
 
 # every per-pid structure _on_peer_disconnected must clear — the exhaustive cleanup contract
-const PID_DICTS := ["_session", "_move", "_pending_ability", "_last_aseq", "_intent_age",
+const PID_DICTS := ["_session", "_move", "_pending_ability", "_last_aseq", "_hop_next", "_intent_age",
 	"_meta_hash", "_meta_tick", "_chat_next", "_equipping", "_equip_next", "_party_invite_next",
 	"_tal_busy", "_tal_next", "_par_busy", "_par_next", "_aud_busy", "_aud_next",
 	"_shop_busy", "_shop_next", "_sellmany_busy", "_sellmany_next", "_vendor_busy", "_vendor_next",

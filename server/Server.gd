@@ -177,6 +177,10 @@ var _char_peer := {}                # character id → controlling peer id — t
 var _move := {}
 var _pending_ability := {}
 var _last_aseq := {}
+var _hop_t0 := {}                  # Phase 0.5 cosmetic hop: fighter id → server ms the current hop started (echoed as snapshot hopT)
+var _hop_next := {}                # peer id → earliest ms it may hop again (anti-spam rate limit)
+var _hop_n := 0                    # accepted hops this health interval — the Phase-1 gate's demand instrument
+								   # (hops/min in the [health] line; re-open the verticality gate only if usage holds — see docs/jump-verticality-phase1-decision.md)
 var _intent_age := {}
 var _spawn_pos := {}
 var _respawn := {}
@@ -1911,6 +1915,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_move.erase(pid)
 	_pending_ability.erase(pid)
 	_last_aseq.erase(pid)
+	_hop_next.erase(pid)
+	_hop_t0.erase(s["fid"])                       # Phase 0.5: drop the cosmetic-hop timestamp for this fighter
 	_intent_age.erase(pid)
 	_meta_hash.erase(pid)
 	_meta_tick.erase(pid)
@@ -3104,6 +3110,29 @@ func submit_ability(pid: int, key, seq) -> void:
 		_last_aseq[pid] = int(seq)
 		_pending_ability[pid] = key
 
+const HOP_ECHO_MS := 500      # how long a hop rides the snapshot as hopT (≥ client HOP_DUR 450ms; remotes clamp the tail)
+const HOP_RATE_MS := 250      # min ms between accepted hops per peer — anti-spam AND the sole cadence gate; kept well
+# UNDER the client's ~450ms re-hop cadence (HOP_DUR) so a continuous hopper's EVERY jump is networked (a padded
+# restart window ≥ HOP_DUR silently dropped every other one).
+# Phase 0.5 cosmetic hop: a client presses Space → this timestamps a purely-visual hop, echoed to other clients as a
+# snapshot `hopT`. It NEVER touches the deterministic Sim (no position/collision/LOS/balance) — the fighter doesn't
+# leave the 2-D plane; only the remote clients' render lifts the mesh. Server owns the cadence: session-gated,
+# rate-limited (also DoS-bounds _hop_t0 churn), and alive-gated. A well-behaved client only sends one per completed
+# arc (its own hop_t gates it), so the rate limit is purely a floor against a forged/spamming peer.
+func submit_hop(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var now := Time.get_ticks_msec()
+	if now < int(_hop_next.get(pid, 0)):                          # rate limit (anti-spam / DoS) — the cadence gate
+		return
+	_hop_next[pid] = now + HOP_RATE_MS
+	var fid := str(_session[pid].get("fid", ""))
+	var f = _find(fid)
+	if f == null or not bool(f.get("alive", false)):             # only a live fighter hops
+		return
+	_hop_t0[fid] = now
+	_hop_n += 1                                                  # demand instrument (hops/min in the health log)
+
 # gameplay-length P2: is `key` unlocked for this player? Grandfathered chars (created pre-gating) keep the full kit.
 func _ability_unlocked(pid: int, key: String) -> bool:
 	var s = _session[pid]
@@ -3167,9 +3196,10 @@ func _health_log() -> void:
 	var load := _proc_first_token("/proc/loadavg")
 	var free_mb := _proc_kb("/proc/meminfo", "MemAvailable:") / 1024
 	var rss_mb := _proc_kb("/proc/self/status", "VmRSS:") / 1024
-	print("[health] players=%d [%s]  load=%s (1 vCPU)  peak_tick=%.1fms/33ms  free_ram=%dMB  server_rss=%dMB" % [
-		players, zones, load, _tick_us_peak / 1000.0, free_mb, rss_mb])
+	print("[health] players=%d [%s]  load=%s (1 vCPU)  peak_tick=%.1fms/33ms  free_ram=%dMB  server_rss=%dMB  hops/min=%d" % [
+		players, zones, load, _tick_us_peak / 1000.0, free_mb, rss_mb, _hop_n])
 	_tick_us_peak = 0
+	_hop_n = 0
 
 func _proc_first_token(path: String) -> String:
 	var f = FileAccess.open(path, FileAccess.READ)
@@ -4712,6 +4742,7 @@ func _broadcast() -> void:
 
 func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dictionary) -> Dictionary:
 	var fs := []
+	var now := Time.get_ticks_msec()                  # Phase 0.5: window the cosmetic hop echo (hopT) below
 	for f in w["fighters"]:
 		# always ship the BOSS (phased) regardless of interest distance — its arena-wide ult can hit you from
 		# the far edge (> INTEREST_RADIUS), so its telegraph/phase/scoreboard must always reach every client here.
@@ -4725,6 +4756,10 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				d["party"] = str(f["party"])
 			if float(f.get("wobble", 0.0)) > 0.0:     # P3: Wobble stacks → client draws a pip meter (was invisible)
 				d["wobble"] = float(f["wobble"])
+			if bool(f["alive"]):                       # Phase 0.5 cosmetic hop echo — additive/optional (old clients ignore);
+				var hs := int(_hop_t0.get(f["id"], -1))   # alive-gated so a fighter dying mid-hop can't float its corpse remotely
+				if hs >= 0 and now - hs >= 0 and now - hs < HOP_ECHO_MS:
+					d["hopT"] = (now - hs) / 1000.0   # elapsed seconds; the client renders the parabola (ignores its OWN, it predicts)
 			if f.get("resident", false):          # RP0: AI resident identity (no session → not in pinfo)
 				d["level"] = int(f.get("resLevel", 1))
 				d["name"] = str(f.get("resName", ""))
