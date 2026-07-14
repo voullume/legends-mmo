@@ -190,7 +190,11 @@ new atomic security-definer spend RPC (rate-limited + serialized); add a credits
   open the Drill to parties; wire the two skipped clear-time boards.
 - **Done when:** gear has a summit past the cap, bosses are a rotation, and competition renews seasonally.
 
-### Phase 8 — The Away Circuit: second biome + capstone region + new bosses · **XL · shared/ + client · the capstone**
+### Phase 8 — The Away Circuit: second biome + capstone region + new bosses · **XL · shared/ + client · the capstone** — 🔶 **PLAN APPROVED 2026-07-14 (`docs/phase8-away-circuit-plan.md`) — building**
+> Owner-approved lean synthesis: 7 zones (5 field + 2 boss arenas), ~8-10 sessions in 4-5 shippable
+> slices. Decisions: jump gate stays closed (named-moment test = NO); tokens extended to the new bands;
+> gear inversion accepted. Alternatives + miner reference archived in `docs/phase8-designs-archive.md` /
+> `docs/phase8-system-reference.md`.
 Author the locked "two new zones" via the code-as-maps toolkit (`docs/map-authoring-guide.md`; server
 auto-boots from each `MAPS` key at `:196-200`): a 5-zone chain for the empty ~9-16 band branched off the
 Home hub, plus a 2-3-zone capstone region (~18-28), populated by the Phase-3 remix roster and capped by

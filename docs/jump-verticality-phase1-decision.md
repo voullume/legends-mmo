@@ -97,6 +97,10 @@ blueprints for a possible Phase-8 ride-along (archive doc).
 **Gate answer: "feel" — the cosmetic hop suffices. True verticality is NOT a gameplay pillar for this
 game. Close the standalone jump work-stream at Phase 0.5.**
 
+> **Re-open condition EXERCISED at Phase-8 planning (2026-07-14):** the owner ran the named-moment test
+> below and answered **NO** — Phase 8 (the Away Circuit) ships flat-2D everywhere. The gate remains
+> closed. The `hops/min` counter keeps accruing; the test may be re-run at any future content phase.
+
 With one owner-facing re-open condition, recorded here (the critic's "sharpest question"):
 
 > **At Phase-8 planning, name one specific moment in the second biome where a player's jump must CHANGE an

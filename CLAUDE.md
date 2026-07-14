@@ -42,7 +42,8 @@ Work-stream: **make the game last longer to play** (`docs/gameplay-length-handof
 2026-07-09 audit — the build was *finished at level 1*). **Phases 1–7 (+3a/3b, 7b/7c/7d) and Difficulty
 Pass v1 SHIPPED 2026-07-09..07-11** (`0d88148`..`f2fea90`, `ec4250f`): XP economy, level-gated kits,
 Camp-Circuit v2 + roster remix, talent trees, Paragon/Audibles, Bounty Board, procs/boss-scaling/seasons.
-**Remaining: Phase 8 (second biome, XL) and P7a sockets+gems (never shipped).** Tackle one phase per chat.
+**Remaining: Phase 8 (second biome, XL).** P7a sockets+gems is **owner-deferred — do not build it**
+("too many different stats until the rest of the game is further fleshed out"). Tackle one phase per chat.
 *Side gate (closed):* jump/verticality shipped as the cosmetic + networked hop (Phases 0+0.5, protocol v2);
 the owner **closed the Phase-1 gate 2026-07-13** — true verticality is not a pillar, Phases 2–4 are not
 authorized. Sole re-open path: the *named-moment test* at Phase-8 planning + the `hops/min` health-log
