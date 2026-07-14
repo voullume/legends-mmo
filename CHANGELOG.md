@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.4.0 — 2026-07-14
+
+- The Finals are open! Championship district zones for levels 17-25 — the Grand Gallery miniboss, new quests and epic rewards, Practice Tokens across the whole road
+
+_(rolls up commits since the previous tag; base 38ff9e0)_
+
 ## v1.3.0 — 2026-07-14
 
 - Beat the Rival! The Away Games chain concludes: Rival Stadium + the Rival Coach boss fight (levels 13-16), the Rival Crimson dye, and mob recolors now render properly
