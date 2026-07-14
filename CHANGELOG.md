@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.2.0 — 2026-07-14
+
+- The Away Circuit opens! New 'Away Games' zones for levels 8-16 (north gate at Home) — new quests, rival mobs, bounties, and Practice Tokens on the road
+
+_(rolls up commits since the previous tag; base a008fa7)_
+
 ## v1.1.1 — 2026-07-14
 
 - fix: clean-import client build so props load
