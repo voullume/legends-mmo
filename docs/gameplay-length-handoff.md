@@ -1,6 +1,8 @@
 # Gameplay-Length Expansion — Guided Handoff
 
-**Created:** 2026-07-09 · **Status:** APPROVED, not started (Phase 1 is the next session) ·
+**Created:** 2026-07-09 · **Status:** Phases 1–7 (+3a/3b, 7b/7c/7d) + Difficulty Pass v1 **SHIPPED**
+2026-07-09..07-11 (`0d88148`..`f2fea90`, `ec4250f`); **remaining: Phase 8 (second biome) + P7a
+sockets+gems** (no matching commit — never shipped; the item-system handoff also lists it deferred) ·
 **Predecessor state:** all systems through the Glitchyard endgame program, item roadmap, AI residents,
 Builder Mode, UI overhaul, and combat-feel pass are **shipped + live** (droplet `159.89.132.86`, image on
 commit `e16cd41`). This effort is the next work-stream: **make the game last longer to play.**

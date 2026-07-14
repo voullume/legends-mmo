@@ -1,9 +1,35 @@
 # Jump / Verticality — Guided Handoff
 
-**Created:** 2026-07-13 · **Status:** PLAN drafted, not started · **Predecessor state:** all systems
-through the props + ground-textures pass are **shipped** (release `v1.0.1`, commit `09d1551`). This is
-the next candidate work-stream, split out of the props handoff §D as its own project — as recommended,
-because it is the **highest-risk change in the codebase.**
+**Created:** 2026-07-13 · **Status:** **COMPLETE & CLOSED (2026-07-13)** — Phases 0 + 0.5 (cosmetic +
+networked hop) implemented, adversarially reviewed, committed + deployed (protocol v2, server-first);
+**Phase 1 gate CLOSED by the owner** ("feel" — the hop suffices; Phases 2–4 NOT authorized — decision memo:
+`docs/jump-verticality-phase1-decision.md`, sole re-open path = its §4 named-moment test). **Predecessor state:** all systems through the props +
+ground-textures pass are **shipped** (release `v1.0.1`, commit `09d1551`). This is the next candidate
+work-stream, split out of the props handoff §D as its own project — as recommended, because it is the
+**highest-risk change in the codebase.**
+
+> **Phase 0 progress (2026-07-13):** Space → local-avatar mesh hops on a parabola (`model.position.y`),
+> lands with a squash; holder/shadow/target-ring/camera stay grounded (guardrail 2), and the hop never
+> enters the sim intent or the wire (guardrails 1/3/4 intact). `client/Player.gd` (`hop_pressed` flag) +
+> `client/Client.gd` (`_update_hop`/`_try_hop`/`_hop_suppressed`, per-node `base_y`). Verified: 0 script
+> errors on full import, 29 behavioural assertions (real `Player.gd` trigger + parabola/state-machine +
+> death-abort + suppression), live `--practice` boot clean. A 6-lens adversarial review confirmed 2 real
+> (low/nit, cosmetic-only) issues — both now fixed: (a) a hop is **aborted on mid-arc death** (no floating
+> corpse / squash-on-corpse); (b) the hop is **suppressed in HUD-edit / chat** like movement & abilities.
+
+> **Phase 0.5 progress (2026-07-13):** OTHER players now see your hop. `shared/Protocol.gd` VERSION 1→2;
+> `client/Net.gd` new reliable `submit_hop` RPC; `server/Server.gd` `submit_hop(pid)` (session/rate/alive-
+> gated) timestamps `_hop_t0` and echoes an **additive, alive-gated `hopT`** in the interest-managed
+> snapshot (a fighter dying mid-hop can't float its corpse remotely); disconnect clears `_hop_next`+`_hop_t0`.
+> `client/Client.gd` split `_update_hop` into `_drive_local_hop` (predicted — your own hop stays instant) +
+> `_drive_remote_hops` (renders remotes from `hopT`, settles to ground on end); `NetClient._on_local_hop`
+> sends it. Still **zero sim/collision/LOS/balance** effect — the fighter never leaves the 2-D plane.
+> Verified: 0 script errors; new `tools/stab_hop.gd` **19/19** vs the real server; `stab_protocol` 14/14 +
+> `stab_authority` 29/29 regressions; client remote-render 7/7; live boot clean. An adversarial review
+> caught 1 real cosmetic bug — **fixed**: the server's restart-guard window (500ms) exceeded the client's
+> 450ms `HOP_DUR`, so a continuous hopper had **every other jump dropped** from the network; the fix drops
+> the redundant guard and lets the 250ms rate limit (safely below the 450ms re-hop cadence) be the sole
+> cadence gate, with a separate `HOP_ECHO_MS` for the snapshot lifetime (regression-tested in `stab_hop`).
 
 > Produced from a full parallel audit of the six subsystems verticality touches (sim/movement,
 > AI/separation, abilities/LOS/projectiles, netcode/snapshots, client render/camera, maps/balance).
@@ -72,7 +98,7 @@ deterministic-2-D design actively resists — do it only if verticality is a rea
 
 Sizes: **S**≈half-session, **M**≈1, **L**≈2-3, **XL**≈multi-session. Tags = size · scope · risk.
 
-### Phase 0 — Cosmetic hop · **S · client-only · ZERO sim risk** — *START HERE*
+### Phase 0 — Cosmetic hop · **S · client-only · ZERO sim risk** — ✅ **DONE (2026-07-13, uncommitted)**
 A visual jump: press **Space** → the local avatar's mesh rises on a short parabola and lands with a
 squash. Pure juice, invisible to the sim.
 - **Injection point:** drive `model.position.y` (the mesh pivot, baselined at `client/Client.gd:1249`
@@ -85,16 +111,21 @@ squash. Pure juice, invisible to the sim.
   (`shared/Combat.gd:107`, cosmetic only) for a leap-on-cast bob.
 - **Deliverable:** it feels like you can jump; nothing else changes. Client re-export only.
 
-### Phase 0.5 — Networked cosmetic hop · **S · +1 snapshot bit · no sim/balance** — *optional*
+### Phase 0.5 — Networked cosmetic hop · **S · +1 snapshot bit · no sim/balance** — ✅ **DONE (2026-07-13, uncommitted; Protocol bump → redeploy server-first)**
 So *other* players see your hop (Phase 0 is local-only; the mapper flagged "invisible to others"). Add a
 single `hop` flag (or a cosmetic `hopY` byte) to the fighter snapshot (`server/Server.gd:4721`) set from a
 jump intent; the client renders remote avatars' `model.position.y` from it. Still **no** sim/collision/LOS
 /balance effect. Costs a Protocol bump (guardrail 4) + a few snapshot bytes.
 
-### Phase 1 — DECISION GATE: do we actually need *true* verticality? · **design, not code**
+### Phase 1 — DECISION GATE: do we actually need *true* verticality? · **design, not code** — ✅ **DECIDED 2026-07-13: GATE CLOSED (owner)**
 Before any `shared/` work, answer: **what is height *for*?** Traversal (reach places)? Combat (high-ground
 advantage, jump-dodge)? Or just feel (→ you're already done at Phase 0)? Only "traversal" or "combat"
 justify Phases 2-4. Write down the specific gameplay it enables; if you can't, stop at Phase 0.5.
+> **Decided: "feel" — the hop suffices; the work-stream ends at Phase 0.5. Phases 2–4 below are NOT
+> authorized.** The Phase-1 deliverable is `docs/jump-verticality-phase1-decision.md` (11-agent mine →
+> design → judge analysis; all three paths judged weak 3–4/10; full blueprints archived in
+> `docs/verticality-designs-archive.md`). **Sole re-open path:** the memo's §4 *named-moment test* at
+> gameplay-length Phase-8 planning, informed by the `hops/min` demand counter now in the server health log.
 
 ### Phase 2 — Sim Z-axis behind a flag · **XL · shared/ + netcode · HIGH risk**
 Give fighters real height. Add `z` (+ `vz` + deterministic gravity) to `create_fighter`

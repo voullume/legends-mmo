@@ -38,12 +38,15 @@ and the **combat-feel** pass. *(The live world is now 9 zones + instance templat
 two-world layout in the Phase-1–5 summary above.)*
 
 ## ▶ Now building — expand gameplay length
-Next work-stream: **make the game last longer to play.** Core flaw from the 2026-07-09 audit — the
-character build is *finished at level 1* (`create_fighter` grants the full kit; `derive()` ignores level),
-so the whole 1→30 climb adds only +1,740 HP and ~93% of it is questless grind. **Plan:
-`docs/gameplay-length-handoff.md`** — an 8-phase, owner-locked roadmap (vertical-depth-first: XP-economy
-fix → level-gated ability kits → talent trees → renewability → second biome). **Phase 1 = XP-economy fix
-(server-only, zero sim risk) is next.** Tackle one phase per chat.
+Work-stream: **make the game last longer to play** (`docs/gameplay-length-handoff.md`; core flaw from the
+2026-07-09 audit — the build was *finished at level 1*). **Phases 1–7 (+3a/3b, 7b/7c/7d) and Difficulty
+Pass v1 SHIPPED 2026-07-09..07-11** (`0d88148`..`f2fea90`, `ec4250f`): XP economy, level-gated kits,
+Camp-Circuit v2 + roster remix, talent trees, Paragon/Audibles, Bounty Board, procs/boss-scaling/seasons.
+**Remaining: Phase 8 (second biome, XL) and P7a sockets+gems (never shipped).** Tackle one phase per chat.
+*Side gate (closed):* jump/verticality shipped as the cosmetic + networked hop (Phases 0+0.5, protocol v2);
+the owner **closed the Phase-1 gate 2026-07-13** — true verticality is not a pillar, Phases 2–4 are not
+authorized. Sole re-open path: the *named-moment test* at Phase-8 planning + the `hops/min` health-log
+counter. See `docs/jump-verticality-phase1-decision.md`.
 
 ## Layout
 - `shared/` — the **deterministic combat engine** (GameData, Sim, AI, Abilities, Combat, Geom, Rng)
