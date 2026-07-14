@@ -23,6 +23,8 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 # an "away games" chain for the 9-16 band, branched off HOME's north edge behind the away_gate (lvl 8).
 const AWAY1 := "away_1"                     # Rival Practice Field — lvl 9-10 + the tackle_brute elite
 const AWAY2 := "away_2"                     # Visitors' Gauntlet  — lvl 12-13, healer-camp lesson (field_medic) + the sled
+const AWAY3 := "away_3"                     # Rival Stadium       — lvl 15-16, the drill_sergeant guards the boss door (S2)
+const AWAY_BOSS := "away_boss"              # Rival Sideline      — THE RIVAL COACH (teaching boss: cores, no ult) (S2)
 # INSTANCE TEMPLATES (endgame P0+). Never created as a static shared world — the server spins up a private
 # per-party copy on demand (world key "<template>#<owner>"), scales it, and tears it down when empty. The
 # template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
@@ -48,6 +50,8 @@ const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of 
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
 const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Away Games portal drops you here (west, clear of camps)
 const AWAY2_SPAWN := Vector2(200, 500)
+const AWAY3_SPAWN := Vector2(220, 550)
+const AWAYB_SPAWN := Vector2(140, 410)       # boss room: arrive far WEST, well clear of the central Rival Coach
 const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
 const CAMP_B_SPAWN := Vector2(180, 440)      # Circuit v2 "The Gauntlet" — arrive far west
 const CAMP_C_SPAWN := Vector2(180, 470)      # Circuit v2 "The Scrimmage" — arrive far west
@@ -72,6 +76,8 @@ const MAPS := {
 	# Phase 8 — the Away Circuit chain (same combat profile as the Glitchyard zones)
 	AWAY1: {"type": "combat", "w": 1700, "h": 950,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY1_SPAWN},
 	AWAY2: {"type": "combat", "w": 1850, "h": 1000, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY2_SPAWN},
+	AWAY3: {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY3_SPAWN},
+	AWAY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": AWAYB_SPAWN},
 	# instance TEMPLATE (P0 = a single proving room; P1 expands it into the condensed multi-room Circuit)
 	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
 	CAMP_B: {"type": "combat", "w": 1600, "h": 900, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": CAMP_B_SPAWN},
@@ -171,6 +177,20 @@ const PORTALS := {
 		# back-drop lands mid away_1 (1080,475), WEST of its tackle_brute elite @1500 (> AGGRO_RANGE 320) —
 		# same convention as the GY3→GY2 drop (TP grace blocks re-port, not aggro).
 		{"x": 120.0,  "y": 500.0,  "to": AWAY1, "tx": 1080.0, "ty": 475.0, "label": "◀ Rival Practice Field"},
+		# S2: the withheld forward pad ships now that its destination exists (carries the chain gate — S1 rule)
+		{"x": 1770.0, "y": 500.0,  "to": AWAY3, "tx": 220.0,  "ty": 550.0, "gate": "away_gate", "label": "▶ Rival Stadium"},
+	],
+	AWAY3: [
+		# back-drop lands at away_2's spawn corridor (200,560) — the only spot in its denser mid that clears
+		# every camp by > AGGRO 320 (the lane pairs sit at y 350/650).
+		{"x": 120.0,  "y": 550.0,  "to": AWAY2, "tx": 200.0,  "ty": 560.0, "label": "◀ Visitors' Gauntlet"},
+		# the boss door — walk-up (difficulty is the gate; away_gate rides for restore re-validation only)
+		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "away_gate", "label": "▶ Rival Sideline"},
+	],
+	AWAY_BOSS: [
+		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of
+		# the rack cover panel @1300,550 (the review caught the drop landing inside its collision band)
+		{"x": 80.0,   "y": 410.0,  "to": AWAY3, "tx": 1350.0, "ty": 550.0, "label": "◀ Rival Stadium"},
 	],
 	# Camp instance exit (resolved by TEMPLATE — every "camp#<owner>" instance shares this exit back to home).
 	CAMP: [
@@ -270,7 +290,22 @@ const MOBS := {
 		{"class": "line_judge",      "level": 13, "tier": "minion", "x": 980.0,  "y": 350.0},
 		{"class": "away_blocker",    "level": 12, "tier": "minion", "x": 980.0,  "y": 650.0},
 		{"class": "field_medic",     "level": 12, "tier": "elite",  "x": 1240.0, "y": 650.0},
-		{"class": "sled_juggernaut", "level": 13, "tier": "elite",  "x": 1620.0, "y": 420.0},   # east anchor by the (S2) forward pad
+		{"class": "sled_juggernaut", "level": 13, "tier": "elite",  "x": 1580.0, "y": 420.0},   # east anchor — ≥200 from the fwd pad (jukeable, the shipped grammar)
+	],
+	AWAY3: [  # Rival Stadium — the chain's last field zone; the summoner guards the boss door (GY5 pattern)
+		{"class": "rally_cone",     "level": 15, "tier": "minion", "x": 520.0,  "y": 380.0},
+		{"class": "spring_cone",    "level": 15, "tier": "minion", "x": 520.0,  "y": 720.0},
+		{"class": "away_blocker",   "level": 15, "tier": "minion", "x": 1000.0, "y": 380.0},
+		{"class": "ball_machine",   "level": 15, "tier": "elite",  "x": 1000.0, "y": 720.0},
+		{"class": "drill_sergeant", "level": 16, "tier": "elite",  "x": 1700.0, "y": 550.0},   # the boss-door guard (220 from the pad — jukeable)
+	],
+	AWAY_BOSS: [  # Rival Sideline — the teaching boss: 3 SLOW-respawn cores shield it (0.40 DR), NO ult.
+		# rival_core (respawnS 45, lvl 10) — a solo rotation can genuinely earn the shield-down window;
+		# the GY raid's 6-s power_core cadence would keep the boolean shield permanently up on a soloist.
+		{"class": "rival_coach", "level": 16, "tier": "boss",   "x": 620.0, "y": 410.0},
+		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 450.0, "y": 300.0},
+		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 790.0, "y": 300.0},
+		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 620.0, "y": 560.0},
 	],
 	# Camp Circuit instance TEMPLATE roster (P0 proving room — a spread of minions + one elite gatekeeper by
 	# the exit; P1 replaces this with the condensed multi-room circuit + Intensity scaling). mobLevel/tier are
@@ -450,7 +485,18 @@ const OBSTACLES := {
 	AWAY2: [
 		{"x": 740.0,  "y": 350.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 740.0,  "y": 650.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
 		{"x": 1180.0, "y": 500.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
-		{"x": 1620.0, "y": 270.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1620.0, "y": 570.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the sled
+		{"x": 1580.0, "y": 270.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1580.0, "y": 570.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the sled
+	],
+	AWAY3: [
+		{"x": 740.0,  "y": 380.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 740.0,  "y": 720.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1300.0, "y": 550.0, "prop": "rack", "len": 140.0, "yaw": 1.5708},
+		{"x": 1700.0, "y": 400.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1700.0, "y": 700.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the boss-door guard
+	],
+	AWAY_BOSS: [  # LIGHT cover only — the Rival Coach has no camp-reset ult, so no mandated LOS ring; these
+		# panels are kite/juke cover for the sled-drive + crowd-surge phases.
+		{"x": 380.0,  "y": 410.0, "prop": "barrier", "len": 140.0, "yaw": 1.5708},
+		{"x": 860.0,  "y": 410.0, "prop": "barrier", "len": 140.0, "yaw": 1.5708},
+		{"x": 620.0,  "y": 220.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 620.0, "y": 600.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
 	CAMP: [  # proving-room cover: mid barriers split the lanes + bags flank the elite gatekeeper
 		{"x": 720.0,  "y": 300.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 720.0, "y": 560.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},

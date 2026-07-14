@@ -239,6 +239,38 @@ const CLASSES := {
 			{"key": "respull", "name": "Resistance Pull", "type": "meleeAoe", "dmg": 28, "cd": 11.0, "radius": 300, "cast": 0.8, "pull": 220, "phase": 2},   # yanks players OFF cover toward the boss
 		],
 	},
+	# Phase 8 S2 — THE RIVAL COACH (the Away Circuit's capstone, docs/phase8-away-circuit-plan.md). The
+	# TEACHING boss: deliberately ONE PRIMITIVE TIER below the Head Coach raid — phased + threshSummon +
+	# hazard zone + coreShield/cores, but NO campreset ult (no LOS dance yet; that's the raid's lesson).
+	# head_coach.glb in rival crimson (recolor channel) at a smaller h — the away-jersey thesis: he IS
+	# literally another coach. Fought AT-level (16) solo-first: dmgScale is the solo-viability dial
+	# (playtest-tunable), respawnS 600 (a leveling-chain quest boss, not a 30-min endgame event).
+	"rival_coach": {
+		"name": "The Rival Coach", "sport": "", "mob": true, "model": "head_coach", "anim": "boss", "h": 4.2,
+		"lane": 0, "color": "#C43C2E", "recolor": true, "phased": true, "coreCount": 3, "kbImmune": true,
+		# review-tuned to keep the "one tier below the raid" promise NUMERICALLY at the same player power:
+		# hpMult 0.6 lands the lvl-16 pool at ≈ the Head Coach's (34k vs 32.8k); dmgScale 0.6 is exact melee
+		# parity (2.352×0.6 = the HC's 1.411) — and the rival has no ult, so it IS strictly the easier boss.
+		# Respawn stays the shipped 30-min boss cadence (headcoach_down precedent; a 600s cadence made this
+		# the game's best pages/loot farm). The CORES carry the fast respawn instead — see rival_core.
+		"coreShield": 0.40, "hpMult": 0.6, "dmgScale": 0.6,
+		"plate": "RIVAL COACH", "phases": ["FILM STUDY", "CONDITIONING", "CONTACT", "GARBAGE TIME"],
+		"threshSummon": {"mobType": "cone_swarmer", "count": 2},   # NOT rally_cone — a support add would shield the boss's huge pool
+		"stats": {"PWR": 54, "PRE": 32, "SPD": 26, "END": 82, "INS": 28, "CLU": 24},
+		"abilities": [
+			# P0 Film Study
+			{"key": "rivalbark", "name": "Sideline Bark", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 70, "phase": 0},
+			{"key": "rivalclip", "name": "Playbook Slam", "type": "meleeAoe", "dmg": 42, "cd": 6.0, "radius": 95, "cast": 0.5, "phase": 0},
+			# P1 Conditioning — the hazard lesson
+			{"key": "rivalladder", "name": "Away Drills", "type": "zone", "cd": 12.0, "radius": 120, "dur": 5.0, "dmg": 8.0, "slow": {"amt": 0.35, "dur": 0.6}, "phase": 1},
+			{"key": "rivalshock", "name": "Crowd Surge", "type": "meleeAoe", "dmg": 54, "cd": 10.0, "radius": 150, "cast": 0.7, "knockback": 55, "phase": 1},
+			# P2 Contact
+			{"key": "rivalsled", "name": "Rival Sled Drive", "type": "dashAttack", "dmg": 78, "cd": 8.0, "dist": 200, "cast": 0.5, "knockback": 100, "wallStun": 1.3, "phase": 2},
+			# P3 Garbage Time
+			{"key": "rivalwhistle", "name": "Final Whistle Burst", "type": "meleeAoe", "dmg": 20, "cd": 8.0, "radius": 130, "stun": 0.9, "cast": 0.4, "phase": 3},
+			{"key": "rivalpancake", "name": "Statement Slam", "type": "meleeAoe", "dmg": 70, "cd": 9.0, "radius": 110, "cast": 0.55, "knockback": 45, "phase": 3},
+		],
+	},
 	# THE SECRET BOSS (Boss2) — Head Coach PRIME. Reachable only via the gated portal in the boss arena, which
 	# unlocks once a character has completed EVERY Glitchyard quest (incl. the headcoach_down capstone = beating
 	# Boss1). A 10+ minute raid: a huge HP pool (hpMult on top of tier:boss ×6), 4 HP phases, the full P5 kit
@@ -267,6 +299,17 @@ const CLASSES := {
 			{"key": "primepancake", "name": "Pancake Protocol", "type": "meleeAoe", "dmg": 85, "cd": 8.0, "radius": 130, "cast": 0.5, "knockback": 50, "phase": 3},
 			{"key": "primewhistle", "name": "Whistle Burst", "type": "meleeAoe", "dmg": 26, "cd": 7.0, "radius": 155, "stun": 1.0, "cast": 0.4, "phase": 3},
 		],
+	},
+	# Phase 8 S2 — the Rival Sideline's cores. The GY power_core respawns on the 6-s minion cadence, which is
+	# correct for a 5-player raid splitting across cores but makes an ALL-DEAD shield window unreachable solo
+	# (the review's arithmetic: a solo needs ~8s/core; the first is back before the third dies). This variant
+	# carries a per-def respawnS 45 so a solo rotation (~24-28s for 3 cores) EARNS a real ~17-20s shield-down
+	# burst window — the teaching loop the plate ("DESTROY THE CORES") promises. GY raid cores untouched.
+	"rival_core": {
+		"name": "Rival Power Core", "sport": "", "mob": true, "model": "power_core", "anim": "core", "h": 2.0,
+		"lane": 1, "color": "#FF6B4A", "recolor": true, "stationary": true, "isCore": true, "respawnS": 45.0,
+		"stats": {"PWR": 1, "PRE": 1, "SPD": 1, "END": 44, "INS": 1, "CLU": 1},
+		"abilities": [],
 	},
 	# Power cores — inert destructible objects (team 1, the boss's side). No abilities, stationary → they just
 	# sit; players destroy them to weaken/cancel the boss's Full Camp Reset ult (mult = cores_alive/coreCount).
@@ -652,6 +695,9 @@ const DYE_CATALOG := {
 	"obsidian": {"name": "Obsidian",      "price": 3600, "color": "#23262c"},
 	# gameplay-length P7d: season-exclusive — granted to the weekly skill-board Champion, NEVER buyable (kept out of DYE_IDS so no shop/wardrobe/vendor lists it for purchase)
 	"champion": {"name": "Season Champion", "color": "#f6d365", "buyable": false},
+	# Phase 8 S2: quest-exclusive — granted by beating the Rival Coach (rival_down), never buyable (same
+	# champion-dye pattern: out of DYE_IDS so no shop/vendor lists it)
+	"rival_crimson": {"name": "Rival Crimson", "color": "#c43c2e", "buyable": false},
 }
 const DYE_IDS := ["crimson", "azure", "emerald", "violet", "coral", "ivory", "gold", "obsidian"]
 

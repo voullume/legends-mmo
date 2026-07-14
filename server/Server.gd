@@ -733,6 +733,7 @@ const AFFIX_ROTATION := [
 ]
 const CIRCUIT_ROTATION := ["camp", "camp_b", "camp_c"]   # gameplay-length P3b-rooms: the Camp Circuit rotates rooms per (party, tier, week)
 const BOSS_PAGES := 50                            # the Head Coach boss also drops a page chunk
+const RIVAL_PAGES := 15                           # Phase 8 S2: the Rival Coach's page chunk (repeatable on the 30-min boss cadence = 30 pages/hr — deliberately UNDER the Head Coach's 100/hr line so the rival never becomes the game's best Pages farm; no boss_time board — that stays head_coach-only so seasonal times stay comparable)
 # --- Two-Minute Drill (P5): endless wave survival → leaderboard ---
 const DRILL_WAVE_GAP_MS := 2500                  # breather between waves
 const DRILL_PAGES_PER_WAVE := 2                  # end-of-run pages = max(0, wave-2) * this (wave 3+ only; anti-farm)
@@ -3260,7 +3261,12 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 				if instance:
 					continue                          # Circuit mobs DON'T respawn — a finite clear (killing the objective completes it)
 				# the boss is a rare ~30-min event; its cones/cores + normal mobs churn at the usual rate
-				_respawn[f["id"]] = BOSS_RESPAWN_DELAY if GameData.CLASSES.get(str(f["classId"]), {}).get("phased", false) else MOB_RESPAWN_DELAY
+				# Phase 8 S2: ANY def may carry a per-def respawnS override — used by rival_core (45 s, so a
+				# solo rotation can earn the Rival Coach's shield-down window; the GY raid cores keep the 6-s
+				# cadence). Bosses default to the 30-min world-event cadence, minions to 6 s, as shipped.
+				var _bdef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
+				var _rdefault: float = BOSS_RESPAWN_DELAY if _bdef.get("phased", false) else MOB_RESPAWN_DELAY
+				_respawn[f["id"]] = float(_bdef.get("respawnS", _rdefault))
 			else:
 				var _dmeta: Dictionary = _instances.get(mapname, {})
 				if bool(_dmeta.get("active", false)) and str(_dmeta.get("mode", "")) == "drill":
@@ -3523,6 +3529,8 @@ func _award_kills() -> void:
 					_distribute_loot(credit_pid, drop, str(mapname))
 				_quest_on_kill(credit_pid, victim)             # advance any matching kill-quest
 				_bounty_on_kill(credit_pid, victim)            # gameplay-length P6b: advance any matching kill-bounty
+				if str(victim.get("classId", "")) == "rival_coach":   # Phase 8 S2: the Rival Coach pays Pages too (repeatable; deliberately NOT on the boss_time board)
+					_award_pages(credit_pid, RIVAL_PAGES)
 				if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
 					_award_pages(credit_pid, BOSS_PAGES)
 					# gameplay-length P7d: Head Coach fastest-KILL board — the KILLING-BLOW player's fight duration (from the
@@ -4346,6 +4354,8 @@ const BOUNTY_WEEKLY := {
 	"w_gauntlet": {"name": "Weekly Gauntlet","kind": "circuit", "min_tier": 1, "count": 15, "desc": "Clear the Camp Circuit 15 times this week.",  "rewards": {"credits": 4000, "pages": 220}},
 	"w_elites":   {"name": "Weekly Muster",  "kind": "kill",    "match": {"tier": "elite"}, "count": 60, "desc": "Defeat 60 elite opponents this week.", "rewards": {"tokens": 90, "pages": 240}},
 	"w_drill":    {"name": "Weekly Drills",  "kind": "drill",   "wave": 12, "count": 3, "desc": "Reach wave 12 of a Drill, 3 times this week.", "rewards": {"credits": 5000, "pages": 260}},
+	# Phase 8 S2: the away chase — one Rival Coach win a week (10-min respawn, so contention-light)
+	"w_rival":    {"name": "Away Win",       "kind": "kill",    "match": {"map": "away_boss", "tier": "boss"}, "count": 1, "min_level": 8, "desc": "Defeat the Rival Coach this week.", "rewards": {"credits": 3000, "tokens": 60, "pages": 120}},
 }
 
 var _bounty_busy := {}                             # pid → a bounty claim is in flight

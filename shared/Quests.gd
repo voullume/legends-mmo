@@ -199,6 +199,35 @@ const QUESTS := {
 		"objective": {"type": "kill", "match": {"map": "away_2", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 800, "credits": 500, "tokens": 35},
 	},
+	# --- S2: the chain's back half. The two quest epics carry EXPLICIT ilvl + item_power (the
+	# _grant_quest_item legacy shape would normalize them to ~IP 27) — they are the deliberate IP-800 push
+	# toward the Head Coach gate (bonus_amt matches _make_item's epic budget at ilvl 20: 8×(3+0.4·20)=88).
+	"away3_stadium": {
+		"name": "Silence the Stadium",
+		"desc": "The Rival Stadium is their house. Make it quiet — take down 18 of the home squad.",
+		"min_level": 13, "prereq": "away2_medics",
+		"objective": {"type": "kill", "match": {"map": "away_3"}, "count": 18},
+		"rewards": {"xp": 1000, "credits": 600, "tokens": 30,
+			"item": {"name": "Away Captain's Badge", "rarity": "epic", "slot": "trinket", "bonus_stat": "CLU", "bonus_amt": 88, "ilvl": 20, "item_power": 108}},
+	},
+	"away3_elites": {
+		"name": "Clear the Door",
+		"desc": "A Ball Machine rakes the floor and their Drill Sergeant guards the sideline door. Bring down 2 of the Stadium's elites.",
+		"min_level": 14, "prereq": "away3_stadium",
+		"objective": {"type": "kill", "match": {"map": "away_3", "tier": "elite"}, "count": 2},
+		"rewards": {"xp": 1200, "credits": 700, "tokens": 35,
+			"item": {"name": "Rival Playmaker's Glove", "rarity": "epic", "slot": "main_hand", "bonus_stat": "PWR", "bonus_amt": 88, "ilvl": 20, "item_power": 108}},
+	},
+	# CAPSTONE — beat the Rival Coach. Completion text routes the player at the existing Head Coach raid
+	# gate (L16 + gear 800): the away chain "graduates" into the shipped raid. Repeat kills also pay Pages
+	# via the server's RIVAL_PAGES hook; this quest is the once-only dye + credits.
+	"rival_down": {
+		"name": "Beat the Rival",
+		"desc": "The Rival Coach waits on his own sideline, behind his power cores. Take the away win — then gear up on his sideline until you hit gear score 800, and report to the Head Coach Arena for the real thing.",
+		"min_level": 15, "prereq": "away3_elites",
+		"objective": {"type": "kill", "match": {"map": "away_boss", "tier": "boss"}, "count": 1},
+		"rewards": {"xp": 1600, "credits": 1000, "dye": "rival_crimson"},
+	},
 }
 
 # stable display/iteration order (also the chain order). ORDER is the SECRET-BOSS GATE list (the server's
@@ -214,7 +243,8 @@ const MIDGAME_ORDER := ["mid1_proving", "mid2_circuit", "mid3_command", "mid4_de
 # nothing may EVER gate on AWAY_ORDER completion (no _all_quests_done-style iteration, no portal gate, no
 # reward check) — that is what keeps mid-slice appends retroactively safe. Gate on individual quest ids
 # (e.g. a specific boss quest) if a gate is ever needed. (The ORDER lesson, above.)
-const AWAY_ORDER := ["away1_roadgame", "away1_blocker", "away2_gauntlet", "away2_medics"]
+const AWAY_ORDER := ["away1_roadgame", "away1_blocker", "away2_gauntlet", "away2_medics",
+	"away3_stadium", "away3_elites", "rival_down"]
 
 static func order() -> Array:
 	return ORDER

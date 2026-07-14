@@ -94,7 +94,7 @@ func _run() -> void:
 	# ---- 5. quests: prereq-free accept at 8+, progress + tokens through the REAL kill-award path ----
 	var q = Quests.get_quest("away1_roadgame")
 	ok(q != null and str(q["prereq"]) == "" and int(q["min_level"]) == 8, "quest: away1_roadgame is prereq-FREE at min_level 8 (the desert fix)")
-	ok(Quests.AWAY_ORDER.size() == 4 and Quests.display_order().size() == Quests.ORDER.size() + 4 + Quests.MIDGAME_ORDER.size(),
+	ok(Quests.display_order().size() == Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.MIDGAME_ORDER.size(),
 		"quest: AWAY_ORDER wired into display_order (and NOT into the secret-gate ORDER)")
 	ok(Quests.ORDER.size() == 9, "quest: the secret-boss gate list is untouched (9)")
 	await srv._do_quest_accept(2, "away1_roadgame")
@@ -120,23 +120,29 @@ func _run() -> void:
 	ok(Quests.kill_matches({"objective": {"type": "kill", "match": srv.BOUNTY_DAILY["d_roadgame"]["match"], "count": 1}},
 		{"tier": "minion", "map": "away_1", "class": "rally_cone", "level": 9}), "bounty: d_roadgame matches an away_1 kill")
 
-	# ---- 7. XP-band numeric pass (plan §hardening 3) — real formulas, computed not asserted ----
-	var band := 0                                             # XP needed for 8→13
-	for L in range(8, 13):
+	# ---- 7. XP-band numeric pass (plan §hardening 3) — real formulas, computed not asserted. The FULL
+	# chain (7 quests + required kills) is measured against the 8→16 band it spans: ratio > 1 means a
+	# quester arrives at the Head Coach gate slightly over-leveled (fine — IP is the real filter);
+	# ratio < 0.9 would mean starvation, > 1.7 would mean zone-skipping pressure.
+	var band := 0                                             # XP needed for 8→16
+	for L in range(8, 16):
 		band += srv._xp_to_next(L)
 	var quest_xp := 0
 	for qid in Quests.AWAY_ORDER:
 		quest_xp += int(Quests.get_quest(qid)["rewards"].get("xp", 0))
-	# required-kill XP along the chain (killer stays inside con grace throughout — verified below)
+	# required-kill XP along the chain (the quester stays inside con grace throughout)
 	var kill_xp := 0
 	kill_xp += 12 * srv.MOB_XP_BASE * 9                       # away1_roadgame: 12 minion kills @ ~lvl 9
 	kill_xp += srv.MOB_XP_BASE * 10 * srv.MOB_ELITE_XP        # away1_blocker: the lvl-10 elite
 	kill_xp += 15 * srv.MOB_XP_BASE * 12                      # away2_gauntlet: 15 minion kills @ ~lvl 12
 	kill_xp += srv.MOB_XP_BASE * 12 * srv.MOB_ELITE_XP + srv.MOB_XP_BASE * 13 * srv.MOB_ELITE_XP   # away2_medics: both elites
+	kill_xp += 18 * srv.MOB_XP_BASE * 15                      # away3_stadium: 18 kills @ ~lvl 15
+	kill_xp += srv.MOB_XP_BASE * 15 * srv.MOB_ELITE_XP + srv.MOB_XP_BASE * 16 * srv.MOB_ELITE_XP   # away3_elites
+	kill_xp += srv.MOB_XP_BASE * 16 * srv.MOB_BOSS_XP         # rival_down: the boss
 	var directed := quest_xp + kill_xp
 	var ratio := float(directed) / float(band)
-	ok(ratio >= 0.9 and ratio <= 1.6,
-		"xp: the directed S1 path covers the 8→13 band sanely (%.0f%% of %d XP — no starvation, no wild overshoot)" % [ratio * 100.0, band])
+	ok(ratio >= 0.9 and ratio <= 1.7,
+		"xp: the directed full-chain path covers the 8→16 band sanely (%.0f%% of %d XP)" % [ratio * 100.0, band])
 	# away_1's sub-chain (quests 1-2: 420+520 quest XP + 12 lvl-9 minions + the lvl-10 elite) must hand the
 	# player off INSIDE away_2's 12-13 con-grace band
 	var a1: int = 420 + 520 + 12 * srv.MOB_XP_BASE * 9 + srv.MOB_XP_BASE * 10 * srv.MOB_ELITE_XP
@@ -188,5 +194,143 @@ func _run() -> void:
 	var drop_d := Vector2(float(brute["x"]) - 1080.0, float(brute["y"]) - 475.0).length()
 	ok(pad_d >= 200.0, "geometry: the elite guard is jukeable (%.0f ≥ 200 from the forward pad)" % pad_d)
 	ok(drop_d > 320.0, "geometry: the away_2 back-drop is outside the elite's aggro (%.0f > 320)" % drop_d)
+	# review: EVERY away forward pad keeps the ≥200 guard margin, and EVERY portal drop-point lands clear
+	# of the destination's obstacle collision circles (a drop inside a panel's block band strands arrivals)
+	for mp in ["away_1", "away_2", "away_3", "away_boss"]:
+		for p in World.PORTALS.get(mp, []):
+			if p.has("to") and str(p["to"]).begins_with("away"):     # forward pads: check the guard margin
+				for row in World.MOBS.get(mp, []):
+					if str(row["tier"]) == "elite":
+						var gd := Vector2(float(p["x"]) - float(row["x"]), float(p["y"]) - float(row["y"])).length()
+						ok(gd >= 200.0, "geometry: %s pad→%s guard margin %.0f ≥ 200 (%s)" % [mp, str(p["to"]), gd, str(row["class"])])
+			if p.has("to"):                                          # every drop: clear of destination obstacles
+				var circles: Array = World.circles_from(World.OBSTACLES.get(str(p["to"]), []))
+				for c in circles:
+					var cd := Vector2(float(p["tx"]) - float(c["x"]), float(p["ty"]) - float(c["y"])).length()
+					if cd <= float(c["r"]) + 16.0:
+						ok(false, "geometry: %s→%s drop (%.0f,%.0f) lands inside an obstacle circle" % [mp, str(p["to"]), float(p["tx"]), float(p["ty"])])
+
+	# ================================================================ S2 — "Beat the Rival"
+	# ---- 11. the back half boots: away_3 + away_boss, exact rosters ----
+	ok(srv._worlds.has("away_3") and srv._worlds.has("away_boss"), "S2 boot: away_3 + away_boss auto-boot")
+	var m3 := _mobs_in("away_3")
+	ok(m3.size() == 5, "away_3: 5 spawns (got %d)" % m3.size())
+	var boss = null
+	var cores := 0
+	for f in _mobs_in("away_boss"):
+		if str(f["classId"]) == "rival_coach": boss = f
+		if str(f["classId"]) == "rival_core": cores += 1
+	ok(boss != null and cores == 3, "away_boss: the Rival Coach + exactly 3 slow-respawn rival cores")
+	ok(str(boss.get("mobTier", "")) == "boss" and int(boss.get("mobLevel", 0)) == 16, "rival_coach: tier boss, level 16")
+
+	# ---- 12. the TEACHING SUBSET pin: phased + summon + hazard + cores, but NO camp-reset ult ----
+	var rdef: Dictionary = GameData.CLASSES["rival_coach"]
+	ok(bool(rdef.get("phased", false)) and rdef.has("threshSummon") and float(rdef.get("coreShield", 0.0)) > 0.0,
+		"rival_coach: phased + threshSummon + coreShield (the teaching primitives)")
+	var has_ult := false
+	var has_zone := false
+	for ab in rdef["abilities"]:
+		if str(ab["type"]) == "campreset": has_ult = true
+		if str(ab["type"]) == "zone": has_zone = true
+	ok(not has_ult, "rival_coach: NO campreset ult — one primitive tier below the raid (the plan's escalation)")
+	ok(has_zone, "rival_coach: carries the hazard-zone lesson")
+	ok(not rdef.has("respawnS"), "rival_coach: keeps the 30-min boss cadence (a 600s cadence made it the game's best farm — review)")
+	ok(float(GameData.CLASSES["rival_core"].get("respawnS", 0.0)) >= 30.0 and float(GameData.CLASSES["rival_core"].get("respawnS", 0.0)) <= 90.0,
+		"rival_core: the CORES carry the slow respawn (solo can earn the shield-down window; GY raid cores untouched)")
+	ok(not GameData.CLASSES["power_core"].has("respawnS"), "power_core: the GY raid cores keep their shipped 6-s cadence")
+	ok(str(rdef.get("plate", "")) == "RIVAL COACH" and (rdef.get("phases", []) as Array).size() == 4,
+		"rival_coach: carries its own boss-chrome plate + 4 phase names (client reads per-def)")
+	# PARITY PINS (review): "one tier below the raid" must hold NUMERICALLY — compare the real spawned
+	# fighters (hpMult/dmgScale baked in by _scale_mob). The rival must not out-stat the raid boss.
+	var hc = null
+	for f in srv._worlds["glitchyard_boss"]["fighters"]:
+		if str(f["classId"]) == "head_coach": hc = f
+	ok(float(boss["maxHP"]) <= float(hc["maxHP"]) * 1.15,
+		"parity: rival pool ≤ 1.15× the Head Coach's (%.0f vs %.0f)" % [float(boss["maxHP"]), float(hc["maxHP"])])
+	ok(float(boss["dmgMult"]) <= float(hc["dmgMult"]) * 1.05,
+		"parity: rival damage ≤ 1.05× the Head Coach's (%.2f vs %.2f)" % [float(boss["dmgMult"]), float(hc["dmgMult"])])
+
+	# ---- 13. gates + pads: every deeper pad carries the chain gate; no dangling pads; restore covered ----
+	for mp in ["away_2", "away_3"]:
+		var fwd_gated := false
+		for p in World.PORTALS.get(mp, []):
+			if p.has("to") and str(p["to"]).begins_with("away") and str(p.get("gate", "")) == "away_gate":
+				fwd_gated = true
+		ok(fwd_gated, "S1 rule: %s's forward pad carries away_gate" % mp)
+	ok(World.gate_for_map("away_3") == "away_gate" and World.gate_for_map("away_boss") == "away_gate",
+		"restore: away_3 + away_boss derive the login gate from their inbound pads")
+	var dangling2 := 0
+	for mp in ["away_1", "away_2", "away_3", "away_boss"]:
+		for p in World.PORTALS.get(mp, []):
+			if p.has("to") and not srv._worlds.has(str(p["to"])): dangling2 += 1
+	ok(dangling2 == 0, "pads: the full chain has no dangling destinations")
+	var t3: Dictionary = await login("Tamper8c", 12, {"level": 1, "last_map": "away_boss"})
+	ok(str(srv._session[12]["map"]) == "home", "restore: sub-8 tampered last_map=away_boss lands at HOME")
+	srv.drop_peer(12)
+	await settle()
+
+	# ---- 14. the walk: away_2 → away_3 → away_boss and back (real portal path, level 9 passes the gate) ----
+	var vet2: Dictionary = await login("Traveler2", 13, {"level": 16})
+	_walk(13, 300.0, 200.0)                                   # HOME → away_1
+	_walk(13, 1620.0, 475.0)                                  # → away_2
+	_walk(13, 1770.0, 500.0)                                  # → away_3 (the pad withheld in S1, live now)
+	ok(str(srv._session[13]["map"]) == "away_3", "walk: away_2 forward pad → away_3")
+	_walk(13, 1920.0, 550.0)                                  # → the Rival Sideline
+	ok(str(srv._session[13]["map"]) == "away_boss", "walk: away_3 boss door → away_boss")
+	var bf = srv._find(vet2["fid"])
+	ok(Vector2(bf["x"] - 620.0, bf["y"] - 410.0).length() > 320.0, "walk: the boss-room arrival is outside the Rival Coach's aggro")
+	_walk(13, 80.0, 410.0)                                    # back → away_3
+	ok(str(srv._session[13]["map"]) == "away_3", "walk: boss room back pad → away_3")
+	var df = srv._find(vet2["fid"])
+	ok(Vector2(df["x"] - 1700.0, df["y"] - 550.0).length() > 320.0, "walk: the back-drop clears the boss-door guard's aggro")
+
+	# ---- 15. quests: the chain's back half + the raid bridge ----
+	ok(Quests.AWAY_ORDER.size() == 7, "quest: AWAY_ORDER grew to 7 (append-only — the governance rule holds)")
+	ok(Quests.ORDER.size() == 9, "quest: the secret-gate ORDER is still untouched")
+	var q3 = Quests.get_quest("away3_stadium")
+	ok(int(q3["rewards"]["item"].get("ilvl", 0)) == 20 and int(q3["rewards"]["item"].get("item_power", 0)) > 100,
+		"quest: the IP-push epic carries EXPLICIT ilvl + item_power (the _grant_quest_item trap is dodged)")
+	var qr = Quests.get_quest("rival_down")
+	ok(str(qr["rewards"].get("dye", "")) == "rival_crimson", "quest: beating the Rival grants the exclusive dye")
+	ok(GameData.DYE_CATALOG.has("rival_crimson") and not ("rival_crimson" in GameData.DYE_IDS),
+		"dye: rival_crimson exists and is NOT buyable (the champion-dye pattern)")
+
+	# ---- 16. the IP800 numeric pass (plan §hardening 3): can a solo quester finishing the chain reach the
+	# Head Coach gate ORGANICALLY? Simulate a realistic end-of-chain loadout with the REAL item builder:
+	# 9 slots of ordinary chain drops (rare, at the dropary ilvls mobLevel+5 the chain actually yields)
+	# + the 2 quest epics (explicit item_power). Assert the sum clears BOSS_GATE_IP with margin.
+	var ip_total := 0
+	var drop_ilvls := [15, 16, 17, 17, 18, 18, 20, 20, 21]    # away_1..3 elite-drop band (mobLevel+5)
+	var slots := ["head", "chest", "legs", "hands", "feet", "off_hand", "neck", "ring", "ring"]
+	for i in slots.size():
+		var it: Dictionary = srv._make_item(slots[i], "rare", int(drop_ilvls[i]))
+		ip_total += int(it["item_power"])
+	ip_total += int(q3["rewards"]["item"]["item_power"])                       # the trinket epic
+	ip_total += int(Quests.get_quest("away3_elites")["rewards"]["item"]["item_power"])   # the main-hand epic
+	ok(ip_total >= srv.BOSS_GATE_IP,
+		"IP800: a realistic end-of-chain set clears the Head Coach gate (%d ≥ %d)" % [ip_total, srv.BOSS_GATE_IP])
+	ok(ip_total <= srv.BOSS_GATE_IP * 2,
+		"IP800: ...without trivializing it (%d ≤ %d — the gate stays a real filter)" % [ip_total, srv.BOSS_GATE_IP * 2])
+	# the pessimistic floor: all-UNCOMMON drops + the quest epics still gets CLOSE (quest epics are the bridge)
+	var ip_floor := 0
+	for i in slots.size():
+		var it2: Dictionary = srv._make_item(slots[i], "uncommon", int(drop_ilvls[i]))
+		ip_floor += int(it2["item_power"])
+	ip_floor += 216                                            # the two quest epics (108 each)
+	ok(ip_floor >= int(float(srv.BOSS_GATE_IP) * 0.7),
+		"IP800: even an unlucky (all-uncommon) quester lands within reach (%d ≥ 70%% of the gate)" % ip_floor)
+	# ...and the documented BRIDGE (review #11): the chain's organic drop luck may fall short of 800 — the
+	# intended path is "gear up on his sideline" (rival_down's own words): the Rival re-fight drops ilvl-28
+	# boss loot, so the floor + one or two rival epics must CROSS the gate.
+	var bridge: int = ip_floor - 216 + 216                      # the floor set...
+	bridge += int(srv._make_item("main_hand", "epic", 28)["item_power"])   # ...plus ONE rival-farm epic (replacing nothing — an empty slot)
+	ok(bridge >= srv.BOSS_GATE_IP,
+		"IP800: the unlucky floor + ONE rival-sideline epic crosses the gate (%d ≥ %d — the bridge works)" % [bridge, srv.BOSS_GATE_IP])
+
+	# ---- 17. pages hook + weekly bounty ----
+	ok(srv.RIVAL_PAGES > 0, "pages: the Rival Coach kill hook exists (RIVAL_PAGES)")
+	ok(srv.BOUNTY_WEEKLY.has("w_rival"), "bounty: the weekly Away Win exists")
+	ok(Quests.kill_matches({"objective": {"type": "kill", "match": srv.BOUNTY_WEEKLY["w_rival"]["match"], "count": 1}},
+		{"tier": "boss", "map": "away_boss", "class": "rival_coach", "level": 16}), "bounty: w_rival matches the Rival Coach kill")
 
 	finish("stab_away")

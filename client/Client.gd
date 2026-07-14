@@ -2286,21 +2286,26 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 		var tier: String = str(f["mobTier"])
 		var lvl := int(f.get("mobLevel", 1))
 		if tier == "boss":
-			# the boss "scoreboard": current quarter/phase + an explicit Full Camp Reset countdown warning
+			# the boss "scoreboard": current quarter/phase + an explicit ult countdown warning. Phase 8 S2:
+			# plate / phase names / ult-warn now read from the CLASSES def ("plate", "phases", "ultWarn"),
+			# with the original Head-Coach strings as fallbacks so the GY bosses render byte-identically.
+			var bdef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
+			var plate := str(bdef.get("plate", "HEAD COACH"))
+			var pn: Array = bdef.get("phases", ["EVALUATION", "CONDITIONING", "CONTACT", "RUN IT AGAIN"])
+			var pi := clampi(int(f.get("phase", 0)), 0, pn.size() - 1)
 			var ph := int(f.get("phase", 0))
 			var uc := float(f.get("ultCast", 0.0))
 			if uc > 0.0:
-				label.text = "⚠  FULL CAMP RESET  %d  ⚠\nBREAK LINE OF SIGHT!" % int(ceil(uc))
+				var warn: Array = bdef.get("ultWarn", ["FULL CAMP RESET", "BREAK LINE OF SIGHT!"])
+				label.text = "⚠  %s  %d  ⚠\n%s" % [str(warn[0]), int(ceil(uc)), str(warn[1])]
 				label.modulate = Color(1.0, 0.2, 0.2)
 			elif f.get("shielded", false):
 				# P3: core-shield cue — the boss is taking heavy DR while a power core lives (was invisible)
-				var pn2 := ["EVALUATION", "CONDITIONING", "CONTACT", "RUN IT AGAIN"]
-				label.text = "Lv %d  ☠ HEAD COACH\nQ%d · %s\n🛡 SHIELDED — DESTROY THE CORES" % [lvl, ph + 1, pn2[clampi(ph, 0, 3)]]
+				label.text = "Lv %d  ☠ %s\nQ%d · %s\n🛡 SHIELDED — DESTROY THE CORES" % [lvl, plate, ph + 1, str(pn[pi])]
 				label.modulate = Color(0.4, 0.82, 1.0)
 			else:
-				var pn := ["EVALUATION", "CONDITIONING", "CONTACT", "RUN IT AGAIN"]
 				var pcol := [Color(1.0, 0.6, 0.42), Color(1.0, 0.48, 0.32), Color(1.0, 0.34, 0.26), Color(1.0, 0.22, 0.22)]
-				label.text = "Lv %d  ☠ HEAD COACH\nQ%d · %s" % [lvl, ph + 1, pn[clampi(ph, 0, 3)]]
+				label.text = "Lv %d  ☠ %s\nQ%d · %s" % [lvl, plate, ph + 1, str(pn[pi])]
 				label.modulate = pcol[clampi(ph, 0, 3)]
 		elif tier == "elite":
 			label.text = "Lv %d  ★ ELITE" % lvl
@@ -2336,6 +2341,10 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	if n.get("aura") != null:                     # P3: show the boss's core-shield aura while a core lives
 		n["aura"].visible = bool(f.get("shielded", false))
 	var dye := str(f.get("dye", ""))              # P4: cosmetic dye — re-tint the model only when it changes
+	if dye == "":                                 # S2 review fix: a def-recolored MOB's baseline is its recolor
+		var _rc: Dictionary = GameData.CLASSES.get(str(f.get("classId", "")), {})   # tint, not "" — this sync used to
+		if _rc.get("recolor", false):             # WIPE the spawn-primed recolor on frame 1 (mobs never ship a
+			dye = str(_rc.get("color", ""))       # snapshot dye), leaving every remix mob untinted
 	if dye != str(n.get("dye_applied", "")):
 		n["dye_applied"] = dye
 		if not _flashing.has(f["id"]):            # mid-flash: don't stomp the overlay — the flash's
