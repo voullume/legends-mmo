@@ -67,10 +67,15 @@ apart, west→east gradient, elites east, portal drops >42 from reverse pads / >
    then, zero Meshy spend.
 
 ## Slices (each independently shippable; 🔴 = shared/+client SAME COMMIT + confirm CI ghcr image before droplet setup.sh)
-- **S1 — "The Road Opens" (M, ~2 sessions)** 🔴 away_1 + away_2, HOME pad, `away_gate` arm + explainer
-  generalization, 3 recolor minion defs, rival-clay procedural ground texture, zone names/F1
-  goto/smoke-guard entries, AWAY quests 1–4 + governance comment, token-prefix extension, 2 daily
-  bounties, F4 decal pass, XP-band numeric pass, droplet health check. *(Forward pad to away_3 withheld.)*
+- **S1 — "The Road Opens" (M, ~2 sessions)** 🔴 — ✅ **SHIPPED v1.2.0 (2026-07-14, `a008fa7`)**. All planned
+  content + 13 adversarial-review fixes, notably: **interior chain pads carry the gate** (a tampered
+  `last_map` restore bypassed the level-8 gate — new S2 rule: every deeper pad carries its chain's gate);
+  **mob support made camp-local** (≤320; players exempt — bal_identity byte-identical before AND after);
+  data-driven `smoke_prop_loads`; `stab_away` (48 asserts) in CI. XP numeric pass: directed path ≈ sane
+  coverage of the 8→13 band, away_1 hands off inside away_2's con grace. **⚠ CAPACITY WATCH-ITEM:** idle
+  `peak_tick` rose from ~21-24ms (9 zones) to ~37-65ms spikes (11 zones) while load/RSS stayed flat
+  (0.2/197MB) — watch the `[health]` line with players on; if peaks stay >33ms, consider a vCPU bump or
+  zone sharding BEFORE S3/S4 add three more worlds. *(Forward pad to away_3 withheld — ships in S2.)*
 - **S2 — "Beat the Rival" (M, ~2 sessions)** 🔴 away_3 + away_boss, rival_coach def, boss-chrome client
   generalizations, quests 5–7 (`rival_down` → raid bridge), Rival Crimson dye (exclusivity wiring),
   +40-Pages hook, weekly bounty, IP800 measurement, respawn + readability decisions.
