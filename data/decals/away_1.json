@@ -1,0 +1,20 @@
+[
+	{"kind": "ring", "r": 130.0, "x": 520.0, "y": 330.0},
+	{"kind": "ring", "r": 130.0, "x": 520.0, "y": 620.0},
+	{"kind": "ring", "r": 110.0, "x": 960.0, "y": 330.0},
+	{"kind": "ring", "r": 110.0, "x": 960.0, "y": 620.0},
+	{"kind": "cone", "x": 340.0, "y": 400.0},
+	{"kind": "cone", "x": 340.0, "y": 550.0},
+	{"kind": "cone", "x": 1350.0, "y": 475.0},
+	{"h": 2.6, "kind": "prop", "model": "fence_planks", "x": 420.0, "y": 110.0, "yaw": 0.0},
+	{"h": 2.6, "kind": "prop", "model": "fence_planks", "x": 700.0, "y": 110.0, "yaw": 0.0},
+	{"h": 2.6, "kind": "prop", "model": "fence_planks", "x": 980.0, "y": 110.0, "yaw": 0.0},
+	{"h": 2.6, "kind": "prop", "model": "fence_planks", "x": 1260.0, "y": 110.0, "yaw": 0.0},
+	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 620.0, "y": 860.0, "yaw": 3.14},
+	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 1080.0, "y": 860.0, "yaw": 3.14},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 180.0, "y": 130.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 1560.0, "y": 130.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 180.0, "y": 840.0, "yaw": 0.0},
+	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 1560.0, "y": 840.0, "yaw": 0.0},
+	{"h": 3.4, "kind": "prop", "model": "sports_ball_rack", "x": 260.0, "y": 350.0, "yaw": 1.57}
+]

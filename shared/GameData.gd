@@ -323,6 +323,38 @@ const CLASSES := {
 			{"key": "popburst", "name": "Pop Burst", "type": "meleeAoe", "dmg": 34, "cd": 7.0, "radius": 90, "cast": 0.4},
 		],
 	},
+	# --- Phase 8 (the Away Circuit, docs/phase8-away-circuit-plan.md): rival-team minions for the 9-16 band.
+	# Same P3a recolor grammar (existing GLBs + the dye channel) and only shipped/AI-proven ability types +
+	# field shapes (allybuff mirrors field_medic's extrapads; projectile slow rides the generic Sim.gd:180 path).
+	"rally_cone": {
+		"name": "Rally Cone", "sport": "", "mob": true, "model": "cone", "anim": "cone", "h": 1.5,
+		"lane": 0, "color": "#E0433D", "recolor": true,
+		"stats": {"PWR": 36, "PRE": 26, "SPD": 70, "END": 26, "INS": 22, "CLU": 16},
+		"abilities": [
+			{"key": "conejab", "name": "Cone Jab", "type": "melee", "basic": true, "dmg": 31, "cd": 1.1, "range": 54},
+			{"key": "rallycry", "name": "Rally Cry", "type": "allybuff", "targetType": "ally", "shieldPct": 0.08, "dur": 2.5, "cd": 9.0},   # rival fans shield their squad — focus the cones first
+		],
+	},
+	"away_blocker": {
+		"name": "Visiting Blocker", "sport": "", "mob": true, "rig": true, "model": "foam_dummy",
+		"skins": ["foam_dummy2", "foam_dummy"], "h": 3.3,
+		"lane": 0, "color": "#3D5A99", "recolor": true,
+		"stats": {"PWR": 46, "PRE": 28, "SPD": 32, "END": 52, "INS": 22, "CLU": 18},
+		"abilities": [
+			{"key": "shoulderset", "name": "Shoulder Set", "type": "melee", "basic": true, "dmg": 38, "cd": 1.35, "range": 60, "cast": 0.3},
+			{"key": "pancakeblock", "name": "Pancake Block", "type": "dashAttack", "dmg": 34, "cd": 7.0, "dist": 150, "cast": 0.35, "knockback": 55},
+		],
+	},
+	"line_judge": {
+		"name": "Line Judge", "sport": "", "mob": true, "model": "shooting_dummy",
+		"skins": ["shooting_dummy2", "shooting_dummy"], "anim": "turret", "h": 3.2,
+		"lane": 2, "color": "#46557A", "recolor": true, "stationary": true,
+		"stats": {"PWR": 42, "PRE": 40, "SPD": 8, "END": 36, "INS": 26, "CLU": 18},
+		"abilities": [
+			{"key": "penaltyshot", "name": "Penalty Shot", "type": "projectile", "basic": true, "dmg": 35, "cd": 1.3, "range": 290, "speed": 410},
+			{"key": "flagthrow", "name": "Flag Throw", "type": "projectile", "dmg": 30, "cd": 6.5, "range": 300, "speed": 380, "slow": {"amt": 0.25, "dur": 1.2}},
+		],
+	},
 	# --- gameplay-length P3b (roster remix, elites): new ELITE mob defs reusing existing GLBs (recolored) + only
 	# AI-proven/verified ability types (incl. mob support via AI.support_tick). Seeded into the Camp Circuit + Drill.
 	"iron_sled": {

@@ -4831,7 +4831,7 @@ func _build_admin_panel() -> void:
 		["Character", [["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}]], 2],
 		["Items", [["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}]], 2],
 		["Survival", [["God Mode", "god", {}], ["Heal", "heal", {}]], 2],
-		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}]], 4],
+		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}], ["AW1", "goto", {"map": "away_1"}], ["AW2", "goto", {"map": "away_2"}]], 4],
 		["Mobs", [["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}]], 3],
 	]
 	for grp in groups:
@@ -6416,6 +6416,8 @@ func _zone_name(map: String) -> String:
 		"glitchyard_3": return "Glitchyard · Impact Lanes"
 		"glitchyard_4": return "Glitchyard · Target Court"
 		"glitchyard_5": return "Glitchyard · Command Tower"
+		"away_1": return "Away Games · Rival Practice Field"
+		"away_2": return "Away Games · Visitors' Gauntlet"
 		"arena": return "Arena"
 		"camp": return "Camp Circuit · Proving Room"
 		"camp_b": return "Camp Circuit · The Gauntlet"

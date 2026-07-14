@@ -92,6 +92,7 @@ const RESIDENT_ULT_LOCK := 1.0e9                 # sentinel cooldown that never 
 # --- difficulty-pass v1: gate the first boss (Head Coach Arena) on real progression so a fresh char + bots can't cheese it ---
 const BOSS_GATE_LEVEL := 16                       # must be at least this level to enter GY_BOSS (tunable)
 const BOSS_GATE_IP := 800                         # AND at least this aggregate equipped item-power / gear score (tunable; ~top of the fresh-quester band, just below a full-rare set)
+const AWAY_GATE_LEVEL := 8                        # Phase 8: the Away Circuit opens once the Yard's on-ramp is outgrown (visible-but-locked, like boss_ready)
 const HIDDEN_GATES := ["secret_key", "all_quests"]   # gated portals HIDDEN in the snapshot; boss_ready stays VISIBLE-but-locked (a known goal, not a surprise)
 const GATE_PROMPT_COOLDOWN_MS := 4000             # one "sealed pad" prompt per this interval while loitering on a locked gated pad
 const RESIDENT_ASSIST_RANGE := 280.0  # a resident's kill credits a player within this range of the mob
@@ -3368,9 +3369,10 @@ func _check_portals() -> void:
 						break                          # locked → inert (no teleport); P3 offers the purchase on proximity
 					continue                          # Camp: walking onto the pad only opens the client selector.
 				if portal.has("gate") and not _portal_unlocked(pid, str(portal["gate"])):
-					if str(portal["gate"]) == "boss_ready" and now >= int(_gate_prompt_next.get(pid, 0)) and net != null:   # difficulty-pass v1: tell the player WHY the visible pad is sealed (throttled, existing recv_chat RPC)
+					var why := _gate_locked_msg(str(portal["gate"]))   # tell the player WHY the visible pad is sealed (throttled; "" = a hidden gate, stays silent). Generalized from boss_ready-only in Phase 8.
+					if why != "" and now >= int(_gate_prompt_next.get(pid, 0)) and net != null:
 						_gate_prompt_next[pid] = now + GATE_PROMPT_COOLDOWN_MS
-						net.recv_chat.rpc_id(pid, "SYSTEM", "The Head Coach Arena is sealed — reach level %d and gear score %d to enter." % [BOSS_GATE_LEVEL, BOSS_GATE_IP])
+						net.recv_chat.rpc_id(pid, "SYSTEM", why)
 					continue                          # gated + locked — no teleport (secret-type gates are also hidden in the snapshot)
 				# leaving an active Drill via the exit → END the run (bank the score + reward), not a bare teleport
 				if str((_instances.get(s["map"], {}) as Dictionary).get("mode", "")) == "drill" and bool((_instances.get(s["map"], {}) as Dictionary).get("active", false)):
@@ -3401,7 +3403,20 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 		"boss_ready":                            # difficulty-pass v1: the first boss needs real progression — level AND gear score
 			var s = _session.get(pid, {})
 			return int(s.get("level", 1)) >= BOSS_GATE_LEVEL and int(s.get("item_power", 0)) >= BOSS_GATE_IP
+		"away_gate":                             # Phase 8: the Away Circuit — level only (the biome IS the gear path)
+			return int(_session.get(pid, {}).get("level", 1)) >= AWAY_GATE_LEVEL
 	return true
+
+# Why a visible-but-locked pad is sealed, for the throttled on-approach prompt ("" = stay silent — the
+# HIDDEN_GATES pads never render, so they never need an explanation). Phase 8 generalized this from the
+# boss_ready-only branch so every new gate explains itself.
+func _gate_locked_msg(gate: String) -> String:
+	match gate:
+		"boss_ready":
+			return "The Head Coach Arena is sealed — reach level %d and gear score %d to enter." % [BOSS_GATE_LEVEL, BOSS_GATE_IP]
+		"away_gate":
+			return "The Away Games start at level %d — finish your Glitchyard training first." % AWAY_GATE_LEVEL
+	return ""
 
 # per-player portal list for the snapshot: gated portals the player hasn't unlocked are HIDDEN (the secret
 # zone's entrance doesn't render until you've earned it).
@@ -3482,7 +3497,7 @@ func _award_kills() -> void:
 				continue
 			if victim.get("objective", false) and _is_instance(str(mapname)):   # the Circuit gatekeeper died → complete the run
 				_on_circuit_clear(str(mapname))                # (idempotent; instance mobs don't respawn so it fires once)
-			var gy := str(mapname).begins_with("glitchyard")   # the reward loop: Practice Tokens drop in the Glitchyard
+			var gy := str(mapname).begins_with("glitchyard") or str(mapname).begins_with("away")   # the reward loop: Practice Tokens drop in the Glitchyard + the Away Circuit (Phase 8, owner-approved token extension)
 			# who gets credit? A real player who landed the blow — OR, when a POLITE AI resident finished a mob,
 			# the nearest engaged player (helping never robs you). The RUDE resident (+ unclaimed kills) → nobody.
 			var credit_pid := -1
@@ -4320,6 +4335,10 @@ const BOUNTY_DAILY := {
 	"d_gy5":      {"name": "Tower Patrol",   "kind": "kill",    "match": {"map": "glitchyard_5"},             "count": 15, "desc": "Defeat 15 in the Command Tower (GY5).",      "rewards": {"credits": 700, "pages": 25}},
 	"d_gy5elite": {"name": "Command Cull",   "kind": "kill",    "match": {"map": "glitchyard_5", "tier": "elite"}, "count": 5, "desc": "Defeat 5 Command Tower elites (GY5).",  "rewards": {"tokens": 30, "pages": 35}},
 	"d_circuit":  {"name": "Circuit Duty",   "kind": "circuit", "min_tier": 1,                                "count": 3,  "desc": "Clear the Camp Circuit 3 times.",           "rewards": {"credits": 600, "pages": 60}},
+	# Phase 8 (the Away Circuit): direction into the new band — server-only rows, re-aimable with zero client
+	# re-export. min_level hides them from characters the away_gate would refuse anyway (view-filter only).
+	"d_roadgame": {"name": "Road Patrol",    "kind": "kill",    "match": {"map": "away_1"},                   "count": 15, "min_level": 8, "desc": "Defeat 15 on the Rival Practice Field.",     "rewards": {"credits": 650, "tokens": 25}},
+	"d_gauntlet": {"name": "Gauntlet Runner","kind": "kill",    "match": {"map": "away_2", "tier": "elite"},  "count": 4,  "min_level": 8, "desc": "Defeat 4 Visitors' Gauntlet elites.",        "rewards": {"tokens": 30, "pages": 30}},
 	"d_drill":    {"name": "Drill Grind",    "kind": "drill",   "wave": 6,                                    "count": 1,  "desc": "Reach wave 6 of a Two-Minute Drill.",       "rewards": {"credits": 500, "pages": 45}},
 }
 # weekly pool — one bigger chase (resets on the UTC week, same Thursday-00:00 boundary as the Camp affix).
@@ -4429,6 +4448,11 @@ func _bounty_meta(pid: int) -> Array:
 	var out := []
 	for id in _active_bounty_ids():
 		var def := _bounty_def(id)
+		# Phase 8: rows carrying a min_level are hidden from characters below it (the away rows point into a
+		# level-gated biome a sub-8 char can't enter — showing an unreachable daily is just noise/frustration).
+		# The global rotation stays deterministic; only this per-player VIEW filters.
+		if int(def.get("min_level", 0)) > int(_session.get(pid, {}).get("level", 1)):
+			continue
 		var st := _bounty_touch(pid, id)
 		var count := int(def.get("count", 1))
 		out.append({"id": id, "name": str(def.get("name", id)), "desc": str(def.get("desc", "")),

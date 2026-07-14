@@ -164,6 +164,41 @@ const QUESTS := {
 		"objective": {"type": "kill", "match": {"map": "glitchyard_boss", "tier": "boss"}, "count": 1},
 		"rewards": {"xp": 6500, "credits": 5000, "pages": 35, "dye": "obsidian"},
 	},
+
+	# --- Phase 8: the Away Circuit chain (docs/phase8-away-circuit-plan.md). The FIRST quest deliberately has
+	# prereq "" — before this, every mid-game quest chained off headcoach_down (L16+IP800-locked), which is
+	# exactly why the 9-16 band was a questless desert. XP is sized to ~35-40% of the 8→13 band (the required
+	# kills' own XP carries the rest) — deliberately UNDER the GY chain's overshoot so zones aren't skipped
+	# (the stab_away numeric pass computes and pins this). No gear items yet: quest gear enters in S2 with the
+	# IP800 numeric pass (explicit ilvl, not the legacy shape that _grant_quest_item normalizes to ~IP 27).
+	"away1_roadgame": {
+		"name": "Road Game",
+		"desc": "The season goes on the road. Take the Away Games gate (north side of Home) and beat 12 of the rival's trainees on the Rival Practice Field.",
+		"min_level": 8, "prereq": "",
+		"objective": {"type": "kill", "match": {"map": "away_1"}, "count": 12},
+		"rewards": {"xp": 420, "credits": 260, "tokens": 20},
+	},
+	"away1_blocker": {
+		"name": "The Lot Marshal",
+		"desc": "Their enforcer — a Tackle Bag Brute — runs the east lot. Put it down.",
+		"min_level": 9, "prereq": "away1_roadgame",
+		"objective": {"type": "kill", "match": {"map": "away_1", "tier": "elite"}, "count": 1},
+		"rewards": {"xp": 520, "credits": 320, "tokens": 25},
+	},
+	"away2_gauntlet": {
+		"name": "Visitors' Gauntlet",
+		"desc": "Push into the Visitors' Gauntlet and take down 15 of the rival squad.",
+		"min_level": 10, "prereq": "away1_blocker",
+		"objective": {"type": "kill", "match": {"map": "away_2"}, "count": 15},
+		"rewards": {"xp": 650, "credits": 420, "tokens": 25},
+	},
+	"away2_medics": {
+		"name": "Cut the Support",
+		"desc": "Their Field Medic keeps the line standing and their Blocking Sled anchors it. Bring down 2 of the Gauntlet's elites.",
+		"min_level": 11, "prereq": "away2_gauntlet",
+		"objective": {"type": "kill", "match": {"map": "away_2", "tier": "elite"}, "count": 2},
+		"rewards": {"xp": 800, "credits": 500, "tokens": 35},
+	},
 }
 
 # stable display/iteration order (also the chain order). ORDER is the SECRET-BOSS GATE list (the server's
@@ -175,13 +210,20 @@ const ORDER := ["gy1_intro", "gy2_push", "gy2_brute", "gy3_clear", "gy3_sled",
 const MIDGAME_ORDER := ["mid1_proving", "mid2_circuit", "mid3_command", "mid4_detail", "mid5_respec",
 	"mid6_tower", "mid7_grind", "mid8_veteran", "mid9_legend"]
 
+# Phase 8: the Away Circuit chain — grows per slice (S2 appends away_3/boss quests). GOVERNANCE RULE:
+# nothing may EVER gate on AWAY_ORDER completion (no _all_quests_done-style iteration, no portal gate, no
+# reward check) — that is what keeps mid-slice appends retroactively safe. Gate on individual quest ids
+# (e.g. a specific boss quest) if a gate is ever needed. (The ORDER lesson, above.)
+const AWAY_ORDER := ["away1_roadgame", "away1_blocker", "away2_gauntlet", "away2_medics"]
+
 static func order() -> Array:
 	return ORDER
 
-# every quest in display order (original chain then the mid-level spine) — for the CLIENT log/tracker/giver
-# only. The server keeps using ORDER for the gate and get_quest()/kill_matches() for progress.
+# every quest in display order (original chain, the Away Circuit, then the mid-level spine) — for the
+# CLIENT log/tracker/giver only. The server keeps using ORDER for the gate and get_quest()/kill_matches()
+# for progress. (The away chain sits between the two: it's the 9-16 bridge from the Yard to the mid spine.)
 static func display_order() -> Array:
-	return ORDER + MIDGAME_ORDER
+	return ORDER + AWAY_ORDER + MIDGAME_ORDER
 
 static func get_quest(qid: String) -> Variant:
 	return QUESTS.get(qid, null)

@@ -19,6 +19,10 @@ const GY_BOSS := "glitchyard_boss"          # the Head Coach arena (Phase 4) —
 const GY_SECRET := "glitchyard_secret"      # the SECRET boss arena (Head Coach PRIME) — gated portal in GY_BOSS,
                                             # only revealed once you've completed EVERY quest (incl. beating Boss1)
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
+# THE AWAY CIRCUIT (gameplay-length Phase 8, plan: docs/phase8-away-circuit-plan.md) — the second biome:
+# an "away games" chain for the 9-16 band, branched off HOME's north edge behind the away_gate (lvl 8).
+const AWAY1 := "away_1"                     # Rival Practice Field — lvl 9-10 + the tackle_brute elite
+const AWAY2 := "away_2"                     # Visitors' Gauntlet  — lvl 12-13, healer-camp lesson (field_medic) + the sled
 # INSTANCE TEMPLATES (endgame P0+). Never created as a static shared world — the server spins up a private
 # per-party copy on demand (world key "<template>#<owner>"), scales it, and tears it down when empty. The
 # template's MAPS/MOBS/PORTALS/OBSTACLES/DECALS entries below are the blueprint each instance is built from.
@@ -42,6 +46,8 @@ const GY5_SPAWN := Vector2(220, 550)
 const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well clear of the central boss camp
 const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of Head Coach PRIME
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
+const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Away Games portal drops you here (west, clear of camps)
+const AWAY2_SPAWN := Vector2(200, 500)
 const CAMP_SPAWN := Vector2(180, 420)        # Camp Circuit instance: arrive far west, clear of the camp
 const CAMP_B_SPAWN := Vector2(180, 440)      # Circuit v2 "The Gauntlet" — arrive far west
 const CAMP_C_SPAWN := Vector2(180, 470)      # Circuit v2 "The Scrimmage" — arrive far west
@@ -63,6 +69,9 @@ const MAPS := {
 	GY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYB_SPAWN},
 	GY_SECRET: {"type": "combat", "w": 1440, "h": 940, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYS_SPAWN},
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
+	# Phase 8 — the Away Circuit chain (same combat profile as the Glitchyard zones)
+	AWAY1: {"type": "combat", "w": 1700, "h": 950,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY1_SPAWN},
+	AWAY2: {"type": "combat", "w": 1850, "h": 1000, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY2_SPAWN},
 	# instance TEMPLATE (P0 = a single proving room; P1 expands it into the condensed multi-room Circuit)
 	CAMP:  {"type": "combat", "w": 1500, "h": 850,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": CAMP_SPAWN},
 	CAMP_B: {"type": "combat", "w": 1600, "h": 900, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": CAMP_B_SPAWN},
@@ -100,6 +109,9 @@ const PORTALS := {
 		{"x": 900.0,  "y": 200.0, "instance": CAMP, "label": "▶ Camp Circuit"},
 		# walk-on instance entry (`auto`) → drop straight into a fresh Two-Minute Drill (no tier selection)
 		{"x": 1180.0, "y": 200.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
+		# Phase 8: the Away Circuit (second biome) — visible-but-locked until level 8 (away_gate; the server
+		# explains the requirement on approach, same UX as boss_ready).
+		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "away_gate", "label": "▶ Away Games"},
 		# south anchors: the PvP Arena (fronting a stadium) + your private Locker Room (fronting a house).
 		{"x": 720.0,  "y": 1040.0, "to": ARENA, "tx": 200.0,  "ty": 400.0, "label": "▶ Arena"},
 		# Builder Mode: walk on to enter your PRIVATE Locker Room. Per-CHARACTER instance (keyed by char_id). The
@@ -144,6 +156,21 @@ const PORTALS := {
 	],
 	ARENA: [
 		{"x": 110.0,  "y": 400.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "▶ Home Base"},
+	],
+	# Phase 8 — the Away Circuit. away_2's FORWARD pad (→ away_3) is deliberately withheld until S2 ships the
+	# destination (plan §hardening: no dangling pads).
+	AWAY1: [
+		{"x": 120.0,  "y": 475.0,  "to": HOME,  "tx": 900.0,  "ty": 780.0, "label": "◀ Home Base"},
+		# the interior pad ALSO carries away_gate: gate_for_map() derives a zone's login re-validation gate
+		# from its inbound pads, so without this a tampered last_map="away_2" restore would skip the level-8
+		# check entirely (adversarial-review find). Zero UX cost — anyone standing here already passed it.
+		# S2 rule: every deeper away/finals pad carries its chain's gate for the same reason.
+		{"x": 1620.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "away_gate", "label": "▶ Visitors' Gauntlet"},
+	],
+	AWAY2: [
+		# back-drop lands mid away_1 (1080,475), WEST of its tackle_brute elite @1500 (> AGGRO_RANGE 320) —
+		# same convention as the GY3→GY2 drop (TP grace blocks re-port, not aggro).
+		{"x": 120.0,  "y": 500.0,  "to": AWAY1, "tx": 1080.0, "ty": 475.0, "label": "◀ Rival Practice Field"},
 	],
 	# Camp instance exit (resolved by TEMPLATE — every "camp#<owner>" instance shares this exit back to home).
 	CAMP: [
@@ -223,6 +250,27 @@ const MOBS := {
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 700.0, "y": 690.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 360.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 580.0},
+	],
+	# Phase 8 — the Away Circuit camps (docs/phase8-away-circuit-plan.md). Same grammar as the GY chain:
+	# lane-pair camps west→east with a level gradient, elites anchoring the east by the forward pad.
+	AWAY1: [  # Rival Practice Field — the 9-10 on-ramp behind the away_gate
+		{"class": "rally_cone",   "level": 9,  "tier": "minion", "x": 520.0,  "y": 330.0},
+		{"class": "rally_cone",   "level": 9,  "tier": "minion", "x": 520.0,  "y": 620.0},
+		{"class": "foam_dummy",   "level": 9,  "tier": "minion", "x": 960.0,  "y": 330.0},
+		{"class": "tire_dummy",   "level": 10, "tier": "minion", "x": 960.0,  "y": 620.0},
+		# the elite guard sits 200 from the forward pad (the shipped-grammar minimum — jukeable, not a
+		# mandatory hit) and 340 from away_2's back-drop @1080 (> AGGRO 320).
+		{"class": "tackle_brute", "level": 10, "tier": "elite",  "x": 1420.0, "y": 475.0},   # the "Lot Marshal" (nameplate: Tackle Bag Brute)
+	],
+	AWAY2: [  # Visitors' Gauntlet — first healer-camp lesson: the medic sits IN its lane camp's pull
+		# (260 from the blocker < AGGRO 320, the CAMP-instance joint-pull convention) so the lesson always
+		# fires — engage the lane and the medic wakes with it; focus the healer or the fight drags.
+		{"class": "away_blocker",    "level": 12, "tier": "minion", "x": 520.0,  "y": 350.0},
+		{"class": "whistle_cone",    "level": 12, "tier": "minion", "x": 520.0,  "y": 650.0},
+		{"class": "line_judge",      "level": 13, "tier": "minion", "x": 980.0,  "y": 350.0},
+		{"class": "away_blocker",    "level": 12, "tier": "minion", "x": 980.0,  "y": 650.0},
+		{"class": "field_medic",     "level": 12, "tier": "elite",  "x": 1240.0, "y": 650.0},
+		{"class": "sled_juggernaut", "level": 13, "tier": "elite",  "x": 1620.0, "y": 420.0},   # east anchor by the (S2) forward pad
 	],
 	# Camp Circuit instance TEMPLATE roster (P0 proving room — a spread of minions + one elite gatekeeper by
 	# the exit; P1 replaces this with the condensed multi-room circuit + Intensity scaling). mobLevel/tier are
@@ -392,6 +440,17 @@ const OBSTACLES := {
 		{"x": 1020.0, "y": 470.0, "prop": "barrier", "len": 160.0, "yaw": 1.5708},   # E
 		{"x": 700.0,  "y": 200.0, "prop": "rack", "len": 180.0, "yaw": 0.0},          # N
 		{"x": 700.0,  "y": 740.0, "prop": "rack", "len": 180.0, "yaw": 0.0},          # S
+	],
+	# Phase 8 — Away Circuit cover, mirroring the GY gradient (light on-ramp → heavier lanes).
+	AWAY1: [
+		{"x": 740.0,  "y": 330.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 740.0,  "y": 620.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
+		{"x": 1230.0, "y": 475.0, "prop": "rack", "len": 120.0, "yaw": 1.5708},
+		{"x": 1420.0, "y": 330.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1420.0, "y": 620.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the Lot Marshal
+	],
+	AWAY2: [
+		{"x": 740.0,  "y": 350.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 740.0,  "y": 650.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},
+		{"x": 1180.0, "y": 500.0, "prop": "rack", "len": 130.0, "yaw": 1.5708},
+		{"x": 1620.0, "y": 270.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1620.0, "y": 570.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the sled
 	],
 	CAMP: [  # proving-room cover: mid barriers split the lanes + bags flank the elite gatekeeper
 		{"x": 720.0,  "y": 300.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 720.0, "y": 560.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},

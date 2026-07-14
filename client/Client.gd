@@ -572,10 +572,13 @@ const GROUND_TEX_DIR := "res://models/meshy/props/ground/"
 
 func _make_field_material(map: String) -> StandardMaterial3D:
 	var scrap := map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL
-	var tile := 7.0 if scrap else 5.0                     # world-units per texture repeat
+	var away := map.begins_with("away")                   # Phase 8: the Away Circuit reads as raked rival clay
+	var tile := 7.0 if (scrap or away) else 5.0           # world-units per texture repeat
 	var fm := StandardMaterial3D.new()
-	fm.albedo_texture = load(GROUND_TEX_DIR + ("scrapyard_albedo.png" if scrap else "turf_albedo.png"))
-	fm.albedo_color = (Color(0.74, 0.74, 0.72) if scrap else Color(0.74, 0.88, 0.66))   # keep each zone's colour identity
+	var tex := "rival_clay_albedo.png" if away else ("scrapyard_albedo.png" if scrap else "turf_albedo.png")
+	fm.albedo_texture = load(GROUND_TEX_DIR + tex)
+	var tint := Color(0.86, 0.78, 0.72) if away else (Color(0.74, 0.74, 0.72) if scrap else Color(0.74, 0.88, 0.66))
+	fm.albedo_color = tint                                # keep each zone's colour identity
 	fm.uv1_scale = Vector3(_aw() * SCALE / tile, _ah() * SCALE / tile, 1.0)
 	fm.roughness = 0.96
 	return fm

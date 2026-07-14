@@ -464,10 +464,13 @@ static func sim_tick(state, dt) -> void:
 					is_support = true
 					break
 			if is_support:
+				var mob_local: bool = bool(c.get("mob", false))   # Phase 8: mob heal-seek is camp-local (see AI.support_tick)
 				var blind: Variant = null
 				var blind_frac = 1.0e9
 				for a in fighters:
 					if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"] and a["hp"] / a["maxHP"] < 0.5 and not Geom.has_los(state, f, a):
+						if mob_local and Geom.dist(f, a) > 320.0:
+							continue                              # never walk out of the camp toward a far ally (camp-merge bug)
 						var fr = a["hp"] / a["maxHP"]
 						if fr < blind_frac:
 							blind_frac = fr

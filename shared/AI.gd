@@ -199,9 +199,15 @@ static func solo_support_tick(state, f) -> bool:
 
 static func support_tick(state, f, dt) -> bool:
 	var c = GameData.CLASSES[f["classId"]]
+	# Phase 8: a MOB's support is camp-local (≤ the 320 aggro radius) — in a big static zone an unbounded
+	# ally scan let a support mob heal/shield ACROSS camps (and heal-seek walk between them, merging pulls).
+	# Players are exempt (checked first, no dist call) so the tuned player sim stays byte-identical.
+	var mob_local: bool = bool(c.get("mob", false))
 	var allies = []
 	for a in state["fighters"]:
 		if Combat.is_ally(state, f, a) and a["alive"] and a["id"] != f["id"]:
+			if mob_local and Geom.dist(f, a) > 320.0:
+				continue
 			allies.append(a)
 	if allies.is_empty(): return solo_support_tick(state, f)
 

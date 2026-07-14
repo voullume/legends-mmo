@@ -61,3 +61,11 @@ build(
     octs=[(1,0,0.9,0.5),(0,1,0.2,0.5),(2,1,1.4,0.35),(1,2,2.3,0.35),(3,3,0.6,0.22),
           (4,2,1.8,0.18),(2,5,0.9,0.15),(6,5,2.1,0.10),(8,7,0.4,0.07),(11,9,1.6,0.05)],
     dark=(58,55,50), light=(126,120,110), grain=0.34, tint_jitter=14.0)
+
+# Rival clay (Phase 8, the Away Circuit): raked ballpark clay — warm red-brown mottle with faint
+# drag-line stripes (the groundskeeper's rake) + a dusty speckle. Reads instantly "not home turf".
+build(
+    os.path.join(OUT, "rival_clay_albedo.png"),
+    octs=[(1,0,0.5,0.5),(0,1,1.7,0.5),(2,1,0.8,0.32),(1,2,1.9,0.32),(3,2,2.6,0.2),
+          (2,4,0.4,0.16),(5,4,1.2,0.11),(7,5,2.0,0.08),(9,8,0.9,0.06)],
+    dark=(122,64,44), light=(188,120,84), stripe_amp=0.045, stripe_freq=6.0, grain=0.30, tint_jitter=10.0)
