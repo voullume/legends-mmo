@@ -135,6 +135,13 @@ var _decal_root: Node3D = null             # purely-visual decals (drill rings +
 var _decals_sig := ""
 var _ground: MeshInstance3D                # floor planes, resized when the arena (map) size changes
 var _field: MeshInstance3D
+# world-depth pass (2026-07-15, owner-requested: maps read as floating flat slabs): a vast horizon plane +
+# a ring of perimeter hills OUTSIDE the playable bounds. Pure render — the sim stays flat (the verticality
+# gate is closed) and nothing raised is reachable, so no cosmetic-lie surface.
+var _horizon: MeshInstance3D
+var _rim_root: Node3D
+var _env: Environment
+var _rim_sig := ""                          # map signature the rim was last built for
 var _arena_sig := ""
 var _field_theme_sig := ""                 # current map name the field texture/tint is themed for
 var _proj_pool := []
@@ -593,6 +600,95 @@ func _apply_field_theme() -> void:
 		return
 	_field_theme_sig = map
 	_field.material_override = _make_field_material(map)
+	_theme_depth(map)                             # world-depth pass: horizon/apron/fog follow the biome
+	_build_rim(map)
+
+# ---- world-depth pass (client-only; the sim stays flat — the raised rim sits OUTSIDE walkable bounds) ----
+# Per-biome palette: [horizon, apron(ground), hills, fog/bg]. Keeps each family's identity at the edges
+# instead of the one-green-apron-in-a-void look that read as a floating slab.
+func _depth_palette(map: String) -> Array:
+	if map.begins_with("away"):
+		return [Color(0.12, 0.075, 0.055), Color(0.17, 0.11, 0.08), Color(0.30, 0.17, 0.11), Color(0.09, 0.065, 0.055)]
+	if map.begins_with("finals"):
+		return [Color(0.055, 0.055, 0.085), Color(0.10, 0.10, 0.13), Color(0.11, 0.11, 0.17), Color(0.05, 0.055, 0.09)]
+	if map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL:
+		return [Color(0.085, 0.08, 0.075), Color(0.13, 0.125, 0.115), Color(0.19, 0.18, 0.16), Color(0.075, 0.075, 0.085)]
+	return [Color(0.07, 0.10, 0.07), Color(0.10, 0.13, 0.10), Color(0.16, 0.24, 0.13), Color(0.06, 0.085, 0.075)]
+
+func _theme_depth(map: String) -> void:
+	var pal := _depth_palette(map)
+	if _horizon != null:
+		(_horizon.material_override as StandardMaterial3D).albedo_color = pal[0]
+	if _ground != null:
+		(_ground.material_override as StandardMaterial3D).albedo_color = pal[1]
+	if _env != null:
+		_env.fog_light_color = pal[3]
+		_env.background_color = pal[3]
+		_env.fog_density = 0.006                  # slightly denser: the rim fades into the horizon, not a hard edge
+
+# A ring of squashed-sphere hills just past the ground apron — irregular via a deterministic per-map LCG
+# (stable across rebuilds, no rng stream contact). Nothing here is reachable: the sim clamps to the arena.
+func _build_rim(map: String) -> void:
+	if _rim_root == null:
+		return
+	var sig := "%s|%dx%d" % [map, int(_aw()), int(_ah())]
+	if sig == _rim_sig:
+		return
+	_rim_sig = sig
+	for c in _rim_root.get_children():
+		c.queue_free()
+	var pal := _depth_palette(map)
+	var hw := _aw() * SCALE / 2.0 + 16.0          # ring half-extent: past the 12-unit apron edge
+	var hh := _ah() * SCALE / 2.0 + 16.0
+	var per := 2.0 * (hw + hh)
+	# TWO layered rings: a near rim + a taller, darker far range — reads as rolling terrain, not sausages.
+	# Perf (review): ONE shared low-poly sphere mesh + 3 quantized tint materials per ring — background
+	# decor doesn't get 4k-tri spheres and per-hill materials.
+	var rim_mesh := SphereMesh.new()
+	rim_mesh.radius = 1.0
+	rim_mesh.height = 2.0
+	rim_mesh.radial_segments = 16
+	rim_mesh.rings = 8
+	var ring_mats := []
+	for ring0 in 2:
+		var base: Color = pal[2].darkened(0.28 if ring0 == 1 else 0.0)
+		var row := []
+		for k in 3:
+			var m3 := _mat(base.lightened(float(k) * 0.05))
+			m3.roughness = 1.0
+			row.append(m3)
+		ring_mats.append(row)
+	for ring in 2:
+		var n := clampi(int(per / (8.0 if ring == 0 else 13.0)), 14, 44)
+		for i in n:
+			var t := (float(i) + (0.5 if ring == 1 else 0.0)) / float(n) * per   # offset the far ring's phase
+			var px: float
+			var pz: float
+			if t < hw * 2.0:                          # north edge
+				px = -hw + t; pz = -hh
+			elif t < hw * 2.0 + hh * 2.0:             # east edge
+				px = hw; pz = -hh + (t - hw * 2.0)
+			elif t < hw * 4.0 + hh * 2.0:             # south edge
+				px = hw - (t - hw * 2.0 - hh * 2.0); pz = hh
+			else:                                     # west edge
+				px = -hw; pz = hh - (t - hw * 4.0 - hh * 2.0)
+			# stateless per-hill variation: a pure hash of (map, ring, i, salt) — deterministic, rng-free
+			var h1 := float(absi(hash("%s|%d|%d|a" % [map, ring, i])) % 10000) / 10000.0
+			var h2 := float(absi(hash("%s|%d|%d|b" % [map, ring, i])) % 10000) / 10000.0
+			var h3 := float(absi(hash("%s|%d|%d|c" % [map, ring, i])) % 10000) / 10000.0
+			var h4 := float(absi(hash("%s|%d|%d|d" % [map, ring, i])) % 10000) / 10000.0
+			var r := (5.0 + h1 * 6.0) if ring == 0 else (11.0 + h1 * 10.0)
+			var squash := (0.20 + h2 * 0.14) if ring == 0 else (0.26 + h2 * 0.16)
+			var out := (2.0 + h3 * 5.0) if ring == 0 else (16.0 + h3 * 12.0)
+			var mag := Vector2(px, pz).length()
+			var dir := Vector2(px, pz) / maxf(mag, 0.001)
+			var hill := MeshInstance3D.new()
+			hill.mesh = rim_mesh                          # shared unit sphere; size rides the node scale
+			hill.scale = Vector3(r * (1.0 + h4 * 0.6), r * squash, r * (1.0 + h1 * 0.6))
+			hill.position = Vector3(px + dir.x * (out + r * 0.4), -0.12, pz + dir.y * (out + r * 0.4))
+			hill.material_override = ring_mats[ring][int(h4 * 2.999)]
+			hill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_rim_root.add_child(hill)
 
 # A held sport prop for the class, or null. The Batter carries a bat (a tapered cylinder); _spawn pins
 # it to the RightHand bone so it tracks the swing. (Balls are intentionally omitted — a ball stuck in
@@ -1088,7 +1184,21 @@ func _build_world() -> void:
 	env.fog_density = 0.004
 	env.fog_light_color = Color(0.06, 0.08, 0.12)
 	we.environment = env
+	_env = env                                  # world-depth pass re-tints fog/bg per biome
 	add_child(we)
+
+	# the horizon: a vast under-plane so the world runs out into the fog, not into a void edge
+	var hz := MeshInstance3D.new()
+	var hzp := PlaneMesh.new()
+	hzp.size = Vector2(600.0, 600.0)
+	hz.mesh = hzp
+	hz.position.y = -0.15
+	hz.material_override = _mat(Color(0.07, 0.10, 0.07))
+	hz.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(hz)
+	_horizon = hz
+	_rim_root = Node3D.new()                    # the perimeter hills (built per map in _build_rim)
+	add_child(_rim_root)
 
 	# ground + field
 	var ground := MeshInstance3D.new()

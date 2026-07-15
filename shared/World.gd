@@ -385,7 +385,21 @@ const PROP_DIM := {                                  # native GLB footprint (mod
 	"barrier": {"long": 1.91, "depth": 0.69},
 	"rack":    {"long": 1.91, "depth": 0.65},
 	"bag":     {"long": 1.03, "depth": 1.03},         # square → a single round pillar
+	# collision pass-2 review fix: LONG decor models expanded into circle ROWS (a single centered circle
+	# left ~70-80% of each rendered wall walk/shoot-through). Aspect measured from the real GLB AABBs.
+	"championship_arena_wall": {"long": 1.899, "depth": 0.623},
+	"glitchyard_wall":         {"long": 1.898, "depth": 0.523},
+	"spectator_safety_rail":   {"long": 1.899, "depth": 0.335},
+	"straight_cover_barrier":  {"long": 1.899, "depth": 1.115},
 }
+# decal models routed through the row expansion; value = the model's native HEIGHT (Y), so a decal's sim
+# length = long/height × h × 20 (the client scales props uniformly to h; SCALE 0.05 → ×20 sim per world).
+const DECAL_PANELS := {
+	"championship_arena_wall": 0.662, "glitchyard_wall": 0.545,
+	"spectator_safety_rail": 0.857, "straight_cover_barrier": 0.321,
+}
+const GATE_LONG_H := 1.32                             # player_tunnel_gate: an ARCH — two solid posts, a
+const GATE_POST_R_H := 2.2                            # walkable opening between (native 1.899L/1.439H)
 const OBSTACLE_PAD := 14.0                            # AI.separation blocks fighters at circle r + this
 
 # Expand prop panels → collision circles hugging each panel's rectangle. r is set so the block boundary
@@ -440,10 +454,24 @@ const PROP_FOOTPRINT := {
 	# admin-only Meshy landmarks (see client DECO_PROPS). quest_board is a THIN board → footprint sized to its
 	# depth (not width) so players can walk up to its face; the others are solid boxy structures.
 	"gear_forge": 9.5, "sideline_stand": 8.0, "power_core": 7.5, "quest_board": 2.8,
-	# Phase-8 S5 (batch_006/007): SOLID landmarks get collision; benches/chests/capsules stay walk-through
-	# set-dressing (no row = no circle). Footprints follow the shipped grammar above (boxy ≈ 3.5-9.5).
+	# Phase-8 S5 (batch_006/007): SOLID landmarks get collision. Footprints follow the shipped grammar
+	# above (boxy ≈ 3.5-9.5); r = footprint × the decal's h, clamped 4..130 (collision_from_decals).
 	"championship_fountain": 8.5, "covered_market_stall": 7.0, "vendor_service_kiosk": 5.0,
 	"plaza_light_column": 1.6, "season_reward_vault": 5.5, "portal_anchor": 4.0, "open_salvage_hopper": 5.0,
+	# COLLISION PASS-2 (owner-requested 2026-07-15): the original decor pass shipped everything footprint-0
+	# ("optional Pass-2") and players walked through walls/stands/kiosks. Every PHYSICAL prop now collides;
+	# only flat flora (flowers/grass) stays walk-through. These circles join the world obstacle set, so
+	# walls/stands also block shots + LOS — real physics, real cover. (Duel-harness venues are separate:
+	# FORMAT_MODS untouched; re-proven via bal_identity.)
+	# (championship_arena_wall / glitchyard_wall / spectator_safety_rail / straight_cover_barrier ride the
+	#  DECAL_PANELS row expansion; player_tunnel_gate is the two-post arch — none use the single circle.)
+	"arena_service_door": 3.5, "boundary_pylon": 1.8,
+	"bounty_terminal": 2.8, "leaderboard_kiosk": 2.8, "zone_terminal": 2.8,
+	"single_locker": 2.4, "equipment_shelf": 2.6, "sports_ball_rack": 2.4, "championship_trophy": 2.5,
+	"equipment_transport_crate": 3.5, "player_bench": 2.2, "public_plaza_bench": 2.2,
+	"community_team_table": 2.8, "championship_reward_chest": 2.0, "loot_drop_capsule": 2.2,
+	"cable_spool_cart": 3.2, "coolant_pump_station": 4.5, "industrial_ventilation_unit": 4.0,
+	"maintenance_tool_cart": 3.0, "scrap_sports_equipment_pile": 5.0,
 }
 const DECAL_COLLIDE_MIN_R := 4.0
 const DECAL_COLLIDE_MAX_R := 130.0
@@ -452,16 +480,31 @@ const DECAL_COLLIDE_MAX_R := 130.0
 # draws), else the const DECALS fallback, so collision always matches what's visible.
 static func collision_from_decals(map: String) -> Array:
 	var out := []
+	var panels := []                                     # long models → circle-ROW expansion via circles_from
 	for d in _decals_source(map):
 		if not (d is Dictionary) or str(d.get("kind", "")) != "prop":
 			continue
 		var model := str(d.get("model", ""))
-		if not PROP_FOOTPRINT.has(model):
-			continue                                     # flat décor (grass/flowers/…) → no collision
 		var hv = d.get("h", 1.0)
 		var h: float = float(hv) if (hv is float or hv is int) else 1.0
+		var yaw := float(d.get("yaw", 0.0))
+		if DECAL_PANELS.has(model):                      # walls/rails: a row of circles hugging the real length
+			var dimp: Dictionary = PROP_DIM[model]
+			panels.append({"x": float(d.get("x", 0.0)), "y": float(d.get("y", 0.0)), "prop": model,
+				"len": float(dimp["long"]) / float(DECAL_PANELS[model]) * h * 20.0, "yaw": yaw})
+			continue
+		if model == "player_tunnel_gate":                # the arch: two solid POSTS, walkable opening between
+			var glen := GATE_LONG_H * h * 20.0
+			var pr := maxf(GATE_POST_R_H * h, DECAL_COLLIDE_MIN_R)
+			for s in [-1.0, 1.0]:
+				out.append({"x": float(d.get("x", 0.0)) + cos(yaw) * s * (glen / 2.0 - pr),
+					"y": float(d.get("y", 0.0)) + sin(yaw) * s * (glen / 2.0 - pr), "r": pr})
+			continue
+		if not PROP_FOOTPRINT.has(model):
+			continue                                     # flat décor (grass/flowers/…) → no collision
 		var r: float = clampf(float(PROP_FOOTPRINT[model]) * h, DECAL_COLLIDE_MIN_R, DECAL_COLLIDE_MAX_R)
 		out.append({"x": float(d.get("x", 0.0)), "y": float(d.get("y", 0.0)), "r": r})
+	out.append_array(circles_from(panels))
 	return out
 
 # the decal list for a map: the authored JSON if present (what players see), else the const DECALS.

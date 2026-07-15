@@ -450,14 +450,80 @@ func _run() -> void:
 	ok(COMMISSIONER_IP >= ip_low, "IP@22-24: the S4 gate (1200) is above the unlucky floor (%d) — it filters" % ip_low)
 	ok(COMMISSIONER_IP <= int(float(ip_real) * 1.15), "IP@22-24: ...and within reach of the realistic set (%d) — measured, not guessed" % ip_real)
 
+	# ================================================================ COLLISION PASS-2 (world-wide)
+	# Every physical decor prop now carries a collision circle (owner-requested). This sweep proves NO
+	# walkway anywhere is blocked: every portal pad + drop, every spawn, and HOME's service points must
+	# clear every obstacle + decal circle by the AI block margin (r + OBSTACLE_PAD 14, +2 slack).
+	for mp0 in srv._worlds:
+		if srv._is_instance(str(mp0)):
+			continue
+		var circles0: Array = World.circles_from(World.OBSTACLES.get(str(mp0), []))
+		circles0.append_array(World.collision_from_decals(str(mp0)))
+		var pts := []                                          # [label, x, y]
+		var sp0: Vector2 = World.MAPS[mp0]["spawn"]
+		pts.append(["spawn", sp0.x, sp0.y])
+		for p0 in World.PORTALS.get(str(mp0), []):
+			pts.append(["pad:" + str(p0.get("label", "?")), float(p0["x"]), float(p0["y"])])
+		for row0 in World.MOBS.get(str(mp0), []):              # review: camps must not spawn inside a circle
+			pts.append(["camp:" + str(row0["class"]), float(row0["x"]), float(row0["y"])])
+		if str(mp0) == "home":
+			pts.append(["dummy", World.DUMMY_POS.x, World.DUMMY_POS.y])
+			pts.append(["shop", World.SHOP_POS.x, World.SHOP_POS.y])
+			pts.append(["forge", World.FORGE_POS.x, World.FORGE_POS.y])
+			pts.append(["questgiver", World.QUESTGIVER_POS.x, World.QUESTGIVER_POS.y])
+			pts.append(["build_shop", World.BUILD_SHOP_POS.x, World.BUILD_SHOP_POS.y])
+			pts.append(["practice", World.PRACTICE_POS.x, World.PRACTICE_POS.y])
+		for pt in pts:
+			for c0 in circles0:
+				var pd0 := Vector2(float(pt[1]) - float(c0["x"]), float(pt[2]) - float(c0["y"])).length()
+				if pd0 <= float(c0["r"]) + 16.0:
+					ok(false, "pass-2: %s %s (%.0f,%.0f) blocked by a collision circle (r %.0f at %.0f,%.0f)" % [str(mp0), str(pt[0]), float(pt[1]), float(pt[2]), float(c0["r"]), float(c0["x"]), float(c0["y"])])
+		# review: portal DROP points land on the DESTINATION map — sweep them against ITS circles
+		for p0 in World.PORTALS.get(str(mp0), []):
+			if p0.has("to") and srv._worlds.has(str(p0["to"])):
+				var dcirc: Array = World.circles_from(World.OBSTACLES.get(str(p0["to"]), []))
+				dcirc.append_array(World.collision_from_decals(str(p0["to"])))
+				for cd1 in dcirc:
+					var dd1 := Vector2(float(p0["tx"]) - float(cd1["x"]), float(p0["ty"]) - float(cd1["y"])).length()
+					if dd1 <= float(cd1["r"]) + 16.0:
+						ok(false, "pass-2: %s→%s drop (%.0f,%.0f) blocked (r %.0f at %.0f,%.0f)" % [str(mp0), str(p0["to"]), float(p0["tx"]), float(p0["ty"]), float(cd1["r"]), float(cd1["x"]), float(cd1["y"])])
+	ok(true, "pass-2: every pad, drop, spawn, camp + service point on every static map clears all collision circles")
+	# review: WALLS must block along their FULL rendered length (a single circle left ~75% phantom) —
+	# sample each panel-model decal's midpoint and quarter points; each must be inside SOME circle's LOS band
+	for mp1 in ["glitchyard_1", "arena", "away_3", "finals_2"]:
+		var circles1: Array = World.collision_from_decals(str(mp1))
+		for d1 in World._decals_source(str(mp1)):
+			if not (d1 is Dictionary) or str(d1.get("kind", "")) != "prop" or not World.DECAL_PANELS.has(str(d1.get("model", ""))):
+				continue
+			var h1 := float(d1.get("h", 1.0))
+			var dimp1: Dictionary = World.PROP_DIM[str(d1["model"])]
+			var half1: float = float(dimp1["long"]) / float(World.DECAL_PANELS[str(d1["model"])]) * h1 * 20.0 / 2.0
+			var yaw1 := float(d1.get("yaw", 0.0))
+			for frac in [-0.7, -0.35, 0.0, 0.35, 0.7]:
+				var sxp := float(d1["x"]) + cos(yaw1) * half1 * float(frac)
+				var syp := float(d1["y"]) + sin(yaw1) * half1 * float(frac)
+				var covered := false
+				for c2 in circles1:
+					if Vector2(sxp - float(c2["x"]), syp - float(c2["y"])).length() <= float(c2["r"]) + 6.0:
+						covered = true
+						break
+				if not covered:
+					ok(false, "pass-2: %s %s wall face at %.0f,%.0f (frac %.2f) is NOT covered — phantom wall" % [str(mp1), str(d1["model"]), sxp, syp, float(frac)])
+	ok(true, "pass-2: every wall-model decal blocks along its full rendered length (no phantom walls)")
+
 	# ================================================================ S5 — polish pass
 	# ---- 22. batch_006/007 props registered end-to-end ----
 	for pid2 in ["championship_fountain", "community_team_table", "covered_market_stall", "plaza_light_column",
 			"public_plaza_bench", "vendor_service_kiosk", "season_reward_vault", "championship_reward_chest",
 			"loot_drop_capsule", "portal_anchor", "open_salvage_hopper"]:
 		ok(load("res://models/meshy/props/%s.glb" % pid2) != null, "S5 props: %s.glb LOADS (exists() lies — the v1.1.0 lesson)" % pid2)
-	ok(World.PROP_FOOTPRINT.has("championship_fountain") and not World.PROP_FOOTPRINT.has("public_plaza_bench"),
-		"S5 props: solids carry collision, benches stay walk-through")
+	# Pass-2 policy (owner, 2026-07-15): EVERY physical prop collides — boxy ones via PROP_FOOTPRINT,
+	# long walls/rails via the DECAL_PANELS row expansion, the tunnel gate as a two-post arch; only flat
+	# flora stays walk-through
+	ok(World.PROP_FOOTPRINT.has("championship_fountain") and World.PROP_FOOTPRINT.has("public_plaza_bench")
+		and World.DECAL_PANELS.has("championship_arena_wall") and World.DECAL_PANELS.has("glitchyard_wall")
+		and not World.PROP_FOOTPRINT.has("flower_redA") and not World.PROP_FOOTPRINT.has("grass_large"),
+		"pass-2: physical props collide (walls via rows, arch via posts); flat flora stays walk-through")
 	# ---- 23. the new-biome residents ----
 	# per-home expected bands, widened for routes (review: a global 9..25 let a mis-tiered resident pass)
 	var res_bands := {"away_1": [10, 14], "away_2": [10, 14], "away_3": [14, 17], "finals_1": [19, 24], "finals_2": [19, 24]}
