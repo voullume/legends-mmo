@@ -106,7 +106,9 @@ apart, west→east gradient, elites east, portal drops >42 from reverse pads / >
   ⑤ quest 12 appended to FINALS_ORDER (never gate on list completion) + Championship Gold dye
   (non-buyable, champion pattern) + a Pages hook ≤ the 100/hr line + the boss_time-category decision;
   ⑥ stab_away pins (roster, subset/parity, gates, restore, geometry) + the **solo+2-residents playtest
-  gate**; ⑦ recolor-readability eyeball. Ships shared/+client same commit.
+  gate**; ⑦ recolor-readability eyeball; ⑧ **bot policy**: decide whether bonded residents may follow
+  into the arena — add the map to `RESIDENT_NO_FOLLOW` (the raid stance, like GY_BOSS/GY_SECRET) or
+  leave it open (the teaching-boss stance, like away_boss). Ships shared/+client same commit.
 - **S5 — optional polish (S, ~1)** — ✅ **SHIPPED v1.5.0 (2026-07-14, `dbecb34`)**. 11 approved props
   (batch_006+007) integrated with real landmark collision, decor v2 across all six new zones, and 3
   new-biome residents (Scout/Roadie/Champ). Pipeline lessons banked in the props handoff: gltf-transform

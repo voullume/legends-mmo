@@ -92,6 +92,9 @@ const RESIDENTS := [
 ]
 const ROUTE_DWELL_MS := 75000         # a routing resident spends this long in each zone before moving on
 const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.3, "dmg": 1.1}, "high": {"hp": 1.8, "dmg": 1.25}}   # difficulty-pass v1: bots are helpers, not carries (was mid 1.6/1.25, high 2.6/1.55) — tunable
+const RESIDENT_NO_FOLLOW := ["glitchyard_boss", "glitchyard_secret"]   # difficulty-pass lever ① (the 3b playtest bug: bots
+                                                 # carried a fresh char through the raid). Bonded residents refuse to follow
+                                                 # into these; away_boss stays open (teaching boss, tuned solo-with-help).
 const RESIDENT_STRIP_ULTS := true                # difficulty-pass v1: park bonded-resident ultimates (their biggest carry burst); mercy keeps her single-target heal
 const RESIDENT_ULT_LOCK := 1.0e9                 # sentinel cooldown that never decrements to 0 within a bounded fight
 # --- difficulty-pass v1: gate the first boss (Head Coach Arena) on real progression so a fresh char + bots can't cheese it ---
@@ -2402,6 +2405,11 @@ func _try_follow(res_fid: String) -> void:
 	var w = _worlds.get(leader_map, null)
 	if w == null or bool((w as Dictionary).get("pvp", false)):
 		return                                       # leader in the PvP arena → don't drag a companion into PvP
+	if leader_map in RESIDENT_NO_FOLLOW:
+		return                                       # difficulty-pass lever ①: the RAID arenas demand a real team —
+		                                             # a bonded bot waits outside (same UX as instances). The Rival
+		                                             # Sideline is deliberately NOT listed (the teaching boss is
+		                                             # tuned solo-with-help); the owner's S4 boss decides its own policy.
 	if str(res_f["map"]) == leader_map:
 		return                                       # already together
 	var aw := float((w as Dictionary).get("arenaW", GameData.ARENA_W))

@@ -81,6 +81,18 @@ func _init() -> void:
 	srv._tick_residents(0.1)
 	ok(_map_of(srv, sarge) != "arena", "companion won't follow the leader into the PvP arena")
 
+	# --- difficulty-pass lever ① (the 3b playtest bug): never follow into the RAID arenas — the bot waits
+	# outside. The Rival Sideline (away_boss) is deliberately follow-ABLE (teaching boss, tuned solo-with-help).
+	srv._relocate(srv._find(pfid), srv._session[PID], "glitchyard_boss", World.spawn_for("glitchyard_boss"))
+	srv._tick_residents(0.1)
+	ok(_map_of(srv, sarge) != "glitchyard_boss", "companion won't follow into the Head Coach raid (lever ①)")
+	srv._relocate(srv._find(pfid), srv._session[PID], "glitchyard_secret", World.spawn_for("glitchyard_secret"))
+	srv._tick_residents(0.1)
+	ok(_map_of(srv, sarge) != "glitchyard_secret", "companion won't follow into the secret raid (lever ①)")
+	srv._relocate(srv._find(pfid), srv._session[PID], "away_boss", World.spawn_for("away_boss"))
+	srv._tick_residents(0.1)
+	ok(_map_of(srv, sarge) == "away_boss", "companion DOES follow into the Rival Sideline (the teaching boss allows help)")
+
 	# --- release: the Leave Party button dismisses your companion ---
 	srv.party_leave(PID)
 	ok(not srv._res_party.has(sarge), "Leave Party releases the companion")

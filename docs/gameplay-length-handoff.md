@@ -90,12 +90,14 @@ arena); (3) bots hand kill/XP/quest credit to the fresh char; (4) **no gear/leve
 GY5→GY_BOSS portal; (5) **no per-party-size boss scaling**.
 
 **Levers (prioritized):** ① *[S — quick-fix for this exact bug]* block bonded residents from following into
-GY_BOSS/GY_SECRET (`_try_follow`); ② *[M]* weaken/cap resident tiers + strip bot ults; ③ *[M]* cap #bots by
-recruiter level; ④ *[L — root fix]* make level scale combat power at the fighter-stat seam (harness stays
-byte-identical); ⑤ *[M]* gear/level gate on the boss portal; ⑥ *[L]* raise boss HP/DMG + a bot-counting
-`_scale_mob` term. **Recommended combo: ①+④+⑤ (+retune ⑥).** Best sequenced as a dedicated **difficulty pass**
-(fold ④/⑤/⑥ in; per-party boss scaling overlaps Phase 8). Phase-3 leveling-zone mobs are tuned independently of
-this (they're level-appropriate, not the boss problem).
+GY_BOSS/GY_SECRET (`_try_follow`) — ✅ **DONE 2026-07-15** (`RESIDENT_NO_FOLLOW`; away_boss deliberately open —
+the teaching boss is tuned solo-with-help; the owner's S4 boss decides its own policy, plan-doc checklist ⑧);
+② *[M]* weaken/cap resident tiers + strip bot ults — ✅ shipped in Difficulty Pass v1; ③ *[M]* cap #bots by
+recruiter level — open (assess only if ①+② prove insufficient); ④ *[L — root fix]* make level scale combat
+power — largely addressed by P2's level-gated kits (level now gates the KIT); ⑤ *[M]* gear/level gate on the
+boss portal — ✅ shipped (boss_ready L16+IP800); ⑥ *[L]* boss retune + bot-counting scaling — ✅ P7c per-party
+scaling counts bonded bots. **Residual: PRIME length tuning is OWNER-PLAYTEST-GATED** (tools/tune_boss2.gd is
+the probe; don't blind-tune).
 
 ---
 
