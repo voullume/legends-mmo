@@ -25,12 +25,24 @@ const CLASSES := {
 		"lane": 2, "role": "Zone Artillery",
 		"stats": {"PWR": 60, "PRE": 70, "SPD": 35, "END": 30, "INS": 35, "CLU": 20},
 		"zoneAllyBoost": 1.30, "zoneSelfBoost": 1.35,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "fastball", "name": "Fastball", "type": "projectile", "basic": true, "dmg": 46, "cd": 1.25, "range": 330, "speed": 430},
-			{"key": "curveball", "name": "Curveball", "type": "projectile", "dmg": 64, "cd": 5.0, "range": 310, "speed": 330, "slow": {"amt": 0.30, "dur": 1.5}},
-			{"key": "strikezone", "name": "Strike Zone", "type": "zone", "cd": 12, "dur": 5, "radius": 95},
-			{"key": "beanball", "name": "Beanball", "type": "projectile", "dmg": 40, "cd": 9, "range": 290, "speed": 480, "stun": 0.9},
-			{"key": "perfectgame", "name": "Perfect Game", "type": "barrage", "ult": true, "dmg": 82, "count": 3, "cd": 26, "range": 350, "speed": 460},
+			{"key": "fastball", "name": "Fastball", "type": "projectile", "basic": true, "dmg": 46, "cd": 1.25, "range": 330, "speed": 430,
+				"desc": "A quick pitch that pelts the target."},
+			{"key": "curveball", "name": "Curveball", "type": "projectile", "dmg": 64, "cd": 5.0, "range": 310, "speed": 330, "slow": {"amt": 0.30, "dur": 1.5},
+				"desc": "A bending pitch that slows the target."},
+			{"key": "pickoff", "name": "Pickoff Move", "type": "dash", "cd": 7, "dist": 145, "evade": 0.25,
+				"desc": "A quick-step dash off the mound; briefly evades all attacks."},
+			{"key": "strikezone", "name": "Strike Zone", "type": "zone", "cd": 12, "dur": 5, "radius": 95,
+				"desc": "Paint a zone: your projectiles into it hit harder, allies' shots too."},
+			{"key": "changeup", "name": "Changeup", "type": "projectile", "dmg": 42, "cd": 8, "range": 300, "speed": 285, "slow": {"amt": 0.35, "dur": 2.0},
+				"desc": "A deceptive off-speed ball that heavily slows the target."},
+			{"key": "beanball", "name": "Beanball", "type": "projectile", "dmg": 40, "cd": 9, "range": 290, "speed": 480, "stun": 0.9,
+				"desc": "A wild inside fastball that stuns the target."},
+			{"key": "moundpresence", "name": "Mound Presence", "type": "selfbuff", "cd": 12, "aiPressure": true, "buff": {"dr": 0.22, "ms": 1.20, "dur": 2.5},
+				"desc": "Dig in on the mound: take less damage and move faster for a moment."},
+			{"key": "perfectgame", "name": "Perfect Game", "type": "barrage", "ult": true, "dmg": 82, "count": 3, "cd": 26, "range": 350, "speed": 460,
+				"desc": "Unleash three full-heat fastballs in a row."},
 		],
 	},
 	"batter": {
@@ -38,12 +50,24 @@ const CLASSES := {
 		"lane": 1, "role": "Melee Burst",
 		"stats": {"PWR": 75, "PRE": 37, "SPD": 40, "END": 48, "INS": 25, "CLU": 25},
 		"shieldCrusher": 1.25, "meleeLifesteal": 0.20,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "swing", "name": "Swing", "type": "melee", "basic": true, "dmg": 57, "cd": 1.3, "range": 62},
-			{"key": "powerswing", "name": "Power Swing", "type": "melee", "dmg": 124, "cd": 6.0, "range": 70, "cast": 0.4, "knockback": 60},
-			{"key": "slide", "name": "Slide", "type": "dash", "cd": 4.2, "dist": 175, "evade": 0.4, "gapClose": true},
-			{"key": "stolenbase", "name": "Stolen Base", "type": "selfbuff", "cd": 9, "buff": {"ms": 1.45, "dur": 2.5}},
-			{"key": "grandslam", "name": "Grand Slam", "type": "meleeAoe", "ult": true, "dmg": 235, "cd": 26, "radius": 110, "knockback": 80, "cast": 0.5},
+			{"key": "swing", "name": "Swing", "type": "melee", "basic": true, "dmg": 57, "cd": 1.3, "range": 62,
+				"desc": "A bat swing. Your melee hits heal you for a cut of the damage."},
+			{"key": "powerswing", "name": "Power Swing", "type": "melee", "dmg": 124, "cd": 6.0, "range": 70, "cast": 0.4, "knockback": 60,
+				"desc": "A wound-up slugger swing that knocks the target back."},
+			{"key": "slide", "name": "Slide", "type": "dash", "cd": 4.2, "dist": 175, "evade": 0.4, "gapClose": true,
+				"desc": "Dive into or out of the play; briefly evades all attacks."},
+			{"key": "checkswing", "name": "Check Swing", "type": "selfbuff", "cd": 10, "buff": {"dr": 0.28, "dur": 1.5},
+				"desc": "Hold the swing and brace: sharply reduced damage taken, briefly."},
+			{"key": "batflip", "name": "Bat Flip", "type": "meleeAoe", "dmg": 65, "cd": 8, "radius": 88, "knockback": 35,
+				"desc": "Flip the bat in a taunting arc: damages and knocks back everyone nearby."},
+			{"key": "stolenbase", "name": "Stolen Base", "type": "selfbuff", "cd": 9, "buff": {"ms": 1.45, "dur": 2.5},
+				"desc": "Take off for the next bag: a burst of move speed."},
+			{"key": "walkoff", "name": "Walk-Off", "type": "melee", "dmg": 92, "cd": 11, "range": 68, "onHitSelfShieldPct": 0.12, "onHitSelfShieldDur": 3.0,
+				"desc": "A game-ending blow: a clean hit also shields you."},
+			{"key": "grandslam", "name": "Grand Slam", "type": "meleeAoe", "ult": true, "dmg": 235, "cd": 26, "radius": 110, "knockback": 80, "cast": 0.5,
+				"desc": "A colossal swing: heavy damage and a big knockback all around you."},
 		],
 	},
 	"quarterback": {
@@ -51,13 +75,24 @@ const CLASSES := {
 		"lane": 0, "role": "Support Tank",
 		"stats": {"PWR": 40, "PRE": 40, "SPD": 35, "END": 65, "INS": 45, "CLU": 25},
 		"pocketDR": 0.045, "pocketRange": 165,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "shouldercheck", "name": "Shoulder Check", "type": "melee", "basic": true, "dmg": 50, "cd": 1.35, "range": 60},
-			{"key": "huddle", "name": "Huddle Up", "type": "allybuff", "cd": 6.5, "targetType": "ally", "shieldPct": 0.22, "dur": 4.0},
-			{"key": "blitz", "name": "Blitz", "type": "allybuff", "cd": 7.5, "targetType": "ally", "buff": {"atkspd": 1.32, "dur": 2.4}},
-			{"key": "tackle", "name": "Tackle", "type": "dashAttack", "dmg": 56, "cd": 7, "dist": 150, "slow": {"amt": 0.25, "dur": 1.2}},
-			{"key": "sack", "name": "Sack", "type": "melee", "dmg": 16, "cd": 11, "range": 66, "stun": 1.1},
-			{"key": "hailmary", "name": "Hail Mary", "type": "projectile", "ult": true, "dmg": 195, "cd": 28, "range": 420, "speed": 520, "teamShieldPct": 0.08},
+			{"key": "shouldercheck", "name": "Shoulder Check", "type": "melee", "basic": true, "dmg": 50, "cd": 1.35, "range": 60,
+				"desc": "A shoulder-first jab."},
+			{"key": "huddle", "name": "Huddle Up", "type": "allybuff", "cd": 6.5, "targetType": "ally", "shieldPct": 0.22, "dur": 4.0,
+				"desc": "Call the huddle: shield an ally."},
+			{"key": "scramble", "name": "Scramble", "type": "dash", "cd": 8, "dist": 140, "evade": 0.2, "selfBuff": {"dr": 0.20, "dur": 1.5},
+				"desc": "Escape the pocket: dash with brief evasion, then shrug off damage."},
+			{"key": "blitz", "name": "Blitz", "type": "allybuff", "cd": 7.5, "targetType": "ally", "buff": {"atkspd": 1.32, "dur": 2.4},
+				"desc": "Fire up an ally: faster basic attacks."},
+			{"key": "tackle", "name": "Tackle", "type": "dashAttack", "dmg": 56, "cd": 7, "dist": 150, "slow": {"amt": 0.25, "dur": 1.2},
+				"desc": "Charge a target, hit, and slow them."},
+			{"key": "sack", "name": "Sack", "type": "melee", "dmg": 16, "cd": 11, "range": 66, "stun": 1.1,
+				"desc": "A wrap-up hit that stuns the target."},
+			{"key": "playaction", "name": "Play Action", "type": "allybuff", "cd": 11, "targetType": "ally", "buff": {"ms": 1.25, "dr": 0.15, "dur": 2.5},
+				"desc": "Fake the hand-off: an ally moves faster and takes less damage."},
+			{"key": "hailmary", "name": "Hail Mary", "type": "projectile", "ult": true, "dmg": 195, "cd": 28, "range": 420, "speed": 520, "teamShieldPct": 0.08,
+				"desc": "A deep bomb: on a connecting hit, shields every ally."},
 		],
 	},
 	"linebacker": {
@@ -65,12 +100,24 @@ const CLASSES := {
 		"lane": 0, "role": "Bruiser",
 		"stats": {"PWR": 55, "PRE": 25, "SPD": 30, "END": 80, "INS": 35, "CLU": 25},
 		"momentumGain": 0.05, "momentumMax": 5,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "shed", "name": "Shed Block", "type": "melee", "basic": true, "dmg": 50, "cd": 1.35, "range": 62},
-			{"key": "tackle", "name": "Tackle", "type": "dashAttack", "dmg": 70, "cd": 7, "dist": 165, "knockdown": 0.8},
-			{"key": "block", "name": "Block", "type": "selfbuff", "cd": 9.8, "buff": {"dr": 0.30, "dur": 2.0}},
-			{"key": "bullrush", "name": "Bull Rush", "type": "dashAttack", "dmg": 55, "cd": 8, "dist": 140, "knockback": 70},
-			{"key": "fourthgoal", "name": "Fourth & Goal", "type": "dashAttack", "ult": true, "dmg": 220, "cd": 28, "dist": 220, "knockdown": 1.0, "cast": 0.4},
+			{"key": "shed", "name": "Shed Block", "type": "melee", "basic": true, "dmg": 50, "cd": 1.35, "range": 62,
+				"desc": "Shed a blocker and strike. Melee hits build Momentum (stacking damage)."},
+			{"key": "tackle", "name": "Tackle", "type": "dashAttack", "dmg": 70, "cd": 7, "dist": 165, "knockdown": 0.8,
+				"desc": "Charge and flatten the target."},
+			{"key": "block", "name": "Block", "type": "selfbuff", "cd": 9.8, "buff": {"dr": 0.30, "dur": 2.0},
+				"desc": "Set your base: take much less damage, briefly."},
+			{"key": "stripball", "name": "Strip Ball", "type": "melee", "dmg": 54, "cd": 10, "range": 64, "dispelBuffs": 1,
+				"desc": "Punch the ball out: a connecting hit strips one enemy buff."},
+			{"key": "bullrush", "name": "Bull Rush", "type": "dashAttack", "dmg": 55, "cd": 8, "dist": 140, "knockback": 70,
+				"desc": "Charge through the line, knocking the target back."},
+			{"key": "crackback", "name": "Crackback", "type": "meleeAoe", "dmg": 58, "cd": 9, "radius": 92, "slow": {"amt": 0.25, "dur": 1.5},
+				"desc": "A blindside sweep: damages and slows everyone nearby."},
+			{"key": "goalstand", "name": "Goal-Line Stand", "type": "selfbuff", "cd": 14, "aiPressure": true, "buff": {"dr": 0.35, "ms": 0.80, "dur": 3.0},
+				"desc": "Anchor the line: heavy damage reduction, but you move slower."},
+			{"key": "fourthgoal", "name": "Fourth & Goal", "type": "dashAttack", "ult": true, "dmg": 220, "cd": 28, "dist": 220, "knockdown": 1.0, "cast": 0.4,
+				"desc": "An unstoppable goal-line charge: massive damage and a knockdown."},
 		],
 	},
 	"setter": {
@@ -78,12 +125,24 @@ const CLASSES := {
 		"lane": 2, "role": "Support",
 		"stats": {"PWR": 30, "PRE": 50, "SPD": 40, "END": 50, "INS": 55, "CLU": 25},
 		"supportBoost": 1.28, "blockHeal": 0.14, "echoEvery": 6, "echoPct": 0.5,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "bump", "name": "Bump", "type": "projectile", "basic": true, "dmg": 45, "cd": 1.3, "range": 280, "speed": 380},
-			{"key": "set", "name": "Set", "type": "allybuff", "cd": 5.0, "targetType": "ally", "buff": {"nextdmg": 1.70}},
-			{"key": "rally", "name": "Rally", "type": "allybuff", "cd": 9, "targetType": "ally", "buff": {"crit": 0.30, "atkspd": 1.20, "dur": 2.6}},
-			{"key": "dig", "name": "Dig", "type": "allyheal", "cd": 7, "targetType": "ally", "healPct": 0.15},
-			{"key": "rotation", "name": "Rotation", "type": "teamheal", "ult": true, "cd": 30, "healPct": 0.18, "cleanse": true},
+			{"key": "bump", "name": "Bump", "type": "projectile", "basic": true, "dmg": 45, "cd": 1.3, "range": 280, "speed": 380,
+				"desc": "A precise pass turned projectile."},
+			{"key": "set", "name": "Set", "type": "allybuff", "cd": 5.0, "targetType": "ally", "buff": {"nextdmg": 1.70},
+				"desc": "Set up an ally: their next special hits much harder."},
+			{"key": "cover", "name": "Cover", "type": "dash", "cd": 7, "dist": 135, "evade": 0.3,
+				"desc": "Slide under the play: dash with brief evasion."},
+			{"key": "rally", "name": "Rally", "type": "allybuff", "cd": 9, "targetType": "ally", "buff": {"crit": 0.30, "atkspd": 1.20, "dur": 2.6},
+				"desc": "Rally an ally: bonus crit chance and faster basics."},
+			{"key": "quickset", "name": "Quick Set", "type": "allybuff", "cd": 8, "targetType": "ally", "buff": {"ms": 1.35, "dur": 3.0},
+				"desc": "Run the quick tempo: an ally moves much faster."},
+			{"key": "dig", "name": "Dig", "type": "allyheal", "cd": 7, "targetType": "ally", "healPct": 0.15,
+				"desc": "Dig the attack out: heal an ally."},
+			{"key": "joust", "name": "Joust", "type": "projectile", "dmg": 50, "cd": 9, "range": 270, "speed": 410, "slow": {"amt": 0.25, "dur": 1.5},
+				"desc": "Contest at the net: damages and slows the target."},
+			{"key": "rotation", "name": "Rotation", "type": "teamheal", "ult": true, "cd": 30, "healPct": 0.18, "cleanse": true,
+				"desc": "Rotate the lineup: heal the whole team and cleanse stuns and slows."},
 		],
 	},
 	"spiker": {
@@ -91,12 +150,24 @@ const CLASSES := {
 		"lane": 1, "role": "Burst Assassin",
 		"stats": {"PWR": 70, "PRE": 55, "SPD": 50, "END": 30, "INS": 25, "CLU": 20},
 		"shieldBypass": 0.40, "airborneDmg": 1.12,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "serve", "name": "Jump Serve", "type": "projectile", "basic": true, "dmg": 44, "cd": 1.3, "range": 260, "speed": 400},
-			{"key": "thunderspike", "name": "Thunderspike", "type": "leapAttack", "dmg": 98, "cd": 6, "dist": 190, "airborne": true},
-			{"key": "toolblock", "name": "Tool the Block", "type": "selfbuff", "cd": 12, "buff": {"bypass": true, "dur": 3.0}},
-			{"key": "pancake", "name": "Pancake", "type": "dash", "cd": 7, "dist": 150, "evade": 0.35},
-			{"key": "killshot", "name": "Kill Shot", "type": "leapAttack", "ult": true, "dmg": 330, "cd": 27, "dist": 240, "airborne": true, "untargetable": 0.6, "cast": 0.35},
+			{"key": "serve", "name": "Jump Serve", "type": "projectile", "basic": true, "dmg": 44, "cd": 1.3, "range": 260, "speed": 400,
+				"desc": "A leaping serve fired at the target."},
+			{"key": "approach", "name": "Approach", "type": "dash", "cd": 6, "dist": 120, "selfBuff": {"ms": 1.20, "dur": 1.5},
+				"desc": "Explosive approach steps: dash, then keep the momentum."},
+			{"key": "thunderspike", "name": "Thunderspike", "type": "leapAttack", "dmg": 98, "cd": 6, "dist": 190, "airborne": true,
+				"desc": "Leap to the target and spike down (bonus damage while airborne)."},
+			{"key": "toolblock", "name": "Tool the Block", "type": "selfbuff", "cd": 12, "buff": {"bypass": true, "dur": 3.0},
+				"desc": "Aim off the blocker's hands: your hits pierce enemy shields."},
+			{"key": "rollshot", "name": "Roll Shot", "type": "projectile", "dmg": 58, "cd": 8, "range": 250, "speed": 350, "slow": {"amt": 0.30, "dur": 1.4},
+				"desc": "A soft roll shot that slows the target."},
+			{"key": "pancake", "name": "Pancake", "type": "dash", "cd": 7, "dist": 150, "evade": 0.35,
+				"desc": "Dive flat to the floor: dash with brief evasion."},
+			{"key": "roofblock", "name": "Roof Block", "type": "selfbuff", "cd": 12, "buff": {"dr": 0.25, "dur": 2.0, "guard": {"charges": 1, "kb": 45.0}},
+				"desc": "Put up a roof: take less damage, and the first melee attacker is knocked back."},
+			{"key": "killshot", "name": "Kill Shot", "type": "leapAttack", "ult": true, "dmg": 330, "cd": 27, "dist": 240, "airborne": true, "untargetable": 0.6, "cast": 0.35,
+				"desc": "Leap untargetable and bury the kill shot."},
 		],
 	},
 	"striker": {
@@ -105,12 +176,25 @@ const CLASSES := {
 		"stats": {"PWR": 60, "PRE": 55, "SPD": 65, "END": 25, "INS": 25, "CLU": 20},
 		"hatTrickEvery": 2, "hatTrickBonus": 1.30, "chainMS": 1.25, "chainDR": 0.10,
 		"lowHPDmg": 1.50, "lowHPThresh": 0.40,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "finesse", "name": "Finesse Shot", "type": "projectile", "basic": true, "dmg": 46, "cd": 1.25, "range": 240, "speed": 420},
-			{"key": "dribble", "name": "Dribble", "type": "dash", "cd": 3.25, "dist": 155},
-			{"key": "yellowcard", "name": "Yellow Card", "type": "melee", "dmg": 30, "cd": 7, "range": 64, "stun": 1.0},
-			{"key": "clinical", "name": "Clinical Finish", "type": "projectile", "dmg": 84, "cd": 6, "range": 220, "speed": 460},
-			{"key": "goldengoal", "name": "Golden Goal", "type": "projectile", "ult": true, "dmg": 255, "cd": 27, "range": 300, "speed": 500, "cast": 0.4, "onKillStealth": 2.0},
+			{"key": "finesse", "name": "Finesse Shot", "type": "projectile", "basic": true, "dmg": 46, "cd": 1.25, "range": 240, "speed": 420,
+				"desc": "A curled shot. Repeated hits on one target chain into Hat Trick bonuses."},
+			{"key": "dribble", "name": "Dribble", "type": "dash", "cd": 3.25, "dist": 155,
+				"desc": "A burst dribble: quick dash on a short cooldown."},
+			{"key": "yellowcard", "name": "Yellow Card", "type": "melee", "dmg": 30, "cd": 7, "range": 64, "stun": 1.0,
+				"desc": "A cynical foul that stuns the target."},
+			{"key": "stepover", "name": "Step Over", "type": "selfbuff", "cd": 9, "buff": {"ms": 1.35, "dr": 0.15, "dur": 2.0},
+				"desc": "Sell the feint: move faster and take less damage."},
+			{"key": "clinical", "name": "Clinical Finish", "type": "projectile", "dmg": 84, "cd": 6, "range": 220, "speed": 460,
+				"desc": "A clinical strike: bonus damage against badly hurt targets."},
+			{"key": "throughball", "name": "Through Ball", "type": "projectile", "dmg": 52, "cd": 7, "range": 300, "speed": 500, "slow": {"amt": 0.20, "dur": 1.2},
+				"desc": "A driven ball that slows the target."},
+			{"key": "bicyclekick", "name": "Bicycle Kick", "type": "leapAttack", "dmg": 105, "cd": 11, "dist": 170, "airborne": true,
+				"desc": "Leap to the target and strike overhead."},
+			{"key": "goldengoal", "name": "Golden Goal", "type": "projectile", "ult": true, "dmg": 255, "cd": 27, "range": 300, "speed": 500, "cast": 0.4,
+				"onKillBuff": {"ms": 1.45, "dr": 0.15, "dur": 2.0},
+				"desc": "Wind up the match-winner. Scoring the kill grants a burst of speed and toughness."},
 		],
 	},
 	"goalkeeper": {
@@ -118,12 +202,24 @@ const CLASSES := {
 		"lane": 0, "role": "Guardian",
 		"stats": {"PWR": 35, "PRE": 35, "SPD": 30, "END": 75, "INS": 50, "CLU": 25},
 		"cleanSheetDelay": 5, "cleanSheetRate": 20, "cleanSheetCap": 190, "reflectMult": 1.6,
+		# 8-skill kit: slot 1 = basic, 2-7 = specials (unlock order), 8 = ult
 		"abilities": [
-			{"key": "distribution", "name": "Distribution", "type": "projectile", "basic": true, "dmg": 47, "cd": 1.35, "range": 270, "speed": 400},
-			{"key": "header", "name": "Punching Save", "type": "selfbuff", "cd": 9, "buff": {"reflect": true, "dur": 1.2}},
-			{"key": "divingsave", "name": "Diving Save", "type": "allybuff", "cd": 8, "targetType": "ally", "shieldPct": 0.20, "dur": 2.0, "dashTo": true},
-			{"key": "sweeper", "name": "Sweeper", "type": "meleeAoe", "dmg": 50, "cd": 6, "radius": 90, "slow": {"amt": 0.30, "dur": 1.5}},
-			{"key": "penaltysave", "name": "Penalty Save", "type": "barrier", "ult": true, "cd": 30, "dur": 3.0, "dr": 0.70, "blastDmg": 320, "blastRadius": 130},
+			{"key": "distribution", "name": "Distribution", "type": "projectile", "basic": true, "dmg": 47, "cd": 1.35, "range": 270, "speed": 400,
+				"desc": "A sharp throw at the target."},
+			{"key": "header", "name": "Punching Save", "type": "selfbuff", "cd": 9, "buff": {"reflect": true, "dur": 1.2},
+				"desc": "Read the shot: reflect the next hit back at the attacker, amplified."},
+			{"key": "divingsave", "name": "Diving Save", "type": "allybuff", "cd": 8, "targetType": "ally", "shieldPct": 0.20, "dur": 2.0, "dashTo": true,
+				"desc": "Dive to an ally and shield them."},
+			{"key": "keeperrush", "name": "Keeper Rush", "type": "dashAttack", "dmg": 42, "cd": 8, "dist": 145, "slow": {"amt": 0.30, "dur": 1.5},
+				"desc": "Rush off the line: a dash attack that slows the target."},
+			{"key": "sweeper", "name": "Sweeper", "type": "meleeAoe", "dmg": 50, "cd": 6, "radius": 90, "slow": {"amt": 0.30, "dur": 1.5},
+				"desc": "Sweep the box: damages and slows everyone nearby."},
+			{"key": "claimcross", "name": "Claim the Cross", "type": "selfbuff", "cd": 11, "aiPressure": true, "buff": {"dr": 0.25, "ms": 1.30, "dur": 2.5},
+				"desc": "Command the area: take less damage and move faster."},
+			{"key": "rollout", "name": "Roll Out", "type": "allybuff", "cd": 10, "targetType": "ally", "shieldPct": 0.12, "dur": 2.5, "buff": {"ms": 1.25, "dur": 2.5},
+				"desc": "Roll the ball out: shield an ally and speed them up."},
+			{"key": "penaltysave", "name": "Penalty Save", "type": "barrier", "ult": true, "cd": 30, "dur": 3.0, "dr": 0.70, "blastDmg": 320, "blastRadius": 130,
+				"desc": "An impenetrable stance, ending in a blast that grows with damage soaked."},
 		],
 	},
 	# ── Glitchyard mobs (NON-PLAYABLE) ──────────────────────────────────────────────────────────────
@@ -497,17 +593,18 @@ const FORMAT_MODS := {
 		"spiker": {"dmg": 0.97}, "goalkeeper": {"dmg": 0.96}, "quarterback": {"dmg": 1.05},
 		"batter": {"dmg": 1.24}, "setter": {"dmg": 1.18},
 	},
-	5: {   # the live MMO format (ZONE_TEAM_SIZE). RE-TUNED 2026-07-10: the prior mods had regressed to a ~55-pt
-	       # spread (goal 82% / sett 27%) — the sim drifted since the last tune. Re-measured with tools/bal_tune.gd
-	       # + bal_p1.gd, pulling each class toward ~50%. Mods apply to players AND mobs alike (mobs have no entry).
-		"goalkeeper": {"dmg": 0.65},
-		"quarterback": {"dmg": 0.85},
-		"batter": {"dmg": 1.20},
-		"linebacker": {"dmg": 0.97},
-		"pitcher": {"dmg": 0.97},
-		"striker": {"dmg": 0.98},
-		"spiker": {"dmg": 0.92},
-		"setter": {"dmg": 1.42, "hp": 1.10},
+	5: {   # the live MMO format (ZONE_TEAM_SIZE). RE-TUNED 2026-07-15 for the 8-skill kits: the expansion moved
+	       # the AI-duel spread to 58.6 at the old mods (sett 74 / quar 15 — multi-effect support inflated the
+	       # supports, the QB's support-heavy kit collapsed). Re-measured with tools/bal_tune.gd, pulling each
+	       # class toward ~50%. Mods apply to players AND mobs alike (mobs have no entry).
+		"goalkeeper": {"dmg": 0.58},
+		"quarterback": {"dmg": 1.15},
+		"batter": {"dmg": 1.17},
+		"linebacker": {"dmg": 0.95},
+		"pitcher": {"dmg": 0.94},
+		"striker": {"dmg": 1.08},
+		"spiker": {"dmg": 0.98},
+		"setter": {"dmg": 1.18, "hp": 1.10},
 	},
 }
 
@@ -746,11 +843,11 @@ static func derive(s: Dictionary) -> Dictionary:
 # --- Fighter factory ---
 # --- gameplay-length P2: level-gated ability kits ---------------------------------------------------------
 # AGGRESSIVE gating (owner-locked): only the basic attack at level 1; the first special at level 2 (barren
-# window = a single level); the remaining specials + the ult drip in as you level. Enforced server-side in the
-# intent layer (Server.submit_ability) and mirrored on the client hotbar. The deterministic Sim NEVER sees this
-# gate — create_fighter still builds the full kit and the AI-duel balance harness never calls submit_ability —
-# so class balance stays byte-identical. Bands are playtest-tunable.
-const ABILITY_SPECIAL_UNLOCK := [2, 6, 10, 14]   # unlock level of the 1st/2nd/3rd/4th SPECIAL (in kit order)
+# window = a single level); the remaining SIX specials + the ult drip in as you level (8-skill kits: one
+# special every ~3 levels, ult at 18). Enforced server-side in the intent layer (Server.submit_ability) and
+# mirrored on the client hotbar. The deterministic Sim NEVER sees this gate — create_fighter still builds the
+# full kit and the AI-duel balance harness never calls submit_ability. Bands are playtest-tunable.
+const ABILITY_SPECIAL_UNLOCK := [2, 5, 8, 11, 14, 16]   # unlock level of the 1st..6th SPECIAL (in kit order)
 const ABILITY_ULT_UNLOCK := 18                   # the ultimate unlocks here
 # Characters created before this UTC epoch keep their full kit (grandfathered — no live player loses access);
 # characters created after it are gated. Lexicographic compare on the ISO created_at works (same fixed format).
@@ -801,8 +898,13 @@ static func create_fighter(class_id: String, team: int, slot: int, rng, team_siz
 		"cds": cds,
 		"casting": null, "stun": 0.0, "slowT": 0.0, "slowAmt": 0.0, "evade": 0.0, "untarget": 0.0,
 		"buffs": {"nextdmg": 0.0, "crit": 0.0, "critT": 0.0, "atkspd": 1.0, "atkspdT": 0.0,
-			"dr": 0.0, "drT": 0.0, "ms": 1.0, "msT": 0.0, "bypass": 0.0, "reflect": 0.0},
+			"dr": 0.0, "drT": 0.0, "ms": 1.0, "msT": 0.0, "bypass": 0.0, "reflect": 0.0,
+			# provenance of the current dr/ms value ("ability" | "proc") — dispel spares item-proc buffs
+			"drSrc": "", "msSrc": ""},
 		"momentum": 0.0, "momentumT": 0.0, "chaseT": 0.0, "atkCommitT": 0.0,
+		# guarded melee knockback (Roof Block): charges armed by a selfbuff's buff.guard, expiring with guardT.
+		# Consumed in Combat.deal_damage on an eligible direct melee hit; guardT decays in Sim's timer block.
+		"guardCharges": 0, "guardKb": 0.0, "guardT": 0.0,
 		"hatTarget": null, "hatCount": 0, "hatChainT": 0.0,
 		"supportCasts": 0, "noDmgT": 0.0,
 		"barrier": 0.0, "barrierT": 0.0, "barrierStored": 0.0, "_barrierAb": null,

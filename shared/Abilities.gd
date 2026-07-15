@@ -10,6 +10,40 @@ static func _fire(f, ab, cd_mult) -> void:
 	f["cds"][ab["key"]] = ab["cd"] * cd_mult
 	f["lastCastKey"] = ab["key"]
 
+# 8-skill expansion: THE shared on-hit rider resolution — one code path for stun / knockdown / slow /
+# knockback / pull, used by immediate casts here AND cast-finish resolution in Sim (effect parity: an
+# ability behaves identically whether or not it has a cast time). Field-gated → byte-identical no-op
+# for every ability that doesn't carry the field. Call AFTER deal_damage (damage first, then riders).
+static func apply_hit_riders(state, f, tgt, ab) -> void:
+	if ab.has("stun"):
+		tgt["stun"] = max(tgt["stun"], ab["stun"])
+	if ab.has("knockdown"):
+		tgt["stun"] = max(tgt["stun"], ab["knockdown"])
+	if ab.has("slow"):
+		tgt["slowT"] = ab["slow"]["dur"]
+		tgt["slowAmt"] = ab["slow"]["amt"]
+	if ab.has("knockback") and not Combat.kb_immune(tgt):
+		var kx = tgt["x"] - f["x"]
+		var ky = tgt["y"] - f["y"]
+		var kd = Vector2(kx, ky).length()
+		if kd == 0: kd = 1.0
+		tgt["x"] += (kx / kd) * ab["knockback"]
+		tgt["y"] += (ky / kd) * ab["knockback"]
+		Geom.clamp_arena(tgt)
+	if ab.has("pull") and not Combat.kb_immune(tgt):     # P5: yank toward the caster (off cover)
+		var pd = Vector2(f["x"] - tgt["x"], f["y"] - tgt["y"]).length()
+		var pamt = minf(float(ab["pull"]), pd - 30.0)
+		if pamt > 0.0:
+			tgt["x"] += ((f["x"] - tgt["x"]) / pd) * pamt
+			tgt["y"] += ((f["y"] - tgt["y"]) / pd) * pamt
+			Geom.clamp_arena(tgt)
+
+# a dash's optional follow-up selfBuff (Scramble's DR, Approach's speed burst) — applied after the
+# movement itself succeeded, both for the AI dash here and the directional player dash in Sim.
+static func apply_move_buff(f, ab) -> void:
+	if ab.has("selfBuff"):
+		Combat.apply_buff_dict(f, ab["selfBuff"])
+
 static func _nearest_enemy(state, f) -> Variant:
 	var best: Variant = null
 	var bd = INF
@@ -37,13 +71,15 @@ static func try_cast(state, f, ab, target) -> bool:
 				return false
 			if not Geom.has_los(state, f, target):
 				return false
+			if ab.has("cast"):
+				# casted projectile (e.g. Golden Goal): the shot spawns ONLY at cast completion — Sim's
+				# cast-finish branch re-checks life/hostility/range/LOS and a stun interrupt prevents the
+				# spawn entirely. The cooldown is spent NOW, with the cast (interrupt = the cd is lost).
+				f["casting"] = {"key": ab["key"], "t": 0.0, "total": ab["cast"], "targetId": target["id"], "ab": ab}
+				_fire(f, ab, cd_mult)
+				return true
 			f["atkCommitT"] = 0.35
-			state["projectiles"].append({
-				"x": f["x"], "y": f["y"], "tx": target["id"], "speed": ab["speed"], "dmg": ab["dmg"],
-				"team": f["team"], "owner": f["id"], "key": ab["key"], "basic": ab.get("basic", false),
-				"stun": ab.get("stun", null), "slow": ab.get("slow", null), "wobble": ab.get("wobble", null), "born": state["t"],
-				"teamShieldPct": ab.get("teamShieldPct", null), "delay": 0.0,
-			})
+			state["projectiles"].append(make_projectile(state, f, target, ab))
 			_fire(f, ab, cd_mult)
 			return true
 		"barrage":
@@ -60,16 +96,16 @@ static func try_cast(state, f, ab, target) -> bool:
 		"melee":
 			if Geom.dist(f, target) > ab["range"]:
 				return false
+			# AI-only prioritization (Strip Ball): a bot doesn't burn a dispel melee on a target with nothing
+			# to strip — it falls through to its next ability. A human's press (controlled) always resolves.
+			if ab.has("dispelBuffs") and not state.get("controlled", {}).has(f["id"]) and not Combat.has_dispellable(target):
+				return false
 			if ab.has("cast"):
 				f["casting"] = {"key": ab["key"], "t": 0.0, "total": ab["cast"], "targetId": target["id"], "ab": ab}
 				_fire(f, ab, cd_mult)
 				return true
 			Combat.deal_damage(state, f, target, ab["dmg"], {"melee": true, "basic": ab.get("basic", false), "key": ab["key"]})
-			if ab.has("stun"):
-				target["stun"] = max(target["stun"], ab["stun"])
-			if ab.has("slow"):
-				target["slowT"] = ab["slow"]["dur"]
-				target["slowAmt"] = ab["slow"]["amt"]
+			apply_hit_riders(state, f, target, ab)
 			if c.has("momentumGain"):
 				f["momentum"] = min(c["momentumMax"], f["momentum"] + 1)
 				f["momentumT"] = 4.0
@@ -88,18 +124,7 @@ static func try_cast(state, f, ab, target) -> bool:
 				return true
 			for e in in_r:
 				Combat.deal_damage(state, f, e, ab["dmg"], {"melee": true, "key": ab["key"]})
-				if ab.has("stun"):                       # parity with the cast-finish path; no shipped player meleeAoe carries stun → byte-identical
-					e["stun"] = max(e["stun"], ab["stun"])
-				if ab.has("slow"):
-					e["slowT"] = ab["slow"]["dur"]
-					e["slowAmt"] = ab["slow"]["amt"]
-				if ab.has("pull") and not Combat.kb_immune(e):     # P5: yank toward the caster (off cover)
-					var pd = Vector2(f["x"] - e["x"], f["y"] - e["y"]).length()
-					var pamt = minf(float(ab["pull"]), pd - 30.0)
-					if pamt > 0.0:
-						e["x"] += ((f["x"] - e["x"]) / pd) * pamt
-						e["y"] += ((f["y"] - e["y"]) / pd) * pamt
-						Geom.clamp_arena(e)
+				apply_hit_riders(state, f, e, ab)     # parity with cast-finish (stun/slow/knockback/pull)
 			_fire(f, ab, cd_mult)
 			return true
 		"dashAttack":
@@ -129,6 +154,7 @@ static func try_cast(state, f, ab, target) -> bool:
 				_fire(f, ab, cd_mult)
 				return true
 			Combat.deal_damage(state, f, target, ab["dmg"], {"melee": true, "airborne": ab.get("airborne", false), "key": ab["key"]})
+			apply_hit_riders(state, f, target, ab)     # parity with cast-finish
 			_fire(f, ab, cd_mult)
 			return true
 		"dash":
@@ -141,6 +167,7 @@ static func try_cast(state, f, ab, target) -> bool:
 				f["y"] += (gy / gd) * min(ab["dist"], gd - 40)
 				Geom.clamp_arena(f)
 				if ab.has("evade"): f["evade"] = ab["evade"]
+				apply_move_buff(f, ab)
 				_fire(f, ab, cd_mult)
 				return true
 			var near = _nearest_enemy(state, f)
@@ -154,6 +181,7 @@ static func try_cast(state, f, ab, target) -> bool:
 			f["y"] += (dy / dd) * ab["dist"]
 			Geom.clamp_arena(f)
 			if ab.has("evade"): f["evade"] = ab["evade"]
+			apply_move_buff(f, ab)
 			_fire(f, ab, cd_mult)
 			return true
 		"selfbuff":
@@ -161,14 +189,11 @@ static func try_cast(state, f, ab, target) -> bool:
 			var pressured = _enemy_within(state, f, 160.0)
 			if (b.has("dr") or b.has("reflect")) and not pressured and f["hp"] / f["maxHP"] > 0.6:
 				return false
-			if b.has("dr"):
-				f["buffs"]["dr"] = b["dr"]
-				f["buffs"]["drT"] = b["dur"]
-			if b.has("ms"):
-				f["buffs"]["ms"] = b["ms"]
-				f["buffs"]["msT"] = b["dur"]
-			if b.has("bypass"): f["buffs"]["bypass"] = b["dur"]
-			if b.has("reflect"): f["buffs"]["reflect"] = b["dur"]
+			# escape/reposition stances (Mound Presence, Claim the Cross, Goal-Line Stand) are pressure
+			# tools, not chase buffs: the AI only casts an aiPressure ability with an enemy actually near.
+			if ab.get("aiPressure", false) and not pressured:
+				return false
+			Combat.apply_buff_dict(f, b)
 			_fire(f, ab, cd_mult)
 			return true
 		"zone":
@@ -255,20 +280,18 @@ static func exec_dash_attack(state, f, target, ab) -> void:
 		Geom.clamp_arena(f)
 	if Geom.dist(f, target) < 70:
 		Combat.deal_damage(state, f, target, ab["dmg"], {"melee": true, "key": ab["key"]})
-		if ab.has("knockdown"):
-			target["stun"] = max(target["stun"], ab["knockdown"])
-		if ab.has("slow"):
-			target["slowT"] = ab["slow"]["dur"]
-			target["slowAmt"] = ab["slow"]["amt"]
-		if ab.has("knockback") and not Combat.kb_immune(target):
-			var kx = target["x"] - f["x"]
-			var ky = target["y"] - f["y"]
-			var kd = Vector2(kx, ky).length()
-			if kd == 0: kd = 1.0
-			target["x"] += (kx / kd) * ab["knockback"]
-			target["y"] += (ky / kd) * ab["knockback"]
-			Geom.clamp_arena(target)
+		apply_hit_riders(state, f, target, ab)
 		var fc = GameData.CLASSES[f["classId"]]
 		if fc.has("momentumGain"):
 			f["momentum"] = min(fc["momentumMax"], f["momentum"] + 1)
 			f["momentumT"] = 4.0
+
+# homing-projectile dict for `ab` fired by `f` at `target` — ONE construction site shared by the
+# immediate path above and Sim's cast-finish spawn (casted projectiles), so both carry identical riders.
+static func make_projectile(state, f, target, ab) -> Dictionary:
+	return {
+		"x": f["x"], "y": f["y"], "tx": target["id"], "speed": ab["speed"], "dmg": ab["dmg"],
+		"team": f["team"], "owner": f["id"], "key": ab["key"], "basic": ab.get("basic", false),
+		"stun": ab.get("stun", null), "slow": ab.get("slow", null), "wobble": ab.get("wobble", null), "born": state["t"],
+		"teamShieldPct": ab.get("teamShieldPct", null), "delay": 0.0,
+	}

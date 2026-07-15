@@ -7,7 +7,7 @@ extends Node
 ## client only RENDERS sim state (character kit + animations + FX, ported from the prototype
 ## ~/legends-arena/scripts/Arena.gd) and feeds input. No win/lose — dead fighters respawn.
 ##
-## Controls: WASD move (camera-relative) · 1-5 abilities (1=basic … 5=ult) · LMB basic
+## Controls: WASD move (camera-relative) · 1-8 abilities (1=basic … 8=ult) · LMB basic
 ##           RMB-drag orbit camera · wheel zoom · C cycle class · R reset arena
 
 const GameData := preload("res://shared/GameData.gd")
@@ -298,7 +298,7 @@ func _enter_mode() -> void:
 		print("[client] entered as %s the %s (class locked)" % [char_name, locked_class])
 	else:
 		_setup_match(PLAYABLE[_player_class_idx])
-		print("[client] Phase 1 arena ready — WASD move, 1-5 abilities, C cycle class, R reset.")
+		print("[client] Phase 1 arena ready — WASD move, 1-8 abilities, C cycle class, R reset.")
 	# dev-only sandbox flags (pair with Main's --shot for hands-off UI verification)
 	var uargs := OS.get_cmdline_user_args()
 	if "--brawl" in uargs:
@@ -1988,9 +1988,13 @@ func _revive(f) -> void:
 	f["_dotAcc"] = {}
 	f["_dotEvT"] = 1.0
 	f["buffs"] = {"nextdmg": 0.0, "crit": 0.0, "critT": 0.0, "atkspd": 1.0, "atkspdT": 0.0,
-		"dr": 0.0, "drT": 0.0, "ms": 1.0, "msT": 0.0, "bypass": 0.0, "reflect": 0.0}
+		"dr": 0.0, "drT": 0.0, "ms": 1.0, "msT": 0.0, "bypass": 0.0, "reflect": 0.0,
+		"drSrc": "", "msSrc": ""}
 	f["momentum"] = 0.0
 	f["momentumT"] = 0.0
+	f["guardCharges"] = 0                    # Roof Block guard dies with the fighter (create_fighter parity)
+	f["guardKb"] = 0.0
+	f["guardT"] = 0.0
 	f["barrier"] = 0.0
 	f["barrierT"] = 0.0
 	f["barrierStored"] = 0.0
@@ -3866,29 +3870,111 @@ func _on_slot_hover(i: int) -> void:
 func _on_slot_unhover() -> void:
 	_tooltip.visible = false
 
+# one buff dictionary → human-readable effect lines (never internal field names). `prefix` labels
+# conditional buffs ("On kill: ", "After dash: "); class fields resolve bypass/reflect magnitudes.
+func _buff_lines(b: Dictionary, c: Dictionary, prefix := "") -> Array:
+	var fx := []
+	if b.has("dr"):
+		fx.append("%d%% damage reduction" % int(round(float(b["dr"]) * 100.0)))
+	if b.has("ms"):
+		var pct := int(round((float(b["ms"]) - 1.0) * 100.0))
+		fx.append(("%d%% faster movement" % pct) if pct >= 0 else ("%d%% slower movement" % -pct))
+	if b.has("atkspd"):
+		fx.append("%d%% faster basic attacks" % int(round((float(b["atkspd"]) - 1.0) * 100.0)))
+	if b.has("crit"):
+		fx.append("+%d%% crit chance" % int(round(float(b["crit"]) * 100.0)))
+	if b.has("nextdmg"):
+		fx.append("next special hits %d%% harder (consumed on use)" % int(round((float(b["nextdmg"]) - 1.0) * 100.0)))
+	if b.has("bypass"):
+		fx.append("attacks pierce %d%% of shields" % int(round(float(c.get("shieldBypass", 0.0)) * 100.0)))
+	if b.has("reflect"):
+		fx.append("reflects the next hit back at %.1f× damage" % float(c.get("reflectMult", 1.0)))
+	if b.has("guard"):
+		fx.append("the first melee attacker is knocked back %d" % int(b["guard"].get("kb", 45)))
+	if fx.is_empty():
+		return []
+	var line := prefix + ", ".join(fx)
+	if b.has("dur"):
+		line += " for %.1fs" % float(b["dur"])
+	return ["[color=%s]%s[/color]" % [Palette.hex(Palette.INFO), line]]
+
 # the skill's real numbers, computed from the player's current stats + gear
 func _ability_tooltip(ab: Dictionary, pf: Dictionary) -> String:
+	var c: Dictionary = GameData.CLASSES.get(str(pf.get("classId", "")), {})
 	var L := ["[b]%s[/b]  [color=%s]%s[/color]" % [ab["name"], Palette.hex(Palette.TEXT_DIM), str(ab["type"])]]
+	if ab.has("desc"):
+		L.append("[color=%s]%s[/color]" % [Palette.hex(Palette.TEXT_DIM), str(ab["desc"])])
 	var dm: float = float(pf.get("dmgMult", 1.0))
 	var mhp: float = float(pf.get("maxHP", 1000.0))
+	var sboost: float = float(c.get("supportBoost", 1.0))   # Setter: heals/shields the player casts land boosted
+	var is_melee: bool = str(ab.get("type", "")) in ["melee", "meleeAoe", "dashAttack", "leapAttack"]
 	if ab.has("dmg"):
-		L.append("Damage: [color=%s]%d[/color]" % [Palette.hex(Palette.DMG), int(round(float(ab["dmg"]) * dm))])
+		var hits := int(ab.get("count", 1))
+		var dtxt := "Damage: [color=%s]%d[/color]" % [Palette.hex(Palette.DMG), int(round(float(ab["dmg"]) * dm))]
+		if hits > 1:
+			dtxt += " × %d" % hits
+		L.append(dtxt)
 		var cr: float = float(pf.get("crit", 0.0))
 		if cr > 0.0:
 			L.append("Crit: %d%% for %.1f×" % [int(round(cr * 100.0)), float(pf.get("critMult", 1.5))])
+		if is_melee and c.has("meleeLifesteal"):
+			L.append("[color=%s]Heals you for %d%% of damage dealt[/color]" % [Palette.hex(Palette.SUCCESS), int(round(float(c["meleeLifesteal"]) * 100.0))])
+	# ally-targeted heals/shields scale off the TARGET's max HP in the sim — show the (boosted) percent
+	# there, and an absolute number only for self-targeted effects (where the player's own pool applies).
+	var on_ally: bool = str(ab.get("targetType", "")) == "ally" or str(ab.get("type", "")) == "teamheal"
 	if ab.has("healPct"):
-		L.append("Heal: [color=%s]%d[/color]" % [Palette.hex(Palette.SUCCESS), int(round(float(ab["healPct"]) * mhp))])
+		if on_ally:
+			L.append("Heal: [color=%s]%d%%[/color] of the target's max HP" % [Palette.hex(Palette.SUCCESS), int(round(float(ab["healPct"]) * sboost * 100.0))])
+		else:
+			L.append("Heal: [color=%s]%d[/color]" % [Palette.hex(Palette.SUCCESS), int(round(float(ab["healPct"]) * mhp * sboost))])
 	if ab.has("shieldPct"):
-		L.append("Shield: [color=%s]%d[/color]" % [Palette.hex(Palette.SHIELD_NUM), int(round(float(ab["shieldPct"]) * mhp))])
+		if on_ally:
+			L.append("Shield: [color=%s]%d%%[/color] of the target's max HP for %.1fs" % [Palette.hex(Palette.SHIELD_NUM), int(round(float(ab["shieldPct"]) * sboost * 100.0)), float(ab.get("dur", 3.0))])
+		else:
+			L.append("Shield: [color=%s]%d[/color] for %.1fs" % [Palette.hex(Palette.SHIELD_NUM), int(round(float(ab["shieldPct"]) * mhp * sboost)), float(ab.get("dur", 3.0))])
+	if ab.has("teamShieldPct"):
+		L.append("[color=%s]On a connecting hit: shields every ally for %d%% of their max HP[/color]" % [Palette.hex(Palette.SHIELD_NUM), int(round(float(ab["teamShieldPct"]) * 100.0))])
+	if str(ab.get("type", "")) == "zone" and c.has("zoneSelfBoost"):
+		L.append("[color=%s]Your projectiles into the zone: +%d%% damage (allies' +%d%%)[/color]" % [Palette.hex(Palette.INFO),
+			int(round((float(c["zoneSelfBoost"]) - 1.0) * 100.0)), int(round((float(c.get("zoneAllyBoost", 1.0)) - 1.0) * 100.0))])
+	if str(ab.get("type", "")) == "barrier":
+		L.append("[color=%s]%d%% damage reduction while up; expires in a blast that grows with damage soaked[/color]" % [Palette.hex(Palette.INFO), int(round(float(ab.get("dr", 0.0)) * 100.0))])
 	if ab.has("range"):
 		L.append("[color=%s]Range: %d[/color]" % [Palette.hex(Palette.INFO), int(ab["range"])])
 	if ab.has("dist"):
 		L.append("[color=%s]Dash: %d[/color]" % [Palette.hex(Palette.INFO), int(ab["dist"])])
+	if ab.has("radius"):
+		L.append("[color=%s]Radius: %d[/color]" % [Palette.hex(Palette.INFO), int(ab["radius"])])
+	if ab.has("evade"):
+		L.append("[color=%s]Evades all attacks for %.2fs[/color]" % [Palette.hex(Palette.INFO), float(ab["evade"])])
+	if ab.has("untargetable"):
+		L.append("[color=%s]Untargetable for %.1fs[/color]" % [Palette.hex(Palette.INFO), float(ab["untargetable"])])
+	if ab.has("cast"):
+		# only projectile casts are stun-interruptible (Sim cancels just those); other casts pause + resolve
+		var interrupt := " (a stun interrupts it)" if str(ab.get("type", "")) == "projectile" else ""
+		L.append("[color=%s]Cast time: %.2fs%s[/color]" % [Palette.hex(Palette.TEXT_DIM), float(ab["cast"]), interrupt])
 	if ab.has("stun"):
 		L.append("[color=%s]Stun: %.1fs[/color]" % [Palette.hex(Palette.CC), float(ab["stun"])])
+	if ab.has("knockdown"):
+		L.append("[color=%s]Knockdown: %.1fs[/color]" % [Palette.hex(Palette.CC), float(ab["knockdown"])])
 	if ab.has("slow"):
 		L.append("[color=%s]Slow: %d%% for %.1fs[/color]" % [Palette.hex(Palette.CC), int(float(ab["slow"]["amt"]) * 100.0), float(ab["slow"]["dur"])])
-	if ab.has("dur"):
+	if ab.has("knockback"):
+		L.append("[color=%s]Knockback: %d[/color]" % [Palette.hex(Palette.CC), int(ab["knockback"])])
+	if ab.has("buff"):
+		L.append_array(_buff_lines(ab["buff"], c))
+	if ab.has("selfBuff"):
+		L.append_array(_buff_lines(ab["selfBuff"], c, "After the dash: "))
+	if ab.has("onKillBuff"):
+		L.append_array(_buff_lines(ab["onKillBuff"], c, "On a killing blow: "))
+	if ab.has("onHitSelfShieldPct"):
+		L.append("[color=%s]A damaging hit shields you for %d%% max HP (%.1fs)[/color]" % [Palette.hex(Palette.SHIELD_NUM),
+			int(round(float(ab["onHitSelfShieldPct"]) * 100.0)), float(ab.get("onHitSelfShieldDur", 3.0))])
+	if int(ab.get("dispelBuffs", 0)) > 0:
+		L.append("[color=%s]A damaging hit strips %d enemy buff%s[/color]" % [Palette.hex(Palette.CC), int(ab["dispelBuffs"]), "" if int(ab["dispelBuffs"]) == 1 else "s"])
+	if ab.get("cleanse", false):
+		L.append("[color=%s]Cleanses stuns and slows[/color]" % Palette.hex(Palette.SUCCESS))
+	if ab.has("dur") and not ab.has("shieldPct"):
 		L.append("[color=%s]Duration: %.1fs[/color]" % [Palette.hex(Palette.INFO), float(ab["dur"])])
 	L.append("[color=%s]Cooldown: %.1fs[/color]" % [Palette.hex(Palette.TEXT_DIM), float(ab.get("cd", 0.0))])
 	return "\n".join(L)

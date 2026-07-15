@@ -175,16 +175,19 @@ static func sim_tick(state, dt) -> void:
 			var src = _find_fighter(state, p["owner"])
 			if src != null:
 				if Combat.is_hostile(state, src, tgt):   # re-check at impact (target may have joined the party mid-flight)
+					# a SUCCESSFUL impact = the hit actually connects (target alive, not evading/untargetable);
+					# the team shield (Hail Mary) rides only a successful impact — a whiffed/evaded bomb shields no one.
+					var connected: bool = tgt["alive"] and tgt["evade"] <= 0 and tgt["untarget"] <= 0
 					Combat.deal_damage(state, src, tgt, p["dmg"], {"projectile": true, "basic": p.get("basic", false), "key": p["key"]})
 					if p.get("stun", null) != null: tgt["stun"] = max(tgt["stun"], p["stun"])
 					if p.get("slow", null) != null:
 						tgt["slowT"] = p["slow"]["dur"]
 						tgt["slowAmt"] = p["slow"]["amt"]
 					if p.get("wobble", null) != null: _apply_wobble(tgt, float(p["wobble"]))   # P5 Wobble on hit
-				if p.get("teamShieldPct", null) != null:
-					for a in fighters:
-						if (a["id"] == src["id"] or Combat.is_ally(state, src, a)) and a["alive"]:
-							Combat.apply_shield(state, src, a, a["maxHP"] * p["teamShieldPct"], 3.0)
+					if connected and p.get("teamShieldPct", null) != null:
+						for a in fighters:
+							if (a["id"] == src["id"] or Combat.is_ally(state, src, a)) and a["alive"]:
+								Combat.apply_shield(state, src, a, a["maxHP"] * p["teamShieldPct"], 3.0)
 			p["dead"] = true
 		else:
 			p["x"] += (dx / d) * step
@@ -271,6 +274,10 @@ static func sim_tick(state, dt) -> void:
 		f["buffs"]["reflect"] = max(0.0, f["buffs"]["reflect"] - dt)
 		f["hatChainT"] = max(0.0, f["hatChainT"] - dt)
 		f["atkCommitT"] = max(0.0, f["atkCommitT"] - dt)
+		if float(f.get("guardT", 0.0)) > 0.0:            # guarded melee knockback (Roof Block): charges die with the window
+			f["guardT"] = maxf(0.0, float(f["guardT"]) - dt)
+			if f["guardT"] <= 0.0:
+				f["guardCharges"] = 0
 		if f["momentumT"] > 0:
 			f["momentumT"] -= dt
 		elif f["momentum"] > 0:
@@ -317,7 +324,13 @@ static func sim_tick(state, dt) -> void:
 				f["barrier"] = 0.0
 				f["_barrierAb"] = null
 
-		if f["stun"] > 0: continue
+		if f["stun"] > 0:
+			# a stun INTERRUPTS a casted projectile (8-skill expansion; e.g. Golden Goal) — the shot never
+			# spawns and the cd (spent at cast start) is lost. Other cast types keep the shipped behavior
+			# (the timer merely pauses) so mob/boss telegraphs are unchanged. No mob has a casted projectile.
+			if f["casting"] != null and str(f["casting"]["ab"].get("type", "")) == "projectile":
+				f["casting"] = null
+			continue
 
 		# finish casts
 		if f["casting"] != null:
@@ -329,35 +342,26 @@ static func sim_tick(state, dt) -> void:
 					ctgt = _find_fighter(state, f["casting"]["targetId"])
 				if ab["type"] == "melee" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt) and Geom.dist(f, ctgt) < ab["range"] + 30:
 					Combat.deal_damage(state, f, ctgt, ab["dmg"], {"melee": true, "key": ab["key"]})
-					if ab.has("knockback") and not Combat.kb_immune(ctgt):
-						var kd = Vector2(ctgt["x"] - f["x"], ctgt["y"] - f["y"]).length()
-						if kd == 0: kd = 1.0
-						ctgt["x"] += ((ctgt["x"] - f["x"]) / kd) * ab["knockback"]
-						ctgt["y"] += ((ctgt["y"] - f["y"]) / kd) * ab["knockback"]
-						Geom.clamp_arena(ctgt)
+					Abilities.apply_hit_riders(state, f, ctgt, ab)   # shared rider path = immediate/cast parity
 				elif ab["type"] == "meleeAoe":
 					for e in fighters:
 						if Combat.is_hostile(state, f, e) and e["alive"] and Geom.dist(f, e) < ab["radius"]:
 							Combat.deal_damage(state, f, e, ab["dmg"], {"melee": true, "key": ab["key"]})
-							if ab.has("stun"):                       # cast-finish meleeAoe dropped stun (e.g. the bosses' Whistle Burst never stunned); no player meleeAoe carries stun → byte-identical
-								e["stun"] = max(e["stun"], ab["stun"])
-							if ab.has("knockback") and not Combat.kb_immune(e):
-								var kd = Vector2(e["x"] - f["x"], e["y"] - f["y"]).length()
-								if kd == 0: kd = 1.0
-								e["x"] += ((e["x"] - f["x"]) / kd) * ab["knockback"]
-								e["y"] += ((e["y"] - f["y"]) / kd) * ab["knockback"]
-								Geom.clamp_arena(e)
-							if ab.has("pull") and not Combat.kb_immune(e):   # P5: yank the target TOWARD the caster (off cover)
-								var pd = Vector2(f["x"] - e["x"], f["y"] - e["y"]).length()
-								var pamt = minf(float(ab["pull"]), pd - 30.0)
-								if pamt > 0.0:
-									e["x"] += ((f["x"] - e["x"]) / pd) * pamt
-									e["y"] += ((f["y"] - e["y"]) / pd) * pamt
-									Geom.clamp_arena(e)
+							Abilities.apply_hit_riders(state, f, e, ab)
 				elif ab["type"] == "dashAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):
 					Abilities.exec_dash_attack(state, f, ctgt, ab)
 				elif ab["type"] == "leapAttack" and ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt):
 					Combat.deal_damage(state, f, ctgt, ab["dmg"], {"melee": true, "airborne": ab.get("airborne", false), "key": ab["key"]})
+					Abilities.apply_hit_riders(state, f, ctgt, ab)
+				elif ab["type"] == "projectile":
+					# casted projectile (8-skill expansion): the shot spawns ONLY here, after re-checking the
+					# target is still alive, hostile, in range (+30 grace, like melee), and in LOS. The cd was
+					# spent at cast start; a failed re-check = no spawn (the cast whiffed). Single spawn site
+					# → no double damage; the immediate-projectile path never runs for a casted ability.
+					if ctgt != null and ctgt["alive"] and Combat.is_hostile(state, f, ctgt) \
+							and Geom.dist(f, ctgt) <= float(ab["range"]) + 30.0 and Geom.has_los(state, f, ctgt):
+						f["atkCommitT"] = 0.35
+						state["projectiles"].append(Abilities.make_projectile(state, f, ctgt, ab))
 				elif ab["type"] == "campreset":
 					# Full Camp Reset — arena-wide AoE. Counterplay: (1) COVER — a hostile whose LOS to the boss
 					# is blocked by an obstacle is SPARED; (2) POWER CORES — damage scales by the fraction of the
@@ -648,21 +652,13 @@ static func _player_support_cast(state, f, ab, friend_id := "") -> void:
 			var t := _friend_or_lowest(state, f, friend_id)
 			if ab.has("shieldPct"):
 				Combat.apply_shield(state, f, t, t["maxHP"] * ab["shieldPct"], ab["dur"])
-				var e_shield := AI._echo(c, f)   # Six-Pack echo parity (Setter)
+				var e_shield := AI._echo(c, f)   # Six-Pack echo parity (Setter) — advances ONCE per cast
 				if e_shield > 0.0:
 					Combat.apply_shield(state, f, t, t["maxHP"] * ab["shieldPct"] * e_shield, ab["dur"])
+				if ab.has("buff"):               # multi-effect ally buff (Roll Out): the shield must not swallow the buff dict
+					Combat.apply_buff_dict(t, ab["buff"])
 			elif ab.has("buff"):
-				var b = ab["buff"]
-				if b.has("nextdmg"): t["buffs"]["nextdmg"] = b["nextdmg"]
-				if b.has("crit"):
-					t["buffs"]["crit"] = b["crit"]
-					t["buffs"]["critT"] = b["dur"]
-				if b.has("atkspd"):
-					t["buffs"]["atkspd"] = b["atkspd"]
-					t["buffs"]["atkspdT"] = b.get("dur", 2.2)
-				if b.has("ms"):
-					t["buffs"]["ms"] = b["ms"]
-					t["buffs"]["msT"] = b["dur"]
+				Combat.apply_buff_dict(t, ab["buff"])   # every supported field applies (DR/ms/crit/atkspd/bypass/reflect/nextdmg)
 				AI._echo(c, f)   # advance the echo counter (parity with AI.support_tick)
 	f["cds"][ab["key"]] = ab["cd"] * cd_mult
 	f["lastCastKey"] = ab["key"]
@@ -673,15 +669,7 @@ static func _player_support_cast(state, f, ab, friend_id := "") -> void:
 static func _player_self_cast(_state, f, ab) -> void:
 	match ab["type"]:
 		"selfbuff":
-			var b = ab["buff"]
-			if b.has("dr"):
-				f["buffs"]["dr"] = b["dr"]
-				f["buffs"]["drT"] = b["dur"]
-			if b.has("ms"):
-				f["buffs"]["ms"] = b["ms"]
-				f["buffs"]["msT"] = b["dur"]
-			if b.has("bypass"): f["buffs"]["bypass"] = b["dur"]
-			if b.has("reflect"): f["buffs"]["reflect"] = b["dur"]
+			Combat.apply_buff_dict(f, ab["buff"])   # every supported field applies (multi-effect parity with the AI path)
 		"barrier":
 			f["barrier"] = ab["dr"]
 			f["barrierT"] = ab["dur"]
@@ -708,6 +696,7 @@ static func _player_dash(_state, f, ab, mvx, mvy) -> void:
 	f["y"] += (dy / dl) * ab["dist"]
 	Geom.clamp_arena(f)
 	if ab.has("evade"): f["evade"] = ab["evade"]
+	Abilities.apply_move_buff(f, ab)             # optional follow-up selfBuff (Scramble / Approach)
 	f["cds"][ab["key"]] = ab["cd"] * (1.0 - f["cdr"])
 	f["lastCastKey"] = ab["key"]
 

@@ -182,17 +182,12 @@ static func solo_support_tick(state, f) -> bool:
 			if ab.has("shieldPct"):
 				if f["hp"] / f["maxHP"] < 0.85 and f["shield"] < f["maxHP"] * 0.05:
 					Combat.apply_shield(state, f, f, f["maxHP"] * ab["shieldPct"], ab["dur"])
+					if ab.has("buff"):           # multi-effect (Roll Out): the shield must not swallow the buff dict
+						Combat.apply_buff_dict(f, ab["buff"])
 					_fire_support(f, ab)
 					return true
 			elif ab.has("buff") and enemy_near:
-				var b = ab["buff"]
-				if b.has("nextdmg"): f["buffs"]["nextdmg"] = b["nextdmg"]
-				if b.has("crit"):
-					f["buffs"]["crit"] = b["crit"]
-					f["buffs"]["critT"] = b["dur"]
-				if b.has("atkspd"):
-					f["buffs"]["atkspd"] = b["atkspd"]
-					f["buffs"]["atkspdT"] = b.get("dur", 2.2)
+				Combat.apply_buff_dict(f, ab["buff"])   # every supported field applies
 				_fire_support(f, ab)
 				return true
 	return false
@@ -257,8 +252,10 @@ static func support_tick(state, f, dt) -> bool:
 					if ab.get("dashTo", false) and Geom.dist(f, tgt) > 90:
 						step_toward(state, f, tgt["x"], tgt["y"], 0.18, 6.0)
 					Combat.apply_shield(state, f, tgt, tgt["maxHP"] * ab["shieldPct"], ab["dur"])
-					var e = _echo(c, f)
+					var e = _echo(c, f)              # echo advances ONCE per cast (shield + buff together)
 					if e > 0: Combat.apply_shield(state, f, tgt, tgt["maxHP"] * ab["shieldPct"] * e, ab["dur"])
+					if ab.has("buff"):               # multi-effect (Roll Out): the shield must not swallow the buff dict
+						Combat.apply_buff_dict(tgt, ab["buff"])
 					_fire_support(f, ab)
 					return true
 			elif ab.has("buff"):
@@ -270,14 +267,7 @@ static func support_tick(state, f, dt) -> bool:
 						best_pwr = pwr
 						tgt = a
 				if tgt != null:
-					var b = ab["buff"]
-					if b.has("nextdmg"): tgt["buffs"]["nextdmg"] = b["nextdmg"]
-					if b.has("crit"):
-						tgt["buffs"]["crit"] = b["crit"]
-						tgt["buffs"]["critT"] = b["dur"]
-					if b.has("atkspd"):
-						tgt["buffs"]["atkspd"] = b["atkspd"]
-						tgt["buffs"]["atkspdT"] = b.get("dur", 2.2)
+					Combat.apply_buff_dict(tgt, ab["buff"])   # every supported field applies (DR/ms/crit/atkspd/…)
 					_echo(c, f)
 					_fire_support(f, ab)
 					return true

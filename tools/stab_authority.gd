@@ -32,7 +32,7 @@ func _run() -> void:
 	# ---- 2. ability validation ----
 	srv.submit_ability(1, 12345, 1)                       # wrong type
 	ok(str(srv._pending_ability[1]) == "" and int(srv._last_aseq[1]) == 0, "ability: non-string key rejected")
-	srv.submit_ability(1, "yellowcard", 1)                # striker special #2 unlocks at level 6; Alice is 1 (gated char)
+	srv.submit_ability(1, "yellowcard", 1)                # striker special #2 unlocks at level 5; Alice is 1 (gated char)
 	ok(str(srv._pending_ability[1]) == "" and int(srv._last_aseq[1]) == 0,
 		"ability: LOCKED key rejected without consuming the sequence")
 	srv.submit_ability(1, "finesse", 5)                   # the basic — always unlocked

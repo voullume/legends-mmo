@@ -7,6 +7,7 @@ extends RefCounted
 
 const GameData := preload("res://shared/GameData.gd")
 const Rng := preload("res://shared/Rng.gd")
+const Geom := preload("res://shared/Geom.gd")
 
 const OT_START := 50.0
 
@@ -49,6 +50,101 @@ static func _same_party(a, b) -> bool:
 # dash knockback) is skipped on it, so players can't kb-lock it. Players never carry the flag (no-op for them).
 static func kb_immune(f: Dictionary) -> bool:
 	return GameData.CLASSES.get(str(f["classId"]), {}).get("kbImmune", false)
+
+# --- 8-skill expansion: generic buff-dict application ---------------------------------------------------
+# THE one writer for a buff dictionary (self + ally paths, movement follow-ups, on-kill rewards). Every
+# supported field applies — a shield on the same ability must not swallow these. Values overwrite (the
+# existing semantic); every timed field re-arms its timer, so an expired buff can never linger as a stale
+# value (the T-gated reads in effective_dr / step_toward / try_cast stay the single source of truth).
+static func apply_buff_dict(t: Dictionary, b: Dictionary) -> void:
+	if b.has("nextdmg"):
+		t["buffs"]["nextdmg"] = b["nextdmg"]
+	if b.has("dr"):
+		# DR is monotone protection: a weaker concurrent source (an ally's Play Action landing under
+		# your Block) must not REDUCE an active DR — keep the stronger value; either way extend to the
+		# longer window. Ability writes stamp drSrc so dispel can spare item-proc (P7b GUARD) DR.
+		if not (t["buffs"]["drT"] > 0.0 and float(t["buffs"]["dr"]) > float(b["dr"])):
+			t["buffs"]["dr"] = b["dr"]
+			t["buffs"]["drSrc"] = "ability"
+		t["buffs"]["drT"] = maxf(float(t["buffs"]["drT"]), float(b["dur"]))
+	if b.has("ms"):
+		# move speed stays last-write-wins: it's directional (haste vs an anchor stance's self-slow),
+		# so the newest ability intent governs. Stamped for the same dispel provenance.
+		t["buffs"]["ms"] = b["ms"]
+		t["buffs"]["msT"] = b["dur"]
+		t["buffs"]["msSrc"] = "ability"
+	if b.has("crit"):
+		t["buffs"]["crit"] = b["crit"]
+		t["buffs"]["critT"] = b["dur"]
+	if b.has("atkspd"):
+		t["buffs"]["atkspd"] = b["atkspd"]
+		t["buffs"]["atkspdT"] = b.get("dur", 2.2)
+	if b.has("bypass"):
+		t["buffs"]["bypass"] = b["dur"]
+	if b.has("reflect"):
+		t["buffs"]["reflect"] = b["dur"]
+	if b.has("guard"):                                # guarded melee knockback (Roof Block) — rides the buff's dur
+		t["guardCharges"] = int(b["guard"].get("charges", 1))
+		t["guardKb"] = float(b["guard"].get("kb", 45.0))
+		t["guardT"] = float(b.get("dur", 2.0))
+
+# --- 8-skill expansion: dispel (Strip Ball) --------------------------------------------------------------
+# Eligibility is DELIBERATELY narrow: only the timed buff-dict fields, in fixed priority
+# reflect > DR > bypass > attack speed > crit > movement speed. Never shields, barriers, equipped procs /
+# DOTs / their granted buffs (dr/ms stamped drSrc/msSrc "proc" are ITEM effects — spared), class passives,
+# Momentum, Hat Trick, evasion, untargetability, boss phases, cores, or guard charges. A movement-speed
+# value <= 1.0 (a self-slow like Goal-Line Stand) is not a buff — stripping it would help the target, so
+# it's ineligible. Zero rng; pure field writes.
+static func _dr_dispellable(b: Dictionary) -> bool:
+	return b["drT"] > 0.0 and str(b.get("drSrc", "")) != "proc"
+
+static func _ms_dispellable(b: Dictionary) -> bool:
+	return b["msT"] > 0.0 and b["ms"] > 1.0 and str(b.get("msSrc", "")) != "proc"
+
+# the AI-prioritization gate ("worth a Strip Ball?"). Deliberately EXCLUDES reflect: an active reflect
+# eats the strip's own melee hit (and bounces it back 1.6×) before the dispel can resolve — swinging a
+# dispel into a Punching Save is feeding, not stripping. dispel_one still lists reflect first (the spec's
+# priority), reachable by any future non-damage dispel carrier.
+static func has_dispellable(t: Dictionary) -> bool:
+	var b: Dictionary = t["buffs"]
+	return _dr_dispellable(b) or b["bypass"] > 0.0 \
+		or b["atkspdT"] > 0.0 or b["critT"] > 0.0 or _ms_dispellable(b)
+
+static func dispel_one(t: Dictionary) -> bool:
+	var b: Dictionary = t["buffs"]
+	if b["reflect"] > 0.0:
+		b["reflect"] = 0.0
+		return true
+	if _dr_dispellable(b):
+		b["drT"] = 0.0
+		b["dr"] = 0.0
+		return true
+	if b["bypass"] > 0.0:
+		b["bypass"] = 0.0
+		return true
+	if b["atkspdT"] > 0.0:
+		b["atkspdT"] = 0.0
+		b["atkspd"] = 1.0
+		return true
+	if b["critT"] > 0.0:
+		b["critT"] = 0.0
+		b["crit"] = 0.0
+		return true
+	if _ms_dispellable(b):
+		b["msT"] = 0.0
+		b["ms"] = 1.0
+		return true
+	return false
+
+# the ability def behind a damage packet's opts.key (for the generic on-hit / on-kill / dispel fields).
+# {} when keyless (zones) or the key isn't one of the source class's abilities (no-op for every mob).
+static func _ability_def(c: Dictionary, key: String) -> Dictionary:
+	if key == "":
+		return {}
+	for ab in c.get("abilities", []):
+		if str(ab.get("key", "")) == key:
+			return ab
+	return {}
 
 # P5 frontal DR — a mob with a `frontalDR` def value takes that fraction LESS from an attacker standing in
 # its facing arc (it blocks the front; flank/back it for full damage). Geometric (uses the mob's hx/hy
@@ -205,6 +301,22 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 			if opts.get("proc", false):
 				ev["proc"] = true          # passive item-proc damage — clients show a soft tick, not an impact
 			state["events"].append(ev)
+	# 14b. guarded melee knockback (Roof Block) — a direct melee hit on a guarded target punches the ATTACKER
+	# back and consumes one charge. Projectile / proc / DOT / hazard / reflected damage never triggers it; a
+	# kb-immune attacker is neither displaced nor consumes the charge. Zero rng; pure geometry.
+	if opts.get("melee", false) and not opts.get("proc", false) and not opts.get("dot", false) \
+			and not opts.get("reflected", false) \
+			and int(tgt.get("guardCharges", 0)) > 0 and float(tgt.get("guardT", 0.0)) > 0.0 \
+			and not kb_immune(src):
+		tgt["guardCharges"] = int(tgt["guardCharges"]) - 1
+		var gkb: float = float(tgt.get("guardKb", 45.0))
+		var gd := Vector2(src["x"] - tgt["x"], src["y"] - tgt["y"]).length()
+		if gd < 0.001:
+			src["x"] += gkb                            # exactly overlapping: deterministic +x push
+		else:
+			src["x"] += ((src["x"] - tgt["x"]) / gd) * gkb
+			src["y"] += ((src["y"] - tgt["y"]) / gd) * gkb
+		Geom.clamp_arena(src)
 	# 15. lifesteal (Batter melee)
 	if opts.get("melee", false) and sc.has("meleeLifesteal"):
 		var heal: float = dmg * sc["meleeLifesteal"]
@@ -226,7 +338,22 @@ static func deal_damage(state: Dictionary, src: Dictionary, tgt: Dictionary, raw
 					state["events"].append({"type": "dmg", "src": sid, "tgt": tgt["id"], "amt": bamt, "crit": false, "proc": true, "t": state["t"]})
 			tgt["_dotAcc"] = {}
 		state["events"].append({"type": "kill", "killer": src["id"], "victim": tgt["id"], "t": state["t"]})
-		# (on-kill ability effects — golden goal stealth, thunderspike reset — added with abilities phase)
+	# 16b. generic data-driven ability effects (8-skill expansion), resolved from the ability key in opts:
+	# on-hit self shield (Walk-Off), one-buff dispel (Strip Ball), on-kill buff (Golden Goal). DIRECT damage
+	# only — proc / DOT / hazard / reflected packets never resolve these (so a DOT kill grants no on-kill
+	# reward and a reflected hit can't strip its own caster). Keyless packets (zones) resolve {}; a mob
+	# ability resolves its real def but carries none of these fields → no-op either way.
+	if not opts.get("proc", false) and not opts.get("dot", false) and not opts.get("reflected", false):
+		var abd: Dictionary = _ability_def(sc, str(opts.get("key", "")))
+		if not abd.is_empty():
+			if dmg > 0.0 and abd.has("onHitSelfShieldPct") and src["alive"]:
+				apply_shield(state, src, src, src["maxHP"] * float(abd["onHitSelfShieldPct"]), float(abd.get("onHitSelfShieldDur", 3.0)))
+			if dmg > 0.0 and int(abd.get("dispelBuffs", 0)) > 0:
+				for _i in int(abd["dispelBuffs"]):
+					if not dispel_one(tgt):
+						break
+			if not tgt["alive"] and abd.has("onKillBuff"):
+				apply_buff_dict(src, abd["onKillBuff"])
 	# procs (P6): a REAL hit (not proc/DOT-sourced) resolves the source's equipped procs — deterministically.
 	if not opts.get("proc", false) and not opts.get("dot", false):
 		_resolve_procs(state, src, tgt, is_crit, not tgt["alive"], dmg)
@@ -275,16 +402,18 @@ static func _resolve_procs(state: Dictionary, src: Dictionary, tgt: Dictionary, 
 				var h: float = min(src["maxHP"] - src["hp"], float(p.get("amt", 0.0)))
 				src["hp"] += h
 				src["healing"] += h
-			"HASTE":                                      # P7b: temp move-speed (amt = bonus fraction, applied as 1+amt). Apply ONLY when the proc wins (no active ms buff, or the proc is >= the active one) so a weaker proc never weakens NOR extends a stronger ability buff (e.g. stolenbase 1.45).
+			"HASTE":                                      # P7b: temp move-speed (amt = bonus fraction, applied as 1+amt). Apply ONLY when the proc wins (no active ms buff, or the proc is >= the active one) so a weaker proc never weakens NOR extends a stronger ability buff (e.g. stolenbase 1.45) — and NEVER overwrite an ability SELF-SLOW (ms < 1.0, e.g. Goal-Line Stand): erasing the malus while its DR persists would break that ability's tradeoff.
 				var pms: float = 1.0 + float(p.get("amt", 0.0))
-				if src["buffs"]["msT"] <= 0.0 or pms >= src["buffs"]["ms"]:
+				if src["buffs"]["msT"] <= 0.0 or (pms >= src["buffs"]["ms"] and float(src["buffs"]["ms"]) >= 1.0):
 					src["buffs"]["ms"] = pms
 					src["buffs"]["msT"] = maxf(src["buffs"]["msT"], float(p.get("dur", 3.0)))
+					src["buffs"]["msSrc"] = "proc"        # item-granted → dispel spares it
 			"GUARD":                                      # P7b: temp damage reduction (amt = dr fraction). Same win-only rule: never weaken NOR extend a stronger active dr buff.
 				var pdr: float = float(p.get("amt", 0.0))
 				if src["buffs"]["drT"] <= 0.0 or pdr >= src["buffs"]["dr"]:
 					src["buffs"]["dr"] = pdr
 					src["buffs"]["drT"] = maxf(src["buffs"]["drT"], float(p.get("dur", 3.0)))
+					src["buffs"]["drSrc"] = "proc"        # item-granted → dispel spares it
 	src["_procT"] = pt
 
 # One deterministic roll in [0,1) for proc chances, hashed from (sim tick, source id, TARGET id,

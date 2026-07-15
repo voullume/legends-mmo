@@ -118,7 +118,7 @@ godot --headless --path . --script res://tools/stab_trust.gd        # DTLS/plain
 See `docs/stabilization.md` for what each suite pins down and the remaining known risks.
 
 ## In-world controls (zone)
-`WASD` move · `1`–`5` abilities · `LMB` basic · `RMB`-drag camera · wheel zoom ·
+`WASD` move · `1`–`8` abilities · `LMB` basic · `RMB`-drag camera · wheel zoom ·
 `Enter` chat · `I` inventory (click items to equip/unequip).
 
 ## What works right now (all 5 phases)

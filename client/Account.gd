@@ -250,19 +250,54 @@ func _class_detail(cid: String) -> String:
 		var tag := ""
 		if ab.get("basic", false): tag = "  [color=%s][b]BASIC[/b][/color]" % Palette.hex(Palette.SUCCESS)
 		elif ab.get("ult", false): tag = "  [color=%s][b]ULT[/b][/color]" % Palette.hex(Palette.ACCENT)
-		t += "• [b]%s[/b]%s  [color=%s](%s)[/color]\n    [color=%s]%s[/color]\n" % [ab["name"], tag, Palette.hex(Palette.TEXT_DIM), ab["type"], Palette.hex(Palette.INFO), _ability_nums(ab)]
+		t += "• [b]%s[/b]%s  [color=%s](%s)[/color]\n" % [ab["name"], tag, Palette.hex(Palette.TEXT_DIM), ab["type"]]
+		if ab.has("desc"):
+			t += "    [color=%s]%s[/color]\n" % [Palette.hex(Palette.TEXT_DIM), str(ab["desc"])]
+		t += "    [color=%s]%s[/color]\n" % [Palette.hex(Palette.INFO), _ability_nums(ab, c)]
 	return t
 
-func _ability_nums(ab: Dictionary) -> String:
+# one compact effect line per buff dictionary (shared by buff / selfBuff / onKillBuff below).
+# `c` = the class def, to resolve bypass/reflect magnitudes (class fields, not ability fields).
+func _buff_nums(b: Dictionary, c: Dictionary) -> Array:
+	var parts := []
+	if b.has("dr"): parts.append("%d%% DR" % int(round(b["dr"] * 100.0)))
+	if b.has("ms"):
+		var pct := int(round((float(b["ms"]) - 1.0) * 100.0))
+		parts.append(("+%d%% speed" % pct) if pct >= 0 else ("%d%% speed" % pct))
+	if b.has("atkspd"): parts.append("+%d%% attack speed" % int(round((float(b["atkspd"]) - 1.0) * 100.0)))
+	if b.has("crit"): parts.append("+%d%% crit" % int(round(b["crit"] * 100.0)))
+	if b.has("nextdmg"): parts.append("next special +%d%%" % int(round((float(b["nextdmg"]) - 1.0) * 100.0)))
+	if b.has("bypass"): parts.append("pierces %d%% of shields" % int(round(float(c.get("shieldBypass", 0.0)) * 100.0)))
+	if b.has("reflect"): parts.append("reflects the next hit at %.1fx" % float(c.get("reflectMult", 1.0)))
+	if b.has("guard"): parts.append("knocks back the first melee attacker")
+	if b.has("dur") and parts.size() > 0: parts.append("%ss" % str(b["dur"]))
+	return parts
+
+func _ability_nums(ab: Dictionary, c: Dictionary) -> String:
 	var parts := []
 	if ab.has("dmg"): parts.append("%d dmg" % int(ab["dmg"]))
 	if ab.has("count"): parts.append("x%d" % int(ab["count"]))
 	if ab.has("healPct"): parts.append("heal %d%%" % int(ab["healPct"] * 100.0))
 	if ab.has("shieldPct"): parts.append("shield %d%%" % int(ab["shieldPct"] * 100.0))
+	if ab.has("teamShieldPct"): parts.append("on hit: shield allies %d%%" % int(ab["teamShieldPct"] * 100.0))
 	if ab.has("range"): parts.append("range %d" % int(ab["range"]))
 	if ab.has("dist"): parts.append("dist %d" % int(ab["dist"]))
 	if ab.has("radius"): parts.append("radius %d" % int(ab["radius"]))
+	if ab.has("evade"): parts.append("evade %ss" % str(ab["evade"]))
 	if ab.has("stun"): parts.append("stun %ss" % str(ab["stun"]))
+	if ab.has("knockdown"): parts.append("knockdown %ss" % str(ab["knockdown"]))
+	if ab.has("slow"): parts.append("slow %d%%/%ss" % [int(ab["slow"]["amt"] * 100.0), str(ab["slow"]["dur"])])
+	if ab.has("knockback"): parts.append("knockback %d" % int(ab["knockback"]))
+	if ab.has("buff"): parts.append_array(_buff_nums(ab["buff"], c))
+	if ab.has("selfBuff"):
+		var sb := _buff_nums(ab["selfBuff"], c)
+		if sb.size() > 0: parts.append("then " + ", ".join(sb))
+	if ab.has("onKillBuff"):
+		var kb := _buff_nums(ab["onKillBuff"], c)
+		if kb.size() > 0: parts.append("on kill: " + ", ".join(kb))
+	if ab.has("onHitSelfShieldPct"): parts.append("on hit: self-shield %d%%" % int(ab["onHitSelfShieldPct"] * 100.0))
+	if int(ab.get("dispelBuffs", 0)) > 0: parts.append("strips %d buff" % int(ab["dispelBuffs"]))
+	if ab.get("cleanse", false): parts.append("cleanses stun/slow")
 	if ab.has("cast"): parts.append("cast %ss" % str(ab["cast"]))
 	if ab.has("cd"): parts.append("%ss cd" % str(ab["cd"]))
 	return " · ".join(parts) if parts.size() > 0 else "utility"

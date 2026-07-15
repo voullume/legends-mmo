@@ -6,7 +6,7 @@ extends Node
 ## every fighter uniformly from sim state; this node only translates input → intent.
 ##
 ##   movement : WASD, camera-relative (Client passes the live camera yaw to poll()).
-##   abilities: keys 1..5 = the class's abilities in GameData order (1=basic … 5=ult);
+##   abilities: keys 1..8 = the class's abilities in GameData order (1=basic … 8=ult);
 ##              left mouse = the basic (ability 1).
 ##
 ## Phase 2 swaps this driver for network input feeding the same intent shape server-side.
