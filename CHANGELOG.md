@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.7.0 — 2026-07-15
+
+- 8-skill class expansion: every class gets a full basic + 6 specials + ultimate kit, new combat primitives (buffs/dispels/guards/casted projectiles), retuned FORMAT_MODS[5] balance
+
+_(rolls up commits since the previous tag; base c6f6631)_
+
 ## v1.6.0 — 2026-07-15
 
 - The world gets solid: every object now has real collision (walls block shots too!) — and the maps sit in rolling terrain with a horizon instead of floating in the void
