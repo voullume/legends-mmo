@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.5.1 — 2026-07-15
+
+- Raid integrity: AI companions now wait outside the Head Coach arenas (bring a real team) — plus release-pipeline hardening
+
+_(rolls up commits since the previous tag; base 6623d90)_
+
 ## v1.5.0 — 2026-07-15
 
 - Phase 8 complete: the Away Circuit fully dressed — new landmark props across all seven zones, and meet Scout, Roadie & Champ, the road-trip residents
