@@ -107,8 +107,17 @@ apart, west→east gradient, elites east, portal drops >42 from reverse pads / >
   (non-buyable, champion pattern) + a Pages hook ≤ the 100/hr line + the boss_time-category decision;
   ⑥ stab_away pins (roster, subset/parity, gates, restore, geometry) + the **solo+2-residents playtest
   gate**; ⑦ recolor-readability eyeball. Ships shared/+client same commit.
-- **S5 — optional polish (S, ~1)** batch_006/007 prop integration (optimize pass), decor v2, away-band
-  residents, music drop-ins.
+- **S5 — optional polish (S, ~1)** — ✅ **SHIPPED v1.5.0 (2026-07-14, `dbecb34`)**. 11 approved props
+  (batch_006+007) integrated with real landmark collision, decor v2 across all six new zones, and 3
+  new-biome residents (Scout/Roadie/Champ). Pipeline lessons banked in the props handoff: gltf-transform
+  needs `--compress false` (meshopt breaks Godot 4.6); invalid sidecars must be deleted to retry; never
+  run imports/tests concurrently with a client export. Music drop-ins remain open (owner assets:
+  `audio/music/<zone>.ogg` auto-plays — no code needed).
+
+**★ PHASE 8 IS COMPLETE** (2026-07-14, v1.2.0→v1.5.0 in one day) — every slice shipped, adversarially
+reviewed (S1: 13 fixes · S2: 11 · S3: 11 · S5: 4), byte-identity proven at every `shared/` change, and
+the 9-16 questless desert is now directed play end-to-end into the raid and the Finals. **The only open
+slot is S4 — the owner's special boss** (placeholder + drop-in checklist above).
 
 ## Standing risks (accepted at sign-off)
 Circuit stays the max-XP/hr farm (new zones win on direction/gear/variety — by design, not competing);
