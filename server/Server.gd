@@ -84,6 +84,11 @@ const RESIDENTS := [
 	{"id": "reaper",  "name": "Reaper",  "class": "striker",    "persona": "fighter",  "home": "glitchyard_3",    "level": 9,  "tier": "high", "polite": true},
 	{"id": "nomad",   "name": "Nomad",   "class": "goalkeeper", "persona": "wanderer", "home": "glitchyard_3",    "level": 5,  "tier": "mid",  "polite": true,  "route": ["glitchyard_3", "glitchyard_4", "glitchyard_5", "glitchyard_1"]},
 	{"id": "vulture", "name": "Vulture", "class": "batter",     "persona": "rude",     "home": "glitchyard_4",    "level": 8,  "tier": "high", "polite": false},
+	# Phase-8 S5: the new biome gets resident life too (the away/finals bands felt empty of "players").
+	# Levels sit inside each zone band so they survive without carrying (same helper-not-carry tiers).
+	{"id": "scout",   "name": "Scout",   "class": "pitcher",    "persona": "wanderer", "home": "away_1",          "level": 11, "tier": "mid",  "polite": true,  "route": ["away_1", "away_2"]},
+	{"id": "roadie",  "name": "Roadie",  "class": "batter",     "persona": "grinder",  "home": "away_3",          "level": 15, "tier": "high", "polite": true},
+	{"id": "champ",   "name": "Champ",   "class": "quarterback","persona": "fighter",  "home": "finals_1",        "level": 21, "tier": "high", "polite": true,  "route": ["finals_1", "finals_2"]},
 ]
 const ROUTE_DWELL_MS := 75000         # a routing resident spends this long in each zone before moving on
 const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.3, "dmg": 1.1}, "high": {"hp": 1.8, "dmg": 1.25}}   # difficulty-pass v1: bots are helpers, not carries (was mid 1.6/1.25, high 2.6/1.55) — tunable

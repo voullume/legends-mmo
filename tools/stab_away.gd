@@ -205,10 +205,18 @@ func _run() -> void:
 						ok(gd >= 200.0, "geometry: %s pad→%s guard margin %.0f ≥ 200 (%s)" % [mp, str(p["to"]), gd, str(row["class"])])
 			if p.has("to"):                                          # every drop: clear of destination obstacles
 				var circles: Array = World.circles_from(World.OBSTACLES.get(str(p["to"]), []))
+				circles.append_array(World.collision_from_decals(str(p["to"])))   # S5: decor props carry PROP_FOOTPRINT collision now
 				for c in circles:
 					var cd := Vector2(float(p["tx"]) - float(c["x"]), float(p["ty"]) - float(c["y"])).length()
 					if cd <= float(c["r"]) + 16.0:
-						ok(false, "geometry: %s→%s drop (%.0f,%.0f) lands inside an obstacle circle" % [mp, str(p["to"]), float(p["tx"]), float(p["ty"])])
+						ok(false, "geometry: %s→%s drop (%.0f,%.0f) lands inside an obstacle/decor circle" % [mp, str(p["to"]), float(p["tx"]), float(p["ty"])])
+	# S5: spawn points must clear decor collision too (a fountain on the spawn would trap arrivals)
+	for mp in ["away_1", "away_2", "away_3", "away_boss", "finals_1", "finals_2"]:
+		var sp2: Vector2 = World.MAPS[mp]["spawn"]
+		for c in World.collision_from_decals(mp):
+			var sd := Vector2(sp2.x - float(c["x"]), sp2.y - float(c["y"])).length()
+			if sd <= float(c["r"]) + 16.0:
+				ok(false, "geometry: %s spawn sits inside a decor collision circle" % mp)
 
 	# ================================================================ S2 — "Beat the Rival"
 	# ---- 11. the back half boots: away_3 + away_boss, exact rosters ----
@@ -441,5 +449,31 @@ func _run() -> void:
 	ip_low += f_epics
 	ok(COMMISSIONER_IP >= ip_low, "IP@22-24: the S4 gate (1200) is above the unlucky floor (%d) — it filters" % ip_low)
 	ok(COMMISSIONER_IP <= int(float(ip_real) * 1.15), "IP@22-24: ...and within reach of the realistic set (%d) — measured, not guessed" % ip_real)
+
+	# ================================================================ S5 — polish pass
+	# ---- 22. batch_006/007 props registered end-to-end ----
+	for pid2 in ["championship_fountain", "community_team_table", "covered_market_stall", "plaza_light_column",
+			"public_plaza_bench", "vendor_service_kiosk", "season_reward_vault", "championship_reward_chest",
+			"loot_drop_capsule", "portal_anchor", "open_salvage_hopper"]:
+		ok(load("res://models/meshy/props/%s.glb" % pid2) != null, "S5 props: %s.glb LOADS (exists() lies — the v1.1.0 lesson)" % pid2)
+	ok(World.PROP_FOOTPRINT.has("championship_fountain") and not World.PROP_FOOTPRINT.has("public_plaza_bench"),
+		"S5 props: solids carry collision, benches stay walk-through")
+	# ---- 23. the new-biome residents ----
+	# per-home expected bands, widened for routes (review: a global 9..25 let a mis-tiered resident pass)
+	var res_bands := {"away_1": [10, 14], "away_2": [10, 14], "away_3": [14, 17], "finals_1": [19, 24], "finals_2": [19, 24]}
+	var new_res := 0
+	for r in srv.RESIDENTS:
+		var home := str(r.get("home", ""))
+		if home.begins_with("away") or home.begins_with("finals"):
+			new_res += 1
+			var rband: Array = res_bands.get(home, [9, 25])
+			ok(int(r["level"]) >= int(rband[0]) and int(r["level"]) <= int(rband[1]),
+				"S5 residents: %s (lvl %d) sits inside %s's route band [%d..%d]" % [r["id"], int(r["level"]), home, int(rband[0]), int(rband[1])])
+	ok(new_res == 3, "S5 residents: 3 new-biome residents declared")
+	for mp2 in ["away_1", "away_3", "finals_1"]:
+		var found_res := false
+		for f in srv._worlds[mp2]["fighters"]:
+			if f.get("resident", false): found_res = true
+		ok(found_res, "S5 residents: a resident actually spawned in %s" % mp2)
 
 	finish("stab_away")

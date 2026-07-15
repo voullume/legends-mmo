@@ -440,6 +440,10 @@ const PROP_FOOTPRINT := {
 	# admin-only Meshy landmarks (see client DECO_PROPS). quest_board is a THIN board → footprint sized to its
 	# depth (not width) so players can walk up to its face; the others are solid boxy structures.
 	"gear_forge": 9.5, "sideline_stand": 8.0, "power_core": 7.5, "quest_board": 2.8,
+	# Phase-8 S5 (batch_006/007): SOLID landmarks get collision; benches/chests/capsules stay walk-through
+	# set-dressing (no row = no circle). Footprints follow the shipped grammar above (boxy ≈ 3.5-9.5).
+	"championship_fountain": 8.5, "covered_market_stall": 7.0, "vendor_service_kiosk": 5.0,
+	"plaza_light_column": 1.6, "season_reward_vault": 5.5, "portal_anchor": 4.0, "open_salvage_hopper": 5.0,
 }
 const DECAL_COLLIDE_MIN_R := 4.0
 const DECAL_COLLIDE_MAX_R := 130.0

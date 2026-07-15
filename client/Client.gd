@@ -753,6 +753,10 @@ const DECO_PROPS := [
 	"player_tunnel_gate", "arena_service_door", "equipment_transport_crate", "straight_cover_barrier", "spectator_safety_rail",  # arena structure
 	"championship_arena_wall", "glitchyard_wall",                                                             # environment walls
 	"cable_spool_cart", "coolant_pump_station", "industrial_ventilation_unit", "maintenance_tool_cart", "scrap_sports_equipment_pile",  # glitchyard utility (batch_005)
+	# Phase-8 S5: the approved founders_commons (batch_006) + reward_progression (batch_007) sets — solid
+	# landmarks carry PROP_FOOTPRINT collision (shared/World.gd), the rest are pure set-dressing.
+	"championship_fountain", "community_team_table", "covered_market_stall", "plaza_light_column", "public_plaza_bench", "vendor_service_kiosk",  # founders commons (batch_006)
+	"season_reward_vault", "championship_reward_chest", "loot_drop_capsule", "portal_anchor", "open_salvage_hopper",  # reward progression (batch_007)
 ]
 
 # decal source for a map, priority: live editor working copy → data/decals/<map>.json → World.DECALS const.

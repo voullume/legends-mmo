@@ -69,7 +69,12 @@ Approved GLBs are 6–9 MB (Meshy raw). Before integrating, shrink them (per `CL
 ```bash
 ~/.npm-global/bin/gltf-transform optimize \
   too_add_models/approved/<cat>/<id>/model.glb  models/meshy/props/<id>.glb \
-  --texture-size 1024 --simplify   # NEVER --draco (Godot 4.6 can't import it)
+  --texture-size 1024 --simplify --compress false
+  # NEVER --draco, and --compress false is REQUIRED (S5 lesson): newer gltf-transform defaults to
+  # EXT_meshopt_compression + KHR_mesh_quantization, which Godot 4.6 can't read — the import marks the
+  # sidecar valid=false and load() returns null (the v1.1.0 empty-props symptom). If a prop ever imports
+  # invalid: fix the GLB, then DELETE its .glb.import + .godot/imported/<id>.glb-* before re-importing
+  # (Godot won't retry a valid=false sidecar).
 godot --headless --path . --import          # extracts *_texture_0.png sidecars — KEEP them (tracked deps)
 ```
 Result: `models/meshy/props/<id>.glb` is now referenceable by **bare basename** `<id>` (the loader

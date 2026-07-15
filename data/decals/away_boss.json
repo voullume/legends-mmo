@@ -1,13 +1,104 @@
 [
-	{"kind": "ring", "r": 170.0, "x": 620.0, "y": 410.0},
-	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 320.0, "y": 90.0, "yaw": 0.0},
-	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 920.0, "y": 90.0, "yaw": 0.0},
-	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 320.0, "y": 740.0, "yaw": 0.0},
-	{"h": 4.0, "kind": "prop", "model": "championship_arena_wall", "x": 920.0, "y": 740.0, "yaw": 0.0},
-	{"h": 5.0, "kind": "prop", "model": "sideline_stand", "x": 620.0, "y": 80.0, "yaw": 0.0},
-	{"h": 3.4, "kind": "prop", "model": "player_bench", "x": 200.0, "y": 700.0, "yaw": 0.0},
-	{"h": 3.4, "kind": "prop", "model": "player_bench", "x": 1050.0, "y": 700.0, "yaw": 0.0},
-	{"h": 3.2, "kind": "prop", "model": "sports_ball_rack", "x": 1080.0, "y": 160.0, "yaw": 0.8},
-	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 160.0, "y": 140.0, "yaw": 0.0},
-	{"h": 2.2, "kind": "prop", "model": "boundary_pylon", "x": 1100.0, "y": 680.0, "yaw": 0.0}
+	{
+		"kind": "ring",
+		"r": 170.0,
+		"x": 620.0,
+		"y": 410.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "championship_arena_wall",
+		"x": 320.0,
+		"y": 90.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "championship_arena_wall",
+		"x": 920.0,
+		"y": 90.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "championship_arena_wall",
+		"x": 320.0,
+		"y": 740.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "championship_arena_wall",
+		"x": 920.0,
+		"y": 740.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.0,
+		"kind": "prop",
+		"model": "sideline_stand",
+		"x": 620.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.4,
+		"kind": "prop",
+		"model": "player_bench",
+		"x": 200.0,
+		"y": 700.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.4,
+		"kind": "prop",
+		"model": "player_bench",
+		"x": 1050.0,
+		"y": 700.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.2,
+		"kind": "prop",
+		"model": "sports_ball_rack",
+		"x": 1080.0,
+		"y": 160.0,
+		"yaw": 0.8
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 160.0,
+		"y": 140.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 1100.0,
+		"y": 680.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "portal_anchor",
+		"x": 150.0,
+		"y": 320.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.6,
+		"kind": "prop",
+		"model": "community_team_table",
+		"x": 1090.0,
+		"y": 760.0,
+		"yaw": 0.5
+	}
 ]
