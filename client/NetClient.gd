@@ -462,7 +462,7 @@ func _item_meta_str(it: Dictionary) -> String:
 	return "[color=#7f8a99]i%d · ✦%d[/color]" % [int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
 
 func _build_inventory() -> void:
-	var p := Widgets.panel("Inventory", "I / Esc", 760.0, _toggle_inventory)
+	var p := Widgets.panel("Inventory", "I / Esc", 760.0, _toggle_inventory, true)   # phase B: marquee chrome
 	_inv_panel = p["root"]
 	_hud.add_child(_inv_panel)
 	var vb: VBoxContainer = p["body"]
@@ -506,7 +506,7 @@ func _build_inventory() -> void:
 
 # --- character sheet (K): computed base+gear attributes + applied combat finals + item power (P3) ---
 func _build_charsheet() -> void:
-	var p := Widgets.panel("Character", "K / Esc", 440.0, _toggle_charsheet)
+	var p := Widgets.panel("Character", "K / Esc", 440.0, _toggle_charsheet, true)   # phase B: marquee chrome
 	_sheet_panel = p["root"]
 	_hud.add_child(_sheet_panel)
 	var vb: VBoxContainer = p["body"]
@@ -1828,7 +1828,7 @@ func _quest_tracker_preview(on: bool) -> void:
 	_update_quest_tracker()
 
 func _build_questlog() -> void:
-	var p := Widgets.panel("Quest Journal", "J / Esc", 560.0, _toggle_questlog)
+	var p := Widgets.panel("Quest Journal", "J / Esc", 560.0, _toggle_questlog, true)   # phase B: marquee chrome
 	_quest_panel = p["root"]
 	_hud.add_child(_quest_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2451,7 +2451,7 @@ func recv_build_info(info: Dictionary) -> void:
 	_build_info = info
 
 func _build_shop() -> void:
-	var p := Widgets.panel("Shop", "B / Esc", 1010.0, _toggle_shop)
+	var p := Widgets.panel("Shop", "B / Esc", 1010.0, _toggle_shop, true)   # phase B: marquee chrome
 	_shop_panel = p["root"]
 	_hud.add_child(_shop_panel)
 	var vb: VBoxContainer = p["body"]

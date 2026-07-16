@@ -9,7 +9,17 @@ const WIN_CFG := "user://settings.cfg"   # reuse the audio/fx settings file (a [
 # floating PanelContainer you drag by its header and resize by a bottom-right grip; position + size persist
 # per title. root → PanelContainer → Margin → VBox, with a header (title + key hint + optional ✕) and a rule.
 # `on_close` (a Callable) wires the ✕. Returns {root, panel, body, title} — caller adds `root` to the HUD.
-static func panel(title: String, key_hint := "", min_width := 560.0, on_close = null) -> Dictionary:
+# `chrome` (phase B, marquee windows only): the window rides the full HudFrame PANEL chassis —
+# chamfered navy→ink gradient, cyan rail, header tab, ticks — with the body OPAQUE (data-menu rule).
+# The chassis replaces the theme stylebox and stacks UNDER the content inside the PanelContainer
+# (container children share the full rect); the existing 20px content margins already exceed the
+# PANEL tier's safe areas, so nothing touches the decorations. Note the StyleBoxEmpty also drops
+# the theme's 4px content margin — see the grip geometry note in _make_window, which depends on it.
+# ACCEPTED TRADEOFF: the chamfer cuts ~4 see-through corner triangles (~300px² total) where the
+# world shows but `pc` (MOUSE_FILTER_STOP) still eats the click — visually "outside" the window,
+# behaviorally inside. Fixing it needs a chamfer-polygon _has_point() override; not worth the
+# machinery for ~300px², but don't be surprised by it.
+static func panel(title: String, key_hint := "", min_width := 560.0, on_close = null, chrome := false) -> Dictionary:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE   # non-modal: click the game around a floating window
@@ -17,6 +27,10 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 	var pc := PanelContainer.new()
 	pc.custom_minimum_size = Vector2(min_width, 0)
 	root.add_child(pc)
+	if chrome:
+		pc.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		var fr := HudFrame.make(HudFrame.Tier.PANEL, {"body_alpha": 1.0, "header": true})
+		pc.add_child(fr)          # decorative only (MOUSE_FILTER_IGNORE); resizes with the window
 	var m := MarginContainer.new()
 	for s in ["left", "right", "top", "bottom"]:
 		m.add_theme_constant_override("margin_" + s, 20)
@@ -66,21 +80,34 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 		x.pressed.connect(on_close)
 		head.add_child(x)
 	vb.add_child(HSeparator.new())
-	_make_window(root, pc, head, title, min_width)
+	_make_window(root, pc, head, title, min_width, chrome)
 	return {"root": root, "panel": pc, "body": vb, "title": t}
 
 # Wire drag (header) + resize (bottom-right grip) + persistence onto a Widgets panel.
-static func _make_window(root: Control, pc: PanelContainer, head: Control, title: String, min_width: float) -> void:
-	# resize grip (bottom-right), a sibling of pc kept pinned to the panel's corner by `pin`
+# `chrome`: the HudFrame PANEL tier chamfers the bottom-right corner away (up to 16px), so a
+# corner-pinned grip would float outside the rail over the world — inset it inside the chamfer.
+static func _make_window(root: Control, pc: PanelContainer, head: Control, title: String, min_width: float, chrome := false) -> void:
+	# resize grip (bottom-right), a sibling of pc kept pinned to the panel's corner by `pin`.
+	# CHROME GEOMETRY (don't retune casually — the two constraints nearly collide):
+	#   • the PANEL chamfer cuts the BR corner by up to 16px, so the grip's own BR corner must sit
+	#     inside the diagonal → inset+inset >= ~19, i.e. inset >= 9.5, else it floats over the world;
+	#   • chrome drops the theme stylebox's 4px content margin, so content reaches 20px from the
+	#     edge → inset + grip_size must stay <= 20, else the grip covers content and STEALS its
+	#     input (it's a later sibling of pc, so it wins GUI picking — it was eating the
+	#     Inventory/Shop scrollbar grabbers at 16px/13px inset).
+	# 10px grip @ inset 10 is the only comfortable point: spans [size-20, size-10] — clears the
+	# chamfer (10+10 >= 19) and stops exactly at the content edge. Pinned by tools/window_chrome_test.gd.
+	var g_sz := 10.0 if chrome else 16.0
 	var grip := ColorRect.new()
 	grip.color = Color(Palette.BORDER_BRIGHT, 0.5)
-	grip.custom_minimum_size = Vector2(16, 16)
-	grip.size = Vector2(16, 16)
+	grip.custom_minimum_size = Vector2(g_sz, g_sz)
+	grip.size = Vector2(g_sz, g_sz)
 	grip.mouse_default_cursor_shape = Control.CURSOR_FDIAGSIZE
 	grip.visible = false
 	root.add_child(grip)
+	var g_inset := Vector2(10, 10) if chrome else Vector2.ZERO
 	var pin := func() -> void:
-		grip.position = pc.position + pc.size - grip.size
+		grip.position = pc.position + pc.size - grip.size - g_inset
 	pc.resized.connect(pin)                  # content-driven size changes keep the grip aligned
 	# drag by the header (a move only changes position → doesn't emit `resized`, so re-pin explicitly)
 	var drag := {"on": false, "off": Vector2.ZERO}
