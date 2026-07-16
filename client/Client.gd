@@ -170,6 +170,9 @@ var _dragging := false
 var _rmb_moved := false       # distinguishes a right-CLICK (invite) from a right-drag (camera)
 var _acc := 0.0
 var _bots_frozen := true        # start paused so the player can feel out controls unrushed
+var _plate_demo := ""           # dev-only (--plate-demo <mode>): inject synthetic name/level/st/wobble on
+                                # the local player so the Part-A nameplate + overhead statuses can be
+                                # screenshotted offline (practice has no server-attached name/level/st)
 
 var _hud: CanvasLayer
 var _coords_on := false         # dev overlay (F3): sim-space (map) coord readout under the cursor
@@ -313,6 +316,13 @@ func _enter_mode() -> void:
 		var lp = _find_fighter(_player_id)
 		if lp != null:
 			lp["hp"] = float(lp["maxHP"]) * 0.12
+	var pdi := uargs.find("--plate-demo")     # dev: inject a Part-A nameplate + overhead-status scenario for --shot
+	if pdi >= 0:
+		_plate_demo = uargs[pdi + 1] if pdi + 1 < uargs.size() and not uargs[pdi + 1].begins_with("--") else "overflow"
+		_setup_plate_demo()
+	var cdi := uargs.find("--cam-dist")       # dev: force a camera zoom distance for close/default/far shots
+	if cdi >= 0 and cdi + 1 < uargs.size():
+		_dist = clampf(float(uargs[cdi + 1]), DIST_MIN, DIST_MAX)
 	if "--meter" in uargs:
 		_toggle_meter()
 	if "--hudedit" in uargs:                  # dev: open HUD edit mode (pairs with --shot verification)
@@ -1431,6 +1441,61 @@ func _teardown() -> void:
 	_death_t = 0.0
 	_low_hp_t = 0.0
 
+# dev-only (--plate-demo): one-time scenario setup — freeze the scene, position the local player beside a
+# hostile bot (so one shot frames friendly-self + hostile-other), and give the bot a name (clamp test).
+func _setup_plate_demo() -> void:
+	var lp = _find_fighter(_player_id)
+	if lp == null:
+		return
+	_bots_frozen = true
+	_state["botsFrozen"] = true
+	for ff in _state["fighters"]:
+		if int(ff.get("team", 0)) == 1 and bool(ff.get("alive", true)):
+			ff["name"] = "AwayLinebacker"     # hostile red plate (13 chars — at the clamp edge)
+			ff["level"] = 13
+			lp["x"] = float(ff["x"]) - 55.0   # stand beside them so both plates frame together
+			lp["y"] = float(ff["y"])
+			_focus = _world(lp)
+			break
+	_tick_plate_demo()
+
+# dev-only: re-assert the injected identity + statuses each frame — the local sim decays wobble and never
+# sets the server-only name/level/st fields, so without this the scenario would drift before a delayed shot.
+func _tick_plate_demo() -> void:
+	var lp = _find_fighter(_player_id)
+	if lp == null:
+		return
+	var lname := "Ramirez"
+	if _plate_demo == "longname":
+		lname = "MaximusOverlongName"          # 18 chars → clamp to 13 + ellipsis
+	elif _plate_demo == "resident":
+		lp["resident"] = true
+	var st := {}
+	var wob := 0.0
+	# synthetic `st` in the on-wire format (Server.status_st / StatusIcons): debuffs sort first
+	match _plate_demo:
+		"min":
+			st = {"slw": [30, 40]}
+		"buffs":
+			st = {"dr": [25, 20], "sh": [120, 30], "ms": [130, 25]}
+		"debuffs":
+			st = {"stn": 15, "slw": [30, 40], "dot": [3, 22]}
+			wob = 3.0
+		"mixed":
+			st = {"stn": 15, "dr": [25, 20], "sh": [120, 30]}
+		"empty", "off":
+			st = {}
+		_:                                     # "overflow" (+ longname/resident): 3 debuffs (incl self-slow) + 3 buffs → +2
+			st = {"stn": 15, "slw": [30, 40], "dot": [3, 22], "ms": [60, 25], "dr": [25, 20], "sh": [120, 30]}
+			wob = 3.0
+	lp["name"] = lname
+	lp["level"] = 14
+	lp["wobble"] = wob
+	if st.is_empty():
+		lp.erase("st")
+	else:
+		lp["st"] = st
+
 func _spawn(f: Dictionary) -> void:
 	var holder := Node3D.new()
 	_world_root.add_child(holder)
@@ -1479,37 +1544,80 @@ func _spawn(f: Dictionary) -> void:
 
 	var ui := Node3D.new()
 	var udef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
+	# Route by the fighter's RUNTIME nature, not just the class def's mob flag: the training dummy is spawned
+	# with a real PLAYER classId (World.DUMMY_CLASS = "linebacker", no `mob` key) yet ships no `level`, so a
+	# def-only check would misroute it to the player plate and drop its "Training Dummy" label. dummy/isCore
+	# arrive on the snapshot at spawn (Server.status → d["dummy"]/d["isCore"]). (Cores already carry mob:true;
+	# the isCore term is defensive.)
+	var is_mob_plate: bool = bool(udef.get("mob", false)) or bool(f.get("dummy", false)) or bool(f.get("isCore", false))
 	# lift the nameplate/scoreboard clear above tall mobs (e.g. the 4.6-tall boss) instead of overlapping them;
 	# players sit higher (PLAYER_UI_Y) so their name + level + bar clear the character's head
-	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) + 0.8) if bool(udef.get("mob", false)) else PLAYER_UI_Y
+	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) + 0.8) if is_mob_plate else PLAYER_UI_Y
 	holder.add_child(ui)
 	ui.add_child(_quad(BAR_W + 0.08, BAR_H + 0.08, Color(0, 0, 0, 0.6)))
 	var fill := _quad(BAR_W, BAR_H, Color(0.3, 0.85, 0.4))
 	fill.position.z = 0.01
 	ui.add_child(fill)
-	var label := Label3D.new()                # level / tier nameplate (mobs, and players online)
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.no_depth_test = true
-	label.fixed_size = true
-	label.pixel_size = WorldUI.PLATE_PIXEL
-	label.font_size = WorldUI.PLATE_FONT
-	label.outline_size = WorldUI.PLATE_OUTLINE
-	label.outline_modulate = WorldUI.OUTLINE_COLOR
-	label.position.y = BAR_H + 0.32
-	ui.add_child(label)
 
-	# a second, prominent line ABOVE the level line: the player's character name (hidden for mobs)
-	var nameLabel := Label3D.new()
-	nameLabel.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	nameLabel.no_depth_test = true
-	nameLabel.fixed_size = true
-	nameLabel.pixel_size = WorldUI.PLATE_PIXEL
-	nameLabel.font_size = WorldUI.PLATE_NAME
-	nameLabel.outline_size = WorldUI.PLATE_OUTLINE
-	nameLabel.outline_modulate = WorldUI.OUTLINE_COLOR
-	nameLabel.position.y = BAR_H + 0.92
-	nameLabel.visible = false
-	ui.add_child(nameLabel)
+	var label: Label3D
+	var nameLabel: Label3D
+	var plate = null                              # player plates: the scaled identity group (name+level+wobble+status)
+	var pips = null                               # player plates: the 4 wobble pip quads
+	var backing = null                            # player plates: the navy/cyan backing chip (faded per frame)
+	if is_mob_plate:
+		# mob / boss / core / dummy plate: fixed_size billboards (constant screen size — the boss scoreboard
+		# must stay legible across the whole arena). Themed in the Part B world-text sweep, not here.
+		label = Label3D.new()                     # level / tier line (and boss scoreboard)
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.no_depth_test = true
+		label.fixed_size = true
+		label.pixel_size = WorldUI.PLATE_PIXEL
+		label.font_size = WorldUI.PLATE_FONT
+		label.outline_size = WorldUI.PLATE_OUTLINE
+		label.outline_modulate = WorldUI.OUTLINE_COLOR
+		label.position.y = BAR_H + 0.32
+		ui.add_child(label)
+		nameLabel = Label3D.new()                 # unused for mobs (kept for a uniform _nodes shape)
+		nameLabel.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		nameLabel.no_depth_test = true
+		nameLabel.fixed_size = true
+		nameLabel.pixel_size = WorldUI.PLATE_PIXEL
+		nameLabel.font_size = WorldUI.PLATE_NAME
+		nameLabel.outline_size = WorldUI.PLATE_OUTLINE
+		nameLabel.outline_modulate = WorldUI.OUTLINE_COLOR
+		nameLabel.position.y = BAR_H + 0.92
+		nameLabel.visible = false
+		ui.add_child(nameLabel)
+	else:
+		# PLAYER plate (Part A): a world-proportional, distance-clamped identity chip that stays anchored
+		# over the head. Everything sizeable lives in ONE `plate` group scaled by WorldUI.plate_dist_scale
+		# each frame; the HP bar above stays world-fixed (child of ui, not the group). Fixed vertical slots
+		# (WorldUI.PLATE_*_Y) → name / level / wobble / status never reflow each other.
+		plate = Node3D.new()
+		ui.add_child(plate)
+		backing = WorldUI.plate_backing()         # restrained UTILITY-tier chip (navy body + thin cyan rail)
+		backing.position.y = WorldUI.PLATE_BACK_Y   # centered on the name+level identity block
+		plate.add_child(backing)
+		nameLabel = WorldUI.plate_name_label()    # character name — body font (arbitrary glyphs)
+		nameLabel.position.y = WorldUI.PLATE_NAME_Y
+		nameLabel.visible = false
+		plate.add_child(nameLabel)
+		label = WorldUI.plate_level_label()       # LV N — display face (caps-safe)
+		label.position.y = WorldUI.PLATE_LEVEL_Y
+		plate.add_child(label)
+		pips = []                                 # dedicated wobble pip strip near the HP bar (own slot)
+		var pip_span: float = WorldUI.PLATE_WOBBLE_PIPS * WorldUI.PLATE_PIP_W + (WorldUI.PLATE_WOBBLE_PIPS - 1) * WorldUI.PLATE_PIP_GAP
+		for i in WorldUI.PLATE_WOBBLE_PIPS:
+			var pip := _quad(WorldUI.PLATE_PIP_W, WorldUI.PLATE_PIP_H, WorldUI.PIP_DIM)
+			pip.position = Vector3(-pip_span / 2.0 + WorldUI.PLATE_PIP_W / 2.0 + i * (WorldUI.PLATE_PIP_W + WorldUI.PLATE_PIP_GAP), WorldUI.PLATE_WOBBLE_Y, 0.02)
+			var pmat := pip.material_override as StandardMaterial3D
+			pmat.no_depth_test = true
+			pmat.render_priority = 1
+			pmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED   # upright like the backing/labels
+			pmat.billboard_keep_scale = true
+			pip.visible = false
+			plate.add_child(pip)
+			pips.append(pip)
 
 	var aura = null                               # P3: a core-shielded boss gets a toggleable protective aura
 	if float(udef.get("coreShield", 0.0)) > 0.0:
@@ -1534,6 +1642,10 @@ func _spawn(f: Dictionary) -> void:
 	_nodes[f["id"]] = {
 		"holder": holder, "model": model, "anim": ap, "anims": kit["anims"], "mscale": msc,
 		"ui": ui, "fill": fill, "label": label, "name": nameLabel, "aura": aura, "last": holder.position, "vel": Vector2.ZERO,
+		# Part A player plate: the scaled identity group + wobble pips; self-only overhead status renderer
+		# (created lazily in _update_ui once ownership is known). All null for mob plates.
+		"plate": plate, "pips": pips, "backing": backing, "player_plate": not is_mob_plate,
+		"status_vp": null, "status_row": null, "status_sprite": null, "status_key": "<init>",
 		# pcds primed from the live cds: cooldowns already ticking when this fighter entered view are
 		# NOT fresh casts — an empty dict would phantom-fire every one of them as a cast tell.
 		"pcds": (f.get("cds", {}) as Dictionary).duplicate(),
@@ -1602,6 +1714,9 @@ func _render_world(delta: float) -> void:
 	_update_cam()
 	_update_world_label_fade(delta)
 
+	if _plate_demo != "":                # dev-only: keep the injected name/level/st/wobble alive each frame
+		_tick_plate_demo()              # (the local sim would otherwise decay wobble / never set name/level/st)
+
 	for f in _state["fighters"]:
 		var n = _nodes.get(f["id"])
 		if n == null:
@@ -1627,6 +1742,10 @@ func _render_world(delta: float) -> void:
 		if not f["alive"]:
 			_drive_anim(n, f, false)
 			n["pflash"] = f["flash"]
+			if n.get("status_sprite") != null:    # _update_ui is skipped for corpses — clear overhead statuses here
+				_clear_overhead_status(n)
+			if n.get("pips") != null:             # and drop the wobble pips so a corpse shows no stale stumble strip
+				_drive_wobble_pips(n, 0.0, 0.0)
 			continue
 		var holder: Node3D = n["holder"]
 		var predicting: bool = f["id"] == _player_id and _prediction_enabled()
@@ -2419,8 +2538,30 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 	(fill.material_override as StandardMaterial3D).albedo_color = WorldUI.hp_color(frac)   # 3-stop ramp
 	var label: Label3D = n["label"]
 	var nameLabel: Label3D = n["name"]
-	nameLabel.visible = false                 # default: mobs have no name line; label carries their tier/level
-	label.font_size = WorldUI.PLATE_FONT      # default mob/plate size; players shrink it below
+	# Part A: players get the world-proportional, distance-clamped identity plate (anchored, never reflows);
+	# mobs/boss/core/dummy keep the fixed_size scoreboard path (Part B themes them).
+	if bool(n.get("player_plate", false)):
+		_update_player_plate(n, f, label, nameLabel, ui)
+	else:
+		_update_mob_plate(n, f, label, nameLabel, ui)
+	if n.get("aura") != null:                     # P3: show the boss's core-shield aura while a core lives
+		n["aura"].visible = bool(f.get("shielded", false))
+	var dye := str(f.get("dye", ""))              # P4: cosmetic dye — re-tint the model only when it changes
+	if dye == "":                                 # S2 review fix: a def-recolored MOB's baseline is its recolor
+		var _rc: Dictionary = GameData.CLASSES.get(str(f.get("classId", "")), {})   # tint, not "" — this sync used to
+		if _rc.get("recolor", false):             # WIPE the spawn-primed recolor on frame 1 (mobs never ship a
+			dye = str(_rc.get("color", ""))       # snapshot dye), leaving every remix mob untinted
+	if dye != str(n.get("dye_applied", "")):
+		n["dye_applied"] = dye
+		if not _flashing.has(f["id"]):            # mid-flash: don't stomp the overlay — the flash's
+			_apply_dye(n.get("model"), dye)       # fade-end restore applies the new dye instead
+
+# ============================================================ Part A — player identity plate
+# The mob / boss / core / dummy plate: fixed_size scoreboard (constant screen size). Byte-identical to
+# the pre-Part-A behavior — extracted verbatim so the player rework couldn't perturb it.
+func _update_mob_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabel: Label3D, ui: Node3D) -> void:
+	nameLabel.visible = false                     # mobs have no name line; label carries their tier/level
+	label.font_size = WorldUI.PLATE_FONT
 	if f.get("dummy", false):
 		label.text = "Training Dummy"
 		label.modulate = WorldUI.DUMMY
@@ -2443,66 +2584,165 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 			if uc > 0.0:
 				var warn: Array = bdef.get("ultWarn", ["FULL CAMP RESET", "BREAK LINE OF SIGHT!"])
 				label.text = "⚠  %s  %d  ⚠\n%s" % [str(warn[0]), int(ceil(uc)), str(warn[1])]
-				label.modulate = Color(1.0, 0.2, 0.2)
+				label.modulate = WorldUI.BOSS_ULT
 			elif f.get("shielded", false):
 				# P3: core-shield cue — the boss is taking heavy DR while a power core lives (was invisible)
 				label.text = "Lv %d  ☠ %s\nQ%d · %s\n🛡 SHIELDED — DESTROY THE CORES" % [lvl, plate, ph + 1, str(pn[pi])]
-				label.modulate = Color(0.4, 0.82, 1.0)
+				label.modulate = WorldUI.BOSS_SHIELDED
 			else:
-				var pcol := [Color(1.0, 0.6, 0.42), Color(1.0, 0.48, 0.32), Color(1.0, 0.34, 0.26), Color(1.0, 0.22, 0.22)]
 				label.text = "Lv %d  ☠ %s\nQ%d · %s" % [lvl, plate, ph + 1, str(pn[pi])]
-				label.modulate = pcol[clampi(ph, 0, 3)]
+				label.modulate = WorldUI.BOSS_PHASE[clampi(ph, 0, 3)]
 		elif tier == "elite":
 			label.text = "Lv %d  ★ ELITE" % lvl
 			label.modulate = WorldUI.MOB_ELITE
 		else:
 			label.text = "Lv %d" % lvl
 			label.modulate = WorldUI.MOB_LEVEL
-	elif f.has("level"):
-		var lpf = _find_fighter(_player_id)
-		var hostile: bool = lpf != null and _hostile_pair(lpf, f)
-		# hostile players stay red (a threat cue); friendly plates read in their class color for identity
-		var plate_col: Color = WorldUI.HOSTILE if hostile else WorldUI.friendly_plate(_class_vfx_color(str(f["classId"])))
-		var nm := str(f.get("name", ""))
-		if nm != "":                              # character name on top (prominent), resident marker rides it
-			nameLabel.text = nm + ("  ◆" if f.get("resident", false) else "")
-			nameLabel.modulate = plate_col
-			nameLabel.visible = true
-		label.font_size = WorldUI.PLATE_LEVEL     # level line is deliberately small, tucked under the name
-		label.text = ("⚔ Lv %d" % int(f["level"])) if hostile else ("Lv %d" % int(f["level"]))
-		label.modulate = plate_col
 	elif label.text != "":
 		label.text = ""
-	# P3: Wobble stacks (0..4 = Sim.WOBBLE_MAX) as pips → the stumble no longer "just happens" without warning.
+	# P3: Wobble stacks appended as pips (mob path unchanged — the dedicated pip strip is a player affordance)
 	var wob := float(f.get("wobble", 0.0))
 	if wob > 0.0 and label.text != "":
 		var lit := clampi(int(ceil(wob)), 0, 4)
-		var pips := ""
+		var pipstr := ""
 		for i in 4:
-			pips += "◆" if i < lit else "◇"
-		label.text += "\n⟳ %s" % pips
-		if lit >= 3:                              # near the stumble threshold → flash the whole plate amber-red
+			pipstr += "◆" if i < lit else "◇"
+		label.text += "\n⟳ %s" % pipstr
+		if lit >= 3:
 			label.modulate = Color(1.0, 0.55, 0.2)
-	# UI-consistency pass (clutter): distance + open-window fade on the plate TEXT lines only —
-	# every branch above re-assigns modulate each frame, so the multiply never compounds. The own
-	# plate dims further: the camera pins it near screen-center and it was the loudest text around.
-	# Outlines are a separate channel set once at spawn — SET (not multiply) or ghosts remain.
-	var fade_k := _plate_fade(ui.global_position) * (0.5 if str(f["id"]) == _player_id else 1.0)
+	var fade_k := _plate_fade(ui.global_position)
 	label.modulate.a *= fade_k
 	nameLabel.modulate.a *= fade_k
 	label.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
 	nameLabel.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
-	if n.get("aura") != null:                     # P3: show the boss's core-shield aura while a core lives
-		n["aura"].visible = bool(f.get("shielded", false))
-	var dye := str(f.get("dye", ""))              # P4: cosmetic dye — re-tint the model only when it changes
-	if dye == "":                                 # S2 review fix: a def-recolored MOB's baseline is its recolor
-		var _rc: Dictionary = GameData.CLASSES.get(str(f.get("classId", "")), {})   # tint, not "" — this sync used to
-		if _rc.get("recolor", false):             # WIPE the spawn-primed recolor on frame 1 (mobs never ship a
-			dye = str(_rc.get("color", ""))       # snapshot dye), leaving every remix mob untinted
-	if dye != str(n.get("dye_applied", "")):
-		n["dye_applied"] = dye
-		if not _flashing.has(f["id"]):            # mid-flash: don't stomp the overlay — the flash's
-			_apply_dye(n.get("model"), dye)       # fade-end restore applies the new dye instead
+
+# Part A — the world-proportional, distance-clamped PLAYER identity plate: name + LV N on a restrained
+# navy/cyan backing, a dedicated wobble pip strip, and (self only) an overhead status renderer. Font
+# metrics are FIXED at spawn (WorldUI factories); this only sets text, color, the plate group's distance
+# scale, the wobble pips, and the shared distance + open-window fade. Fixed slots → nothing reflows.
+func _update_player_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabel: Label3D, ui: Node3D) -> void:
+	var plate: Node3D = n["plate"]
+	if not f.has("level"):                         # no identity yet (offline practice bot) — show only the HP bar
+		plate.visible = false
+		if n["status_sprite"] != null:
+			_clear_overhead_status(n)
+		return
+	plate.visible = true
+	var is_self: bool = str(f["id"]) == _player_id
+	# the ONLY per-frame metric change: a gentle, clamped perspective compensation on the whole plate group
+	# (the HP bar above is world-fixed — child of ui, not the group). Keeps the plate anchored over the head.
+	# One camera→plate distance drives BOTH the scale and the fade (inlines _plate_fade to avoid a second sqrt).
+	var dist := _cam.global_position.distance_to(ui.global_position)
+	plate.scale = Vector3.ONE * WorldUI.plate_dist_scale(dist)
+	# distance + open-window fade from a STABLE base (SET, never compound); self dims a touch (camera-pinned)
+	# but stays clearly readable — the plate is now world-proportional/calm, so no aggressive self-mute is
+	# needed. Backing + wobble + status all share this same fade.
+	var fade_k := WorldUI.plate_fade(dist) * _wfade * (0.85 if is_self else 1.0)
+	var lpf = _find_fighter(_player_id)
+	var hostile: bool = lpf != null and _hostile_pair(lpf, f)
+	# hostile players stay red (a threat cue); friendly plates read in their (brightened) class color
+	var plate_col: Color = WorldUI.HOSTILE if hostile else WorldUI.friendly_plate(_class_vfx_color(str(f["classId"])))
+	var nm := WorldUI.clamp_name(str(f.get("name", "")))   # bounded long-name policy (glyph clamp + ellipsis)
+	if nm != "":                                   # character name (body font), resident marker rides it
+		nameLabel.text = nm + ("  ◆" if f.get("resident", false) else "")
+		nameLabel.modulate = plate_col
+		nameLabel.visible = true
+	else:
+		nameLabel.visible = false
+	label.text = "LV %d" % int(f["level"])         # display face — uppercase + digits are caps-safe
+	label.modulate = plate_col
+	label.modulate.a = fade_k
+	nameLabel.modulate.a = fade_k
+	label.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
+	nameLabel.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
+	WorldUI.fade_backing(n["backing"], fade_k)
+	_drive_wobble_pips(n, float(f.get("wobble", 0.0)), fade_k)
+	if is_self:                                    # overhead debuff/buff chips — SELF ONLY (owner's ask)
+		_drive_overhead_status(n, f, plate, fade_k)
+	elif n["status_sprite"] != null:               # a node that WAS self (relog / id reassign) — retire its renderer
+		_clear_overhead_status(n)
+
+# The wobble pip meter (dedicated slot near the HP bar): lit pips = ceil(wobble), hotter near the stumble
+# threshold. Hidden entirely when not wobbling (the slot stays reserved → no reflow of the identity lines).
+func _drive_wobble_pips(n: Dictionary, wob: float, fade_k: float) -> void:
+	var pips = n["pips"]
+	if pips == null:
+		return
+	var lit := WorldUI.wobble_lit(wob)
+	var lit_col: Color = WorldUI.PIP_HOT if lit >= 3 else WorldUI.PIP_LIT
+	for i in pips.size():
+		var pip: MeshInstance3D = pips[i]
+		pip.visible = wob > 0.0                     # whole strip on/off together
+		var c: Color = lit_col if i < lit else WorldUI.PIP_DIM
+		c.a *= fade_k
+		(pip.material_override as StandardMaterial3D).albedo_color = c
+
+# Self-only overhead status chips: one transparent SubViewport holds one real StatusRow (reusing
+# StatusIcons.decode + StatusRow verbatim — debuffs first, cap + "+n"), textured onto one billboarded
+# Sprite3D. Created lazily once a status actually exists; re-rendered offscreen ONLY when `st` changes.
+func _drive_overhead_status(n: Dictionary, f: Dictionary, plate: Node3D, fade_k: float) -> void:
+	var st: Dictionary = f.get("st", {})
+	if n["status_sprite"] == null:
+		if st.is_empty():
+			return                                  # defer creation until the first real status
+		_build_overhead_status(n, plate)
+	var key := _st_key(st)
+	if key != str(n["status_key"]):
+		n["status_key"] = key
+		(n["status_row"] as StatusRow).drive(st, str(f["id"]))
+		(n["status_vp"] as SubViewport).render_target_update_mode = SubViewport.UPDATE_ONCE
+	var sp: Sprite3D = n["status_sprite"]
+	sp.visible = not st.is_empty()
+	sp.modulate.a = fade_k                          # same fade as the plate; SET (no compounding)
+
+func _build_overhead_status(n: Dictionary, plate: Node3D) -> void:
+	var vp := SubViewport.new()
+	vp.transparent_bg = true
+	vp.size = WorldUI.STATUS_VP
+	vp.disable_3d = true                            # 2D chip Controls only
+	vp.gui_disable_input = true                     # visual-only: never consumes gameplay input
+	vp.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	var center := CenterContainer.new()             # center the chip row within the fixed viewport
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.size = Vector2(WorldUI.STATUS_VP)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vp.add_child(center)
+	var row := StatusRow.new()
+	row.cap = WorldUI.STATUS_CAP
+	row.chip_px = WorldUI.STATUS_CHIP_PX
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(row)
+	plate.add_child(vp)                             # in-tree before get_texture()
+	var sp := Sprite3D.new()
+	sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	sp.no_depth_test = true
+	sp.texture = vp.get_texture()
+	sp.pixel_size = WorldUI.STATUS_SPRITE_PIXEL
+	sp.position.y = WorldUI.PLATE_STATUS_Y
+	sp.render_priority = 2
+	sp.visible = false
+	plate.add_child(sp)
+	n["status_vp"] = vp
+	n["status_row"] = row
+	n["status_sprite"] = sp
+	n["status_key"] = "<init>"
+
+# Retire the overhead status renderer (death, relog / fighter replacement, teardown) — frees the
+# SubViewport subtree (StatusRow included) and the Sprite3D so nothing survives the lifecycle event.
+func _clear_overhead_status(n: Dictionary) -> void:
+	if n["status_sprite"] != null and is_instance_valid(n["status_sprite"]):
+		(n["status_sprite"] as Node).queue_free()
+	if n["status_vp"] != null and is_instance_valid(n["status_vp"]):
+		(n["status_vp"] as Node).queue_free()       # frees the CenterContainer + StatusRow subtree
+	n["status_sprite"] = null
+	n["status_vp"] = null
+	n["status_row"] = null
+	n["status_key"] = "<init>"
+
+# a compact, stable key for the fighter's status dict — the overhead viewport re-renders only when this
+# changes (non-continuous update; the wire `st` order is fixed, so str() is deterministic per state).
+func _st_key(st: Dictionary) -> String:
+	return "" if st.is_empty() else str(st)
 
 # P4: tint a character model with a cosmetic dye via a flat translucent material OVERLAY (keeps the base
 # texture, reversible with "" → null). Recurses the model's MeshInstance3D surfaces.
@@ -2561,10 +2801,10 @@ func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false, st
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
 		l.fixed_size = true
-		l.pixel_size = 0.0011
-		l.font_size = 96
-		l.outline_size = 22
-		l.outline_modulate = Color(0, 0, 0, 0.9)
+		l.pixel_size = WorldUI.FLOAT_PIXEL              # size/outline/colors now live in WorldUI (Part B)
+		l.font_size = WorldUI.FLOAT_FONT
+		l.outline_size = WorldUI.FLOAT_OUTLINE
+		l.outline_modulate = WorldUI.OUTLINE_COLOR
 		_fx_root.add_child(l)
 	else:
 		l = _num_pool.pop_back()
@@ -2573,21 +2813,21 @@ func _spawn_num(tgt_id, amt: int, crit: bool, taken := false, dealt := false, st
 	l.text = ("+%d" % amt) if gain else (("%d!" % amt) if crit else str(amt))
 	var s := 1.0
 	if style == "burn":                                 # passive proc/DOT tick = ember orange, understated
-		l.modulate = Color(1.0, 0.55, 0.25) if taken else Color(1.0, 0.74, 0.38)
+		l.modulate = WorldUI.FLOAT_BURN_TAKEN if taken else WorldUI.FLOAT_BURN
 		s = 0.8 * (1.15 if taken else (1.0 if dealt else 0.7))
 	elif gain:
-		var c := Color(0.44, 0.88, 0.54) if style == "heal" else Color(0.5, 0.72, 1.0)
+		var c: Color = WorldUI.FLOAT_HEAL if style == "heal" else WorldUI.FLOAT_SHIELD
 		var quiet := taken == dealt                     # my self-heal, or a heal between two others
 		l.modulate = c.darkened(0.25) if quiet else c
 		s = 0.62 if quiet else 0.82                     # always smaller than damage
 	elif taken:
-		l.modulate = Color(1.0, 0.36, 0.3)              # damage I take = red
+		l.modulate = WorldUI.FLOAT_DMG_TAKEN            # damage I take = red
 		s = (1.85 if crit else 1.0) * 1.15
 	elif dealt:
-		l.modulate = Color(1.0, 0.85, 0.35) if crit else Color(1.0, 1.0, 0.95)
+		l.modulate = WorldUI.FLOAT_CRIT if crit else WorldUI.FLOAT_DMG
 		s = 1.85 if crit else 1.0
 	else:
-		l.modulate = Color(0.78, 0.8, 0.86)             # someone else's hit = dim
+		l.modulate = WorldUI.FLOAT_BYSTANDER            # someone else's hit = dim
 		s = (1.85 if crit else 1.0) * 0.7
 	l.scale = Vector3.ONE * s
 	var pos := _world(f)
