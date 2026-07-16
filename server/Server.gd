@@ -2335,14 +2335,24 @@ func _party_roster(pid: int) -> Array:
 		if not _session.has(m):
 			continue
 		var mf = _find(_session[m]["fid"])
-		out.append({"fid": str(_session[m]["fid"]), "name": str(_session[m]["name"]),
+		var row := {"fid": str(_session[m]["fid"]), "name": str(_session[m]["name"]),
 			"hp": int(round(mf["hp"])) if mf != null else 0, "maxHP": int(mf["maxHP"]) if mf != null else 1,
-			"alive": bool(mf["alive"]) if mf != null else false, "map": str(_session[m]["map"])})
+			"alive": bool(mf["alive"]) if mf != null else false, "map": str(_session[m]["map"])}
+		if mf != null:                           # §3b: same optional st as the snapshot (absent when clean
+			var mst := status_st(mf)             # or when the member's fighter is in another zone)
+			if not mst.is_empty():
+				row["st"] = mst
+		out.append(row)
 	for rfid in res_fids:                        # RP2: fold in recruited companions (fields synth'd from the fighter dict)
 		var rf = _find(rfid)
-		out.append({"fid": rfid, "name": str((rf as Dictionary).get("resName", "resident")) if rf != null else "resident",
+		var rrow := {"fid": rfid, "name": str((rf as Dictionary).get("resName", "resident")) if rf != null else "resident",
 			"hp": int(round(rf["hp"])) if rf != null else 0, "maxHP": int(rf["maxHP"]) if rf != null else 1,
-			"alive": bool(rf["alive"]) if rf != null else false, "map": str(rf["map"]) if rf != null else ""})
+			"alive": bool(rf["alive"]) if rf != null else false, "map": str(rf["map"]) if rf != null else ""}
+		if rf != null:
+			var rst := status_st(rf)             # residents are fighters too — same helper, same gate
+			if not rst.is_empty():
+				rrow["st"] = rst
+		out.append(rrow)
 	return out
 
 # ---- RP2: partied residents (an AI "player" you can recruit, that follows + fights/heals with you) ----
@@ -4806,6 +4816,64 @@ func _broadcast() -> void:
 		var any_t: float = _worlds[_worlds.keys()[0]]["t"]   # every world ticks in lockstep — read any
 		print("[zone] t=%.0f  %s" % [any_t, " ".join(counts)])
 
+# UI-consistency §3b — the compact per-fighter status dict ("st"): shipped as an OPTIONAL,
+# additive snapshot field and mirrored into party rosters (Protocol VERSION stays 2 — old
+# clients ignore unknown keys). STRICTLY READ-ONLY over `f` (.get() reads only, no writes, no
+# default-inserts) so snapshot building can never perturb the deterministic sim. Emitted only
+# when non-empty → idle fighters pay zero bytes. Encoding: timers → tenths-of-seconds ints
+# (ceil — a dying 0.05s still shows as 0.1), magnitudes → percent ints, absorb → flat int.
+# Field truths verified against GameData.create_fighter / Sim / Combat:
+#   • buffs.bypass / buffs.reflect ARE the remaining-seconds timers (no bypassT/reflectT
+#     exist; apply_buff_dict writes b["dur"] into them, Sim decays them, reflect is also
+#     consumed to 0 the moment it eats a hit — the client must trust each tick's value);
+#   • buffs.nextdmg idles at 0.0, has NO timer, and stays active until consumed (> 0.0 gate);
+#   • barrier is a DR fraction (e.g. 0.70), NOT an absorb pool → percent int;
+#   • dots entries are {src, dps, remaining, proc} → count + longest remaining.
+static func status_st(f: Dictionary) -> Dictionary:
+	var st := {}
+	# corpses ship NO statuses: Sim skips dead fighters entirely, so their timers FREEZE at
+	# death values — emitting them would pin stale "active" chips on party rows / the death
+	# screen for the whole respawn window (alive-gated like the hop echo above; review catch)
+	if not bool(f.get("alive", true)):
+		return st
+	if float(f.get("shield", 0.0)) > 0.0:
+		st["sh"] = [int(round(float(f["shield"]))), int(ceil(float(f.get("shieldT", 0.0)) * 10.0))]
+	if float(f.get("stun", 0.0)) > 0.0:
+		st["stn"] = int(ceil(float(f["stun"]) * 10.0))
+	if float(f.get("slowT", 0.0)) > 0.0:
+		st["slw"] = [int(ceil(float(f["slowT"]) * 10.0)), int(round(float(f.get("slowAmt", 0.0)) * 100.0))]
+	if float(f.get("evade", 0.0)) > 0.0:
+		st["ev"] = int(ceil(float(f["evade"]) * 10.0))
+	if float(f.get("untarget", 0.0)) > 0.0:
+		st["ut"] = int(ceil(float(f["untarget"]) * 10.0))
+	var b: Dictionary = f.get("buffs", {})
+	if not b.is_empty():
+		if float(b.get("drT", 0.0)) > 0.0:
+			st["dr"] = [int(round(float(b.get("dr", 0.0)) * 100.0)), int(ceil(float(b["drT"]) * 10.0))]
+		if float(b.get("msT", 0.0)) > 0.0:
+			st["ms"] = [int(round(float(b.get("ms", 1.0)) * 100.0)), int(ceil(float(b["msT"]) * 10.0))]
+		if float(b.get("atkspdT", 0.0)) > 0.0:
+			st["as"] = [int(round(float(b.get("atkspd", 1.0)) * 100.0)), int(ceil(float(b["atkspdT"]) * 10.0))]
+		if float(b.get("critT", 0.0)) > 0.0:
+			st["cr"] = [int(round(float(b.get("crit", 0.0)) * 100.0)), int(ceil(float(b["critT"]) * 10.0))]
+		if float(b.get("nextdmg", 0.0)) > 0.0:
+			st["nx"] = int(round(float(b["nextdmg"]) * 100.0))
+		if float(b.get("bypass", 0.0)) > 0.0:
+			st["by"] = int(ceil(float(b["bypass"]) * 10.0))
+		if float(b.get("reflect", 0.0)) > 0.0:
+			st["rf"] = int(ceil(float(b["reflect"]) * 10.0))
+	if float(f.get("guardT", 0.0)) > 0.0 and int(f.get("guardCharges", 0)) > 0:
+		st["gd"] = [int(f["guardCharges"]), int(ceil(float(f["guardT"]) * 10.0))]
+	if float(f.get("barrierT", 0.0)) > 0.0:
+		st["ba"] = [int(round(float(f.get("barrier", 0.0)) * 100.0)), int(ceil(float(f["barrierT"]) * 10.0))]
+	var dots = f.get("dots", null)
+	if dots is Array and not (dots as Array).is_empty():
+		var mx := 0.0
+		for dd in dots:
+			mx = maxf(mx, float((dd as Dictionary).get("remaining", 0.0)))
+		st["dot"] = [(dots as Array).size(), int(ceil(mx * 10.0))]
+	return st
+
 func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dictionary) -> Dictionary:
 	var fs := []
 	var now := Time.get_ticks_msec()                  # Phase 0.5: window the cosmetic hop echo (hopT) below
@@ -4822,6 +4890,9 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 				d["party"] = str(f["party"])
 			if float(f.get("wobble", 0.0)) > 0.0:     # P3: Wobble stacks → client draws a pip meter (was invisible)
 				d["wobble"] = float(f["wobble"])
+			var st := status_st(f)                    # §3b: buff/debuff chips (optional — absent when clean)
+			if not st.is_empty():
+				d["st"] = st
 			if bool(f["alive"]):                       # Phase 0.5 cosmetic hop echo — additive/optional (old clients ignore);
 				var hs := int(_hop_t0.get(f["id"], -1))   # alive-gated so a fighter dying mid-hop can't float its corpse remotely
 				if hs >= 0 and now - hs >= 0 and now - hs < HOP_ECHO_MS:

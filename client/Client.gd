@@ -126,6 +126,7 @@ var _quitting := false
 var _world_root: Node3D
 var _fx_root: Node3D
 var _portal_root: Node3D = null            # portal pad visuals (rebuilt when the world's portals change)
+var _wfade := 1.0                          # world-label fade while a big data window is open (lerped)
 var _portals_sig := ""
 var _zone_root: Node3D = null              # hazard-zone ground discs (rebuilt when zones change)
 var _zones_sig := ""
@@ -207,6 +208,9 @@ var _vit_class: Label
 var _vit_hp: Dictionary                    # Widgets.bar
 var _vit_hp_text: Label
 var _vit_shield: Dictionary
+var _vit_status_row: StatusRow = null      # §3c: the self buff/debuff chip row (rebuilt per variant)
+var _vit_status_preview := false           # F2 edit: sample chips shown — the per-frame writer holds off
+const _VIT_SAMPLE_ST := {"sh": [120, 30], "dr": [25, 20], "slw": [15, 30], "nx": 170}   # F2 sample chips
 var _vit_xp: Dictionary
 var _vit_xp_row: HBoxContainer
 var _vit_xp_text: Label
@@ -1596,6 +1600,7 @@ func _render_world(delta: float) -> void:
 		tf.y = 1.4
 		_focus = _focus.lerp(tf, clampf(delta * 5.0, 0.0, 1.0))
 	_update_cam()
+	_update_world_label_fade(delta)
 
 	for f in _state["fighters"]:
 		var n = _nodes.get(f["id"])
@@ -1867,18 +1872,39 @@ func _render_portals() -> void:
 		pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		pillar.position = pos + Vector3(0.0, 1.5, 0.0)
 		_portal_root.add_child(pillar)
-		var lbl := Label3D.new()
-		lbl.text = str(p.get("label", "Portal"))
-		lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		lbl.no_depth_test = true
-		lbl.fixed_size = true
-		lbl.pixel_size = WorldUI.PAD_PIXEL
-		lbl.font_size = WorldUI.PAD_FONT
-		lbl.outline_size = WorldUI.PAD_OUTLINE
-		lbl.outline_modulate = WorldUI.OUTLINE_COLOR
-		lbl.modulate = Color(0.65, 0.92, 1.0)
-		lbl.position = pos + Vector3(0.0, 3.7, 0.0)
-		_portal_root.add_child(lbl)
+		_portal_root.add_child(WorldUI.pad_label(str(p.get("label", "Portal")),
+			Color(0.65, 0.92, 1.0), pos + Vector3(0.0, 3.7, 0.0)))
+
+# ---------------- UI-consistency pass: world-label clutter control ----------------
+# Pad/portal Label3Ds are fixed_size billboards (constant screen size at ANY distance) — they
+# shouted over the whole screen and bled through windows. They now fade with camera distance
+# (wayfinding keeps a floor) and drop to WINDOW_FADE while a big data window is open. Purely
+# visual: pads keep their walk-up/interact behavior, the label nodes never take input.
+func _world_fade_roots() -> Array:
+	return [_portal_root]              # NetClient adds its five service-pad roots
+
+func _update_world_label_fade(delta: float) -> void:
+	var target: float = WorldUI.WINDOW_FADE if Widgets.any_window_open() else 1.0
+	_wfade = lerpf(_wfade, target, clampf(delta * 8.0, 0.0, 1.0))
+	if _cam == null:
+		return
+	var cpos := _cam.global_position
+	for r in _world_fade_roots():
+		if r == null or not is_instance_valid(r):
+			continue
+		for ch in (r as Node).get_children():
+			if ch is Label3D:
+				var l := ch as Label3D
+				var k := WorldUI.pad_fade(cpos.distance_to(l.global_position)) * _wfade
+				l.modulate.a = k
+				# outline_modulate is a SEPARATE channel — un-faded it leaves a dark ghost of the text
+				l.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * k
+
+# nameplate-text fade (per fighter, from _update_ui). Bars stay — they scale with the world.
+func _plate_fade(world_pos: Vector3) -> float:
+	if _cam == null:
+		return 1.0
+	return WorldUI.plate_fade(_cam.global_position.distance_to(world_pos)) * _wfade
 
 func _handle_events() -> void:
 	var gains := {}                    # "type|src|tgt" → summed amt. One floater per batch: a Setter
@@ -2457,6 +2483,15 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 		label.text += "\n⟳ %s" % pips
 		if lit >= 3:                              # near the stumble threshold → flash the whole plate amber-red
 			label.modulate = Color(1.0, 0.55, 0.2)
+	# UI-consistency pass (clutter): distance + open-window fade on the plate TEXT lines only —
+	# every branch above re-assigns modulate each frame, so the multiply never compounds. The own
+	# plate dims further: the camera pins it near screen-center and it was the loudest text around.
+	# Outlines are a separate channel set once at spawn — SET (not multiply) or ghosts remain.
+	var fade_k := _plate_fade(ui.global_position) * (0.5 if str(f["id"]) == _player_id else 1.0)
+	label.modulate.a *= fade_k
+	nameLabel.modulate.a *= fade_k
+	label.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
+	nameLabel.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
 	if n.get("aura") != null:                     # P3: show the boss's core-shield aura while a core lives
 		n["aura"].visible = bool(f.get("shielded", false))
 	var dye := str(f.get("dye", ""))              # P4: cosmetic dye — re-tint the model only when it changes
@@ -2924,9 +2959,12 @@ func _build_hud() -> void:
 	HudLayout.reset_registry()                    # fresh Client = fresh module registry (relogin safety)
 	_hud = CanvasLayer.new()
 	add_child(_hud)
-	# UI-overhaul P0: ONE Theme restyles every Control. A CanvasLayer isn't a Control (no `theme`
-	# property), so the root Window carries it — it propagates to everything under _hud + popups.
+	# UI-overhaul P0 + consistency pass: ONE Theme restyles every Control. The Window carries it
+	# for popups/tooltips, but Window.theme does NOT reach Controls under a CanvasLayer (the
+	# inheritance chain only walks Control/Window ancestors) — attach() assigns it at every
+	# chain-break point under _hud, which is what actually styles the HUD panels.
 	get_window().theme = UITheme.get_theme()
+	UITheme.attach(_hud)
 	# HUD sizing is per-module (F2 edit mode) only — the global content-scale is pinned to 1.0
 	# (the old Settings "UI scale" slider rescaled the whole viewport and fought the per-module
 	# scaling). HudFrame mirrors reduce_fx so the pattern chrome skips its glow with the rest.
@@ -3295,6 +3333,7 @@ func _build_vitals_content(variant: String) -> void:
 	_vit_xp = {}
 	_vit_xp_row = null
 	_vit_xp_text = null
+	_vit_status_row = null
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 3 if compact else 4)
 	_vitals_body.add_child(vb)
@@ -3349,6 +3388,10 @@ func _build_vitals_content(variant: String) -> void:
 	_vit_shield = Widgets.bar(bw, 4.0 if (compact or bars) else 5.0, Palette.SHIELD)   # absorb strip
 	(_vit_shield["root"] as Control).visible = false
 	vb.add_child(_vit_shield["root"])
+	_vit_status_row = StatusRow.new()             # §3c: buff/debuff chips, under the HP/shield strips
+	_vit_status_row.cap = 6                       # self shows up to six + the "+n" overflow chip
+	_vit_status_row.chip_px = 22
+	vb.add_child(_vit_status_row)
 	if not bars:
 		_vit_xp_row = HBoxContainer.new()
 		_vit_xp_row.add_theme_constant_override("separation", 8)
@@ -3365,6 +3408,8 @@ func _build_vitals_content(variant: String) -> void:
 	_vit_status.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION)
 	_vit_status.add_theme_color_override("font_color", Palette.TEXT_DIM)
 	vb.add_child(_vit_status)
+	if _vit_status_preview:                       # F2 variant switch rebuilt the row mid-preview —
+		_vit_status_row.drive(_VIT_SAMPLE_ST, "preview")   # keep the sample chips (review catch)
 
 # HUD-edit preview: the currency tray is online-only — surface it (with sample values when
 # blank) so the whole player-frame stack is visible/placeable while editing in the sandbox.
@@ -3376,8 +3421,14 @@ func _player_frame_preview(on: bool) -> void:
 			_tray_credits.text = "◈ 1,240"
 			_tray_scrap.text = "36 scrap"
 			_tray_tokens.text = "12 tokens"
+		_vit_status_preview = true
+		if _vit_status_row != null:              # §3c: sample chips so the row is placeable in F2
+			_vit_status_row.drive(_VIT_SAMPLE_ST, "preview")
 	else:
 		_tray.visible = _tray_was_visible
+		_vit_status_preview = false
+		if _vit_status_row != null:
+			_vit_status_row.drive({})            # the per-frame online writer re-drives real data
 		for k in ["credits", "scrap", "tokens"]:
 			_vit_cache.erase(k)                  # force the online writer to re-set real values
 
@@ -3399,9 +3450,15 @@ func _update_vitals(pf: Dictionary, title: String, c: Dictionary) -> void:
 	(_vit_hp["fill"] as ColorRect).color = WorldUI.hp_color(frac)   # shared 3-stop ramp (matches world bars)
 	_vit_set("hp", _vit_hp_text, "%d / %d" % [int(round(pf["hp"])), int(mhp)])
 	var sh: float = float(pf.get("shield", 0.0))
+	# online the absorb value arrives via st.sh (the raw `shield` field is sandbox-only)
+	var pst: Dictionary = pf.get("st", {})
+	if sh <= 0.0 and pst.has("sh"):
+		sh = float((pst["sh"] as Array)[0])
 	(_vit_shield["root"] as Control).visible = sh > 0.0
 	if sh > 0.0:
 		Widgets.set_bar(_vit_shield, clampf(sh / mhp, 0.0, 1.0))
+	if _vit_status_row != null and not _vit_status_preview:   # §3c: self chips ride the server st
+		_vit_status_row.drive(pst, str(pf.get("id", "")))
 	_vit_set("name", _vit_name, title)
 	if str(_vit_cache.get("cls", "")) != str(pf["classId"]):   # class changed: recolor accents once
 		_vit_cache["cls"] = str(pf["classId"])
@@ -3455,8 +3512,16 @@ func _build_meter() -> void:
 	_meter_title = Label.new()
 	_meter_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_meter_title.custom_minimum_size = Vector2(150, 0)
-	_meter_title.add_theme_font_size_override("font_size", Palette.SIZE_CAPTION + 1)
-	_meter_title.add_theme_color_override("font_color", Palette.ACCENT)
+	# UI-consistency pass: the meter header joins the terminal-header language (display face +
+	# cyan, like PARTY/QUEST GIVER) — it was the only HUD module with a plain gold Label header.
+	var mtf := HudFonts.display_variant(12, 0.14)
+	if mtf != null:
+		_meter_title.add_theme_font_override("font", mtf)
+	_meter_title.add_theme_font_size_override("font_size", 12)
+	_meter_title.add_theme_color_override("font_color", Palette.SB_CYAN)
+	# ellipsize instead of growing: an unclipped Label's min width is its full text width, and
+	# "DPS / ENCOUNTER  23S / ENDED" would balloon the whole panel at encounter end (review catch)
+	_meter_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	head.add_child(_meter_title)
 	var mode_btn := _meter_btn("mode", func() -> void:
 		_meter_mode = (_meter_mode + 1) % METER_MODES.size()
@@ -3698,11 +3763,13 @@ func _render_meter() -> void:
 		else:
 			nm.add_theme_color_override("font_color", Palette.TEXT)
 		(w["num"] as Label).text = _fmt_meter_num(float(r["v"]))
+	# display-face header (caps-only, limited punctuation — no ⚔/·, see FONTS-README)
+	var mode_txt: String = str(METER_MODES[_meter_mode]).to_upper().replace(" · ", " / ")
 	if _enc_last < 0.0:                              # nothing tracked yet — no fake "0s encounter"
-		_meter_title.text = "⚔ %s" % METER_MODES[_meter_mode]
+		_meter_title.text = mode_txt
 	else:                                            # keep the LAST encounter viewable after it ends
 		var over: bool = now - _enc_last >= METER_GAP
-		_meter_title.text = "⚔ %s   %ds%s" % [METER_MODES[_meter_mode], int(dur), " · ended" if over else ""]
+		_meter_title.text = "%s   %dS%s" % [mode_txt, int(dur), " / ENDED" if over else ""]
 	_meter_scope_btn.text = "party" if _meter_party_only else "zone"
 
 # (re)build a slot per ability when the class is known/changes
@@ -3751,12 +3818,23 @@ func _build_hotbar(class_id: String) -> void:
 		kl.add_theme_color_override("font_color", Palette.SB_CYAN)
 		cap.add_child(kl)
 		slot.add_child(cap)
-		var nl := Label.new()                    # ability name (small, wrapped)
+		var nl := Label.new()                    # ability name (small, wrapped, auto-fit ≤2 lines)
 		nl.text = str(ab["name"])
 		nl.position = Vector2(3, 30)
 		nl.size = Vector2(54, 28)
 		nl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		nl.add_theme_font_size_override("font_size", 10)
+		nl.clip_text = true                      # never bleed outside the slot at any size
+		# v1.7.0's longer names ("Punching Save", "Claim the Crowd") overflowed the 54×28 budget at
+		# font 10 — shrink per slot until the wrapped block fits (display aliases were rejected:
+		# ability keys/names are pinned by tests and owner-facing docs)
+		var nfont := nl.get_theme_font("font")
+		var nfs := 10
+		while nfs > 7:
+			var nsz := nfont.get_multiline_string_size(nl.text, HORIZONTAL_ALIGNMENT_LEFT, 54.0, nfs)
+			if nsz.x <= 54.0 and nsz.y <= 28.0:
+				break
+			nfs -= 1
+		nl.add_theme_font_size_override("font_size", nfs)
 		nl.add_theme_color_override("font_color", Palette.TEXT)
 		slot.add_child(nl)
 		var cs := Label.new()                    # cooldown seconds (center)

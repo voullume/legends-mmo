@@ -46,7 +46,9 @@ var _chatting := false       # typing in the chat box (suppresses movement/abili
 var _chat_log: RichTextLabel
 var _chat_input: LineEdit
 var _chat_lines := []
-var _chat_idle := 0.0        # seconds since the last chat/loot line — the log fades out after CHAT_FADE_AFTER
+var _chat_idle := CHAT_FADE_AFTER + 1.0   # seconds since the last chat/loot line — fades after CHAT_FADE_AFTER.
+                                          # Starts PAST the threshold: at 0.70 body alpha an empty log at login
+                                          # read as a bare dark rectangle; the first line (or typing) pops it up.
 const CHAT_FADE_AFTER := 20.0
 var _chat_root: Control = null       # P6: the whole chat block (log box + input) as one module
 var _chat_box: Control = null        # frame + log — the part that idle-fades
@@ -267,6 +269,11 @@ func _enter_mode() -> void:
 	var oi := ua.find("--open")                   # dev-only: open a named panel after the first snapshot
 	if oi >= 0 and oi + 1 < ua.size():
 		_dev_open = str(ua[oi + 1])
+	var wi := ua.find("--walkto")                 # dev-only: auto-walk to sim "x,y" (screenshot loop —
+	if wi >= 0 and wi + 1 < ua.size():            # proximity windows like the shop need you AT the pad)
+		var wparts := str(ua[wi + 1]).split(",")
+		if wparts.size() == 2:
+			_dev_walkto = Vector2(float(wparts[0]), float(wparts[1]))
 	var oni := ua.find("--opennow")               # dev-only: open a named panel IMMEDIATELY (pre-connect
 	if oni >= 0 and oni + 1 < ua.size():          # window-chrome screenshots — panels exist at build)
 		_dev_open = str(ua[oni + 1])
@@ -278,6 +285,7 @@ func _enter_mode() -> void:
 var _dev_juice := false
 
 var _dev_open := ""                               # dev-only screenshot hook: panel to open once connected
+var _dev_walkto := Vector2.INF                    # dev-only --walkto target (sim coords); INF = inactive
 func _dev_open_panel() -> void:
 	var which := _dev_open
 	_dev_open = ""                                # clear FIRST so a later snapshot can't re-toggle mid-await
@@ -311,7 +319,8 @@ func _build_chat() -> void:
 	_chat_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_chat_box.clip_contents = true       # a full 9-line ring in a compact box clips instead of bleeding
 	_chat_root.add_child(_chat_box)
-	_chat_frame = HudFrame.make(HudFrame.Tier.UTILITY, {"stripe": true, "accent": Palette.ACCENT2, "body_alpha": 0.45})
+	# body 0.70 (was 0.45 — unreadable over bright grass); the idle fade still clears it entirely
+	_chat_frame = HudFrame.make(HudFrame.Tier.UTILITY, {"stripe": true, "accent": Palette.ACCENT2, "body_alpha": 0.70})
 	_chat_box.add_child(_chat_frame)
 	_chat_log = RichTextLabel.new()
 	_chat_log.bbcode_enabled = true
@@ -326,6 +335,7 @@ func _build_chat() -> void:
 	_chat_input.focus_exited.connect(_close_chat)
 	_chat_root.add_child(_chat_input)
 	_hud.add_child(_chat_root)
+	_chat_box.modulate.a = 0.0                # born faded (empty log) — no boot-time dark box
 	_chat_apply_variant("standard")
 	HudLayout.register("chat", _chat_root, {"label": "Chat",
 		"defaults": {"anchor": "bottom_left", "ox": 16.0, "oy": -12.0},
@@ -408,6 +418,10 @@ func _update_chat_fade(delta: float) -> void:
 		_chat_idle += delta
 	var target := 0.0 if (_chat_idle > CHAT_FADE_AFTER and not _chat_preview_on) else 1.0
 	_chat_box.modulate.a = lerpf(_chat_box.modulate.a, target, clampf(delta * 2.5, 0.0, 1.0))
+
+# UI-consistency pass (clutter): the online world adds five service pads to the label-fade set
+func _world_fade_roots() -> Array:
+	return [_portal_root, _qgiver_root, _shop_root, _build_shop_root, _vendor_root, _forge_root]
 
 func recv_chat(sender: String, text: String) -> void:
 	print("[chat] %s: %s" % [sender, text])
@@ -2175,18 +2189,8 @@ func _render_questgiver_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_qgiver_root.add_child(pillar)
-	var lbl := Label3D.new()
-	lbl.text = "📜 Quest Giver"
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.fixed_size = true
-	lbl.pixel_size = 0.0016
-	lbl.font_size = 52
-	lbl.outline_size = 16
-	lbl.outline_modulate = Color(0, 0, 0, 0.9)
-	lbl.modulate = Color(0.72, 0.85, 1.0)
-	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
-	_qgiver_root.add_child(lbl)
+	_qgiver_root.add_child(WorldUI.pad_label("📜 Quest Giver",
+		Color(0.72, 0.85, 1.0), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_questgiver_proximity() -> void:
 	var qg = _home_pad("questgiver")
@@ -2485,9 +2489,20 @@ func _build_shop() -> void:
 	_shop_sell_status = Label.new()
 	_shop_sell_status.add_theme_font_size_override("font_size", 16)
 	sellcol.add_child(_shop_sell_status)
+	# UI-consistency pass: the four stacked control rows (mode/select/sort/slot) sit on an inset
+	# backdrop so they group as one block against the opaque window body instead of four loose lines
+	var ctrlwrap := PanelContainer.new()
+	var cwsb := StyleBoxFlat.new()
+	cwsb.bg_color = Color(Palette.SB_INK, 0.55)
+	cwsb.set_border_width_all(1)
+	cwsb.border_color = Color(Palette.SB_CYAN, 0.14)
+	cwsb.set_corner_radius_all(5)
+	cwsb.set_content_margin_all(7)
+	ctrlwrap.add_theme_stylebox_override("panel", cwsb)
+	sellcol.add_child(ctrlwrap)
 	_shop_sell_controls = VBoxContainer.new()
 	_shop_sell_controls.add_theme_constant_override("separation", 3)
-	sellcol.add_child(_shop_sell_controls)
+	ctrlwrap.add_child(_shop_sell_controls)
 	var sellsc := ScrollContainer.new()
 	sellsc.custom_minimum_size = Vector2(474, 300)
 	sellsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -3866,18 +3881,8 @@ func _render_shop_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_shop_root.add_child(pillar)
-	var lbl := Label3D.new()
-	lbl.text = "🛒 Shop"
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.fixed_size = true
-	lbl.pixel_size = 0.0016
-	lbl.font_size = 52
-	lbl.outline_size = 16
-	lbl.outline_modulate = Color(0, 0, 0, 0.9)
-	lbl.modulate = Color(1.0, 0.88, 0.5)
-	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
-	_shop_root.add_child(lbl)
+	_shop_root.add_child(WorldUI.pad_label("🛒 Shop",
+		Color(1.0, 0.88, 0.5), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_shop_proximity() -> void:
 	var shop = _home_pad("shop")
@@ -4011,18 +4016,8 @@ func _render_build_shop_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_build_shop_root.add_child(pillar)
-	var lbl := Label3D.new()
-	lbl.text = "🔨 Build Shop"
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.fixed_size = true
-	lbl.pixel_size = 0.0016
-	lbl.font_size = 52
-	lbl.outline_size = 16
-	lbl.outline_modulate = Color(0, 0, 0, 0.9)
-	lbl.modulate = Color(0.7, 0.85, 1.0)
-	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
-	_build_shop_root.add_child(lbl)
+	_build_shop_root.add_child(WorldUI.pad_label("🔨 Build Shop",
+		Color(0.7, 0.85, 1.0), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_build_shop_proximity() -> void:
 	var pad = _home_pad("build_shop")
@@ -4721,18 +4716,8 @@ func _render_vendor_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_vendor_root.add_child(pillar)
-	var lbl := Label3D.new()
-	lbl.text = "◈ Practice Vendor"
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.fixed_size = true
-	lbl.pixel_size = 0.0016
-	lbl.font_size = 52
-	lbl.outline_size = 16
-	lbl.outline_modulate = Color(0, 0, 0, 0.9)
-	lbl.modulate = Color(0.5, 0.9, 1.0)
-	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
-	_vendor_root.add_child(lbl)
+	_vendor_root.add_child(WorldUI.pad_label("◈ Practice Vendor",
+		Color(0.5, 0.9, 1.0), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_vendor_proximity() -> void:
 	var v = _home_pad("practice")
@@ -4780,18 +4765,8 @@ func _render_forge_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_forge_root.add_child(pillar)
-	var lbl := Label3D.new()
-	lbl.text = "🔨 Forge"
-	lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lbl.no_depth_test = true
-	lbl.fixed_size = true
-	lbl.pixel_size = 0.0016
-	lbl.font_size = 52
-	lbl.outline_size = 16
-	lbl.outline_modulate = Color(0, 0, 0, 0.9)
-	lbl.modulate = Color(1.0, 0.6, 0.4)
-	lbl.position = pos + Vector3(0.0, 3.4, 0.0)
-	_forge_root.add_child(lbl)
+	_forge_root.add_child(WorldUI.pad_label("🔨 Forge",
+		Color(1.0, 0.6, 0.4), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_forge_proximity() -> void:
 	var forge = _home_pad("forge")
@@ -4934,6 +4909,15 @@ func _physics_process(_delta: float) -> void:
 
 func _send_movement() -> void:
 	var mv := {"mx": _player.intent["mx"], "my": _player.intent["my"], "target": _focus_id, "friend": _friend_id}
+	if _dev_walkto.x != INF:                         # dev --walkto: steer intent toward the point (server
+		var wpf = _find_fighter(_player_id)          # still validates speed — this is normal movement)
+		if wpf != null:
+			var wd := _dev_walkto - Vector2(float(wpf["x"]), float(wpf["y"]))
+			if wd.length() <= 25.0:
+				_dev_walkto = Vector2.INF            # arrived — hand control back
+			else:
+				mv["mx"] = wd.normalized().x
+				mv["my"] = wd.normalized().y
 	if server != null:
 		server.submit_intent_local(1, mv)
 	elif net != null and _connected:
@@ -5057,9 +5041,13 @@ func _make_unit_frame(accent: Color, id: String, label: String, defs: Dictionary
 	hpt.add_theme_constant_override("outline_size", 4)
 	(hp["root"] as Control).add_child(hpt)
 	vb.add_child(hp["root"])
+	var status := StatusRow.new()                # §3c: buff/debuff chips under the HP bar (cap 5 + "+n")
+	status.cap = 5
+	status.chip_px = 18
+	vb.add_child(status)
 	HudLayout.register(id, root, {"label": label, "defaults": defs,
 		"ref_size": Vector2(248, 74), "preview": prev})
-	return {"root": root, "name": nm, "sub": sub, "hp": hp, "hpt": hpt, "cache": {}}
+	return {"root": root, "name": nm, "sub": sub, "hp": hp, "hpt": hpt, "status": status, "cache": {}}
 
 func _update_unit_frames() -> void:
 	_drive_unit_frame(_tf, _focus_id, true, _tf_preview)
@@ -5077,10 +5065,13 @@ func _drive_unit_frame(f: Dictionary, fid: String, hostile: bool, preview: bool)
 				"Lv 5 · DUMMY" if hostile else "Lv 12 · Slugger",
 				WorldUI.HOSTILE if hostile else Palette.HEAL,
 				1.0 if hostile else 0.72, 825.0 if hostile else 610.0, 825.0)
+			(f["status"] as StatusRow).drive({"dr": [25, 20], "slw": [12, 30]} if hostile else {"sh": [120, 30]}, "preview")
 		else:
 			root.visible = false
+			(f["status"] as StatusRow).drive({})     # stale chips must not survive a target swap
 		return
 	root.visible = true
+	(f["status"] as StatusRow).drive(pf.get("st", {}), fid)   # §3c: statuses straight off the snapshot
 	# mobs ship mobLevel/mobTier and NO name/level keys (only players carry those) — mirror the
 	# world-plate identity rules (Client.gd _update_ui) so the frame reads for every target type
 	var nm := str(pf.get("name", ""))
@@ -5205,6 +5196,8 @@ func _sync_party_panel() -> void:
 			sp["name"].text = "%s  610/825" % str(sample[0])
 			sp["fill"].size = Vector2(146.0 * float(sample[1]), 14.0)
 			sp["fill"].color = WorldUI.hp_color(float(sample[1]))
+			# §3c: sample chips so the taller chip-strip rows preview true-to-size in F2
+			(sp["status"] as StatusRow).drive({"dot": [2, 23], "dr": [25, 20]} if sample[0] == "Blitz-7" else {"sh": [95, 25]})
 			_party_samples.append(sp)
 		_party_panel.move_child(_leave_btn, _party_panel.get_child_count() - 1)
 	elif (not _party_prev or not _party.is_empty()) and not _party_samples.is_empty():
@@ -5221,10 +5214,11 @@ func _sync_party_panel() -> void:
 		var you: String = "  [you]" if str(m["fid"]) == _player_id else ""
 		fr["name"].text = "%s  %d/%d%s" % [str(m["name"]), int(m["hp"]), int(m["maxHP"]), you]
 		fr["sel"].visible = (str(m["fid"]) == _friend_id)
+		(fr["status"] as StatusRow).drive(m.get("st", {}), str(m["fid"]))   # §3c: roster st (absent = clean/cross-zone)
 
 func _make_party_frame(fid: String) -> Dictionary:
 	var root := Panel.new()
-	root.custom_minimum_size = Vector2(152.0, 36.0)
+	root.custom_minimum_size = Vector2(152.0, 52.0)  # §3c: +16px chip strip under the HP bar
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	var psb := StyleBoxFlat.new()                    # P7: member rows speak the pattern language
 	psb.bg_color = Color(Palette.SB_NAVY, 0.85)
@@ -5233,7 +5227,7 @@ func _make_party_frame(fid: String) -> Dictionary:
 	psb.set_corner_radius_all(4)
 	root.add_theme_stylebox_override("panel", psb)
 	var sel := ColorRect.new()
-	sel.size = Vector2(152.0, 36.0)
+	sel.size = Vector2(152.0, 52.0)
 	sel.color = Color(1.0, 0.85, 0.3, 0.22)
 	sel.visible = false
 	root.add_child(sel)
@@ -5251,11 +5245,16 @@ func _make_party_frame(fid: String) -> Dictionary:
 	fill.size = Vector2(146.0, 14.0)
 	fill.color = Color(0.3, 0.8, 0.4)
 	root.add_child(fill)
+	var status := StatusRow.new()                    # §3c: member statuses (roster st — works cross-zone)
+	status.cap = 5
+	status.chip_px = 14
+	status.position = Vector2(3.0, 37.0)
+	root.add_child(status)
 	root.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
 			_select_friend(fid))
 	_party_panel.add_child(root)
-	return {"root": root, "fid": fid, "fill": fill, "name": nm, "sel": sel}
+	return {"root": root, "fid": fid, "fill": fill, "name": nm, "sel": sel, "status": status}
 
 func _party_frames_preview(on: bool) -> void:
 	_party_prev = on
@@ -6103,8 +6102,8 @@ func receive_snapshot(snap: Dictionary) -> void:
 		_toast("[color=#9fe8a0]🔓 Locker Room unlocked![/color]\nWalk through the portal in the home base to enter.", Palette.ACCENT)
 	_was_locker_unlocked = unlocked_now
 	_handle_events()             # spawn damage-number / hit FX from this snapshot's events
-	if _dev_open != "" and _player_id != "" and _find_fighter(_player_id) != null:
-		_dev_open_panel()        # dev screenshot hook: open a panel once we have a live fighter
+	if _dev_open != "" and _player_id != "" and _find_fighter(_player_id) != null and _dev_walkto.x == INF:
+		_dev_open_panel()        # dev screenshot hook: open a panel once we have a live fighter (+ finished any --walkto)
 	if _dev_juice and _player_id != "" and _find_fighter(_player_id) != null:
 		_dev_juice = false       # dev screenshot hook: fire the P4 juice once (toasts + zone card + flash)
 		_toast("[color=#ffd24d]★ Looted[/color]  [color=#c77dff]Epic Cleats[/color]\n[color=#7f93a8]epic · feet  +18 SPD[/color]", Color.html("#c77dff"))

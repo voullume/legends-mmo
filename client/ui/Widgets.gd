@@ -135,13 +135,38 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 	_windows.append({"root": root, "recenter": func() -> void:   # Settings "Reset UI Layout" button
 		pc.custom_minimum_size = Vector2(min_width, 0)
 		pc.reset_size()
-		pc.position = Vector2(maxf(0.0, (root.size.x - pc.size.x) * 0.5), maxf(0.0, (root.size.y - pc.size.y) * 0.5))
+		var fy := _window_floor_y(root)
+		var band_y := fy if pc.size.y <= fy else root.size.y
+		pc.position = Vector2(maxf(0.0, (root.size.x - pc.size.x) * 0.5), maxf(0.0, (band_y - pc.size.y) * 0.5))
+		_clamp_above_hotbar(root, pc)
 		pin.call()})
 
 # clamp a panel top-left so it stays on screen
 static func _place_panel(root: Control, pc: Control, p: Vector2) -> void:
 	var vp := root.size
 	pc.position = Vector2(clampf(p.x, 0.0, maxf(0.0, vp.x - pc.size.x)), clampf(p.y, 0.0, maxf(0.0, vp.y - pc.size.y)))
+
+# UI-consistency pass: the y where the hotbar band starts — windows restore/first-open ABOVE it so
+# footer rows never sit under the hotbar chassis (a deliberate drag can still go anywhere).
+# The floor only counts a VISIBLE hotbar actually sitting in the bottom band (players can hide it
+# or park it mid-screen in F2 — a mid-screen bar must not squeeze every window into the top strip).
+static func _window_floor_y(root: Control) -> float:
+	var fy := root.size.y
+	if HudLayout.has("hotbar") and bool(HudLayout.layout("hotbar").get("visible", true)):
+		var hb := HudLayout.rect("hotbar")
+		if hb.size.y > 0.5 and hb.position.y > root.size.y * 0.6:
+			fy = minf(fy, hb.position.y - 8.0)
+	return fy
+
+# keep a restored/centered window's bottom edge above the hotbar band when it FITS there —
+# a window taller than the free band keeps its viewport-clamped placement instead of pinning
+# to the top edge (it would overlap the hotbar either way).
+static func _clamp_above_hotbar(root: Control, pc: Control) -> void:
+	var fy := _window_floor_y(root)
+	if pc.size.y > fy:
+		return
+	if pc.position.y + pc.size.y > fy:
+		pc.position.y = fy - pc.size.y
 
 # cap a user-resized panel so it never exceeds the viewport (else the bottom-right grip goes off-screen)
 static func _clamp_size(root: Control, pc: PanelContainer, min_width: float) -> void:
@@ -153,6 +178,16 @@ static func _clamp_size(root: Control, pc: PanelContainer, min_width: float) -> 
 
 # static registry of every window (for the reset button); freed roots pruned on reset
 static var _windows := []
+
+# UI-consistency pass: is any big data window open right now? (world-label fading dims the
+# Label3D clutter behind windows). Covers every Widgets.panel() window; the always-on HUD,
+# meter and admin panel deliberately don't count as "large windows".
+static func any_window_open() -> bool:
+	for w in _windows:
+		var r = w["root"]
+		if is_instance_valid(r) and (r as Control).visible and (r as Control).is_inside_tree():
+			return true
+	return false
 
 # Settings "Reset UI Layout": wipe saved positions/sizes + re-center every live window.
 static func reset_all_windows() -> void:
@@ -187,7 +222,11 @@ static func _restore_window(root: Control, pc: PanelContainer, title: String, mi
 			pc.reset_size()
 		_place_panel(root, pc, Vector2(float(saved.get("x", 0.0)), float(saved.get("y", 0.0))))
 	else:
-		pc.position = Vector2(maxf(0.0, (vp.x - pc.size.x) * 0.5), maxf(0.0, (vp.y - pc.size.y) * 0.5))
+		# first open: center in the region ABOVE the hotbar band (viewport when it can't fit there)
+		var fy := _window_floor_y(root)
+		var band_y := fy if pc.size.y <= fy else vp.y
+		pc.position = Vector2(maxf(0.0, (vp.x - pc.size.x) * 0.5), maxf(0.0, (band_y - pc.size.y) * 0.5))
+	_clamp_above_hotbar(root, pc)
 
 # The display (Sportbound Strike) face is caps-only with LIMITED punctuation (A-Z 0-9 space
 # . , : ! ? - _ / + & #). Anything else (parens, ✦, ◈, ·, em-dash, emoji) must NOT use it —

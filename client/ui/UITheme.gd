@@ -1,10 +1,12 @@
 class_name UITheme
 extends RefCounted
 ## UI-overhaul P0 — the single Theme every Control inherits. Built in code (no editor round-trip;
-## tweak Palette + relaunch to iterate) and set ONCE on the root Window: a CanvasLayer isn't a
-## Control, so `_hud.theme` doesn't exist — the Window's theme is what propagates to every Control
-## under it (all _hud panels, the Account screen, popups). Per-panel add_theme_* overrides still
-## win where they're semantic (rarity borders, currency colors).
+## tweak Palette + relaunch to iterate). The root Window carries it for popups/tooltips, but a
+## Window's theme does NOT reach Controls under a CanvasLayer — theme inheritance only walks
+## Control/Window ancestors, and a CanvasLayer is neither, so the chain breaks there (both UI
+## roots are CanvasLayers: Client._hud and the Account screen). `attach()` below closes that gap
+## by assigning the Theme at every chain-break point. Per-panel add_theme_* overrides still win
+## where they're semantic (rarity borders, currency colors).
 
 static var _theme: Theme = null
 
@@ -12,6 +14,43 @@ static func get_theme() -> Theme:
 	if _theme == null:
 		_theme = _build()
 	return _theme
+
+# UI-consistency pass: make the Theme actually reach a CanvasLayer's Controls. Assigns the game
+# Theme at every inheritance chain-break point (a Control whose parent is NOT a Control — Controls
+# under a Control inherit for free). Hooks SceneTree.node_added rather than layer.child_entered_tree
+# so Controls that enter later BELOW non-Control wrappers (Node/Node3D) are styled too; the
+# assignment is idempotent (one shared Theme resource), so HudLayout's reparenting into HudMod_*
+# wrappers re-fires harmlessly. The hook disconnects when the layer leaves the tree — a relogin
+# rebuilds the HUD and stale tree-wide connections must not stack.
+static func attach(layer: CanvasLayer) -> void:
+	var tree := layer.get_tree()
+	if tree == null:
+		push_warning("UITheme.attach: layer must be inside the tree")
+		return
+	var on_added := func(n: Node) -> void:
+		if n is Control and not (n.get_parent() is Control) and _inside(layer, n):
+			(n as Control).theme = get_theme()
+	tree.node_added.connect(on_added)
+	layer.tree_exiting.connect(func() -> void:
+		if tree.node_added.is_connected(on_added):
+			tree.node_added.disconnect(on_added))
+	for c in layer.get_children():   # anything built before attach (defensive; callers attach first)
+		_theme_breaks(c)
+
+# assign the Theme at every chain-break point of an already-built subtree
+static func _theme_breaks(n: Node) -> void:
+	if n is Control and not (n.get_parent() is Control):
+		(n as Control).theme = get_theme()
+	for c in n.get_children():
+		_theme_breaks(c)
+
+static func _inside(layer: Node, n: Node) -> bool:
+	var p := n.get_parent()
+	while p != null:
+		if p == layer:
+			return true
+		p = p.get_parent()
+	return false
 
 static func _flat(bg: Color, border: Color, border_w: int, radius: int, margin: int) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
