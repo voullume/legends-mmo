@@ -1979,7 +1979,7 @@ func _on_quest_meta(meta) -> void:
 
 # ---- quest giver (home-base NPC: the ONLY place to accept / turn in; J is a read-only journal) ----
 func _build_qgiver_dialog() -> void:
-	var p := Widgets.panel("📜 Quest Giver", "E / Esc", 560.0, _toggle_qgiver)
+	var p := Widgets.panel("📜 Quest Giver", "E / Esc", 560.0, _toggle_qgiver, true)   # phase B: marquee chrome
 	_qgiver_panel = p["root"]
 	_hud.add_child(_qgiver_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2546,7 +2546,7 @@ func recv_vendor_info(info: Dictionary) -> void:
 
 # P0 pattern-proof: the first panel migrated onto the Widgets scaffold + Palette tokens.
 func _build_vendor() -> void:
-	var p := Widgets.panel("◈ Practice Vendor — Rookie Camp Set", "V / Esc", 580.0, _toggle_vendor)
+	var p := Widgets.panel("◈ Practice Vendor — Rookie Camp Set", "V / Esc", 580.0, _toggle_vendor, true)   # phase B: marquee chrome
 	_vendor_panel = p["root"]
 	_hud.add_child(_vendor_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2622,7 +2622,7 @@ func _camp_portal() -> Variant:                  # find the Camp ENTRY portal (o
 	return null
 
 func _build_camp() -> void:
-	var p := Widgets.panel("⚔ Camp Circuit — Select Intensity", "C / Esc", 560.0, _toggle_camp)
+	var p := Widgets.panel("⚔ Camp Circuit — Select Intensity", "C / Esc", 560.0, _toggle_camp, true)   # phase B: marquee chrome
 	_camp_panel = p["root"]
 	_hud.add_child(_camp_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2788,7 +2788,7 @@ func _my_credits_val() -> int:
 	return int(_state.get("self", {}).get("credits", _my_credits()))
 
 func _build_wardrobe() -> void:
-	var p := Widgets.panel("🎨 Wardrobe — Dyes", "G / Esc", 600.0, _toggle_wardrobe)
+	var p := Widgets.panel("🎨 Wardrobe — Dyes", "G / Esc", 600.0, _toggle_wardrobe, true)   # phase B: marquee chrome
 	_wardrobe_panel = p["root"]
 	_hud.add_child(_wardrobe_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2902,7 +2902,7 @@ func _my_talent_avail() -> int:   # derived from level + spent (never trust a st
 	return GameData.talent_points_available(_my_level_val(), _my_talent_spent())
 
 func _build_talents() -> void:
-	var p := Widgets.panel("🌳 Talents", "T / Esc", 600.0, _toggle_talents)
+	var p := Widgets.panel("🌳 Talents", "T / Esc", 600.0, _toggle_talents, true)   # phase B: marquee chrome
 	_talent_panel = p["root"]
 	_hud.add_child(_talent_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3055,7 +3055,7 @@ func _paragon_dirty() -> bool:
 	return false
 
 func _build_paragon() -> void:
-	var p := Widgets.panel("⭐ Paragon — Bench Board", "B / Esc", 640.0, _toggle_paragon)
+	var p := Widgets.panel("⭐ Paragon — Bench Board", "B / Esc", 640.0, _toggle_paragon, true)   # phase B: marquee chrome
 	_paragon_panel = p["root"]
 	_hud.add_child(_paragon_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3215,7 +3215,7 @@ const LB_CLEAR_CAP_MS := 3600000                 # P7d: MUST equal server CLEAR_
 const LB_TIME_CATS := ["circuit_time", "boss_time"]              # rendered as time, not a raw number
 const LB_SEASONAL_CATS := ["drill", "circuit_time", "boss_time"] # show the season + reset countdown (gear/intensity are all-time)
 func _build_leaderboard() -> void:
-	var p := Widgets.panel("🏆 Leaderboards", "L / Esc", 560.0, _toggle_leaderboard)
+	var p := Widgets.panel("🏆 Leaderboards", "L / Esc", 560.0, _toggle_leaderboard, true)   # phase B: marquee chrome
 	_lb_panel = p["root"]
 	_hud.add_child(_lb_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3368,7 +3368,7 @@ func _reforge_scrap_cost(rarity: String, rc: int) -> int:     # MUST match Serve
 
 # --- Forge panel (F at the forge pad): spend credits + scrap to upgrade gear (P4) ---
 func _build_forge() -> void:
-	var p := Widgets.panel("Forge", "F / Esc", 680.0, _toggle_forge)
+	var p := Widgets.panel("Forge", "F / Esc", 680.0, _toggle_forge, true)   # phase B: marquee chrome
 	_forge_panel = p["root"]
 	_hud.add_child(_forge_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3901,7 +3901,7 @@ func _update_shop_proximity() -> void:
 
 # ---- Builder Mode (P3): the Build Shop pad + panel (buy furniture) + the locked-locker "Purchase" prompt ----
 func _build_build_shop_panel() -> void:
-	var p := Widgets.panel("Build Shop", "P / Esc", 560.0, _toggle_build_shop)
+	var p := Widgets.panel("Build Shop", "P / Esc", 560.0, _toggle_build_shop, true)   # phase B: marquee chrome
 	_build_shop_panel = p["root"]
 	_hud.add_child(_build_shop_panel)
 	var vb: VBoxContainer = p["body"]
