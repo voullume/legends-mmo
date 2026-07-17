@@ -240,7 +240,7 @@ func _draw() -> void:
 		# name tag
 		var m: Dictionary = HudLayout.info(id)
 		var tag: String = str(m.get("label", id)) + (" (hidden)" if hidden else "") \
-			+ (" 🔒" if bool(lay.get("locked", false)) else "") + ("  %d%%" % int(round(float(lay["scale"]) * 100.0)))
+			+ (" (locked)" if bool(lay.get("locked", false)) else "") + ("  %d%%" % int(round(float(lay["scale"]) * 100.0)))
 		var ts := font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 13)
 		var tp := Vector2(r.position.x, maxf(16.0, r.position.y - 6.0))
 		draw_rect(Rect2(tp - Vector2(3, 13), ts + Vector2(6, 4)), Color(Palette.SB_INK, 0.85))

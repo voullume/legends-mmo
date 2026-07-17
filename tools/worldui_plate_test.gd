@@ -11,6 +11,7 @@ extends SceneTree
 ## Exits non-zero on any failure (CI-compatible; greppable "FAIL").
 
 const WorldUIS := preload("res://client/ui/WorldUI.gd")
+const IconRegS := preload("res://client/ui/IconRegistry.gd")
 
 # Client camera-distance band (Client.DIST_MIN … DIST_MAX) — the supported zoom extremes.
 const DIST_MIN := 10.0
@@ -80,6 +81,40 @@ func _init() -> void:
 	ok(WorldUIS.wobble_lit(2.4) == 3, "2.4 wobble → 3 pips (ceil)")
 	ok(WorldUIS.wobble_lit(float(WorldUIS.PLATE_WOBBLE_PIPS)) == WorldUIS.PLATE_WOBBLE_PIPS, "max wobble → all pips")
 	ok(WorldUIS.wobble_lit(99.0) == WorldUIS.PLATE_WOBBLE_PIPS, "over-max wobble clamps to the pip count")
+
+	# --- Hybrid-Cutout world markers ----------------------------------------------------------------
+	# a service-pad marker is a Node3D holding an icon Sprite3D ABOVE a text Label3D (never text inside
+	# an icon); the icon wires the registry texture; the icon sits above the text; fade drives BOTH
+	# children from an opaque base × k with NO compounding.
+	var m := WorldUIS.pad_marker("shop", "Shop", Color(1, 0.88, 0.5), Vector3(1, 2, 3))
+	ok(m is Node3D and m.has_meta("pad_marker"), "pad_marker is a Node3D flagged for the fade loop")
+	ok(m.position == Vector3(1, 2, 3), "pad_marker sits at the requested position")
+	var sp: Sprite3D = null
+	var lbl: Label3D = null
+	for c in m.get_children():
+		if c is Sprite3D: sp = c
+		elif c is Label3D: lbl = c
+	ok(sp != null and lbl != null, "pad_marker holds BOTH a Sprite3D icon and a Label3D text sibling")
+	ok(sp != null and sp.texture == IconRegS.texture("shop"), "marker icon wires the registry texture (no hardcoded path)")
+	ok(lbl != null and str(lbl.text) == "Shop", "marker text is the plain display-safe string (no emoji)")
+	ok(sp != null and sp.fixed_size and sp.billboard == BaseMaterial3D.BILLBOARD_ENABLED and sp.no_depth_test,
+		"marker icon is a fixed_size, billboarded, no-depth sprite")
+	ok(sp != null and sp.position.y > lbl.position.y, "icon sits ABOVE the text")
+	# fade: both children reach exactly k (SET from an opaque base — no compounding across frames)
+	WorldUIS.fade_pad_marker(m, 0.5)
+	ok(sp != null and approx(sp.modulate.a, 0.5), "fade sets the icon alpha to k")
+	ok(lbl != null and approx(lbl.modulate.a, 0.5), "fade sets the text alpha to k")
+	WorldUIS.fade_pad_marker(m, 0.5)            # re-applying the SAME k must not compound (still 0.5, not 0.25)
+	ok(sp != null and approx(sp.modulate.a, 0.5), "re-fading with the same k does NOT compound (icon)")
+	ok(lbl != null and approx(lbl.modulate.a, 0.5), "re-fading with the same k does NOT compound (text)")
+	m.free()
+
+	# a plate tier marker starts hidden + textureless (never renders until a special tier needs it)
+	var tm := WorldUIS.plate_tier_marker()
+	ok(tm is Sprite3D and not tm.visible and tm.texture == null, "plate_tier_marker starts hidden + textureless")
+	ok(tm.fixed_size and tm.billboard == BaseMaterial3D.BILLBOARD_ENABLED and tm.no_depth_test,
+		"plate_tier_marker is a fixed_size, billboarded, no-depth sprite")
+	tm.free()
 
 	print("[worldui_plate_test] %d checks, %d failures" % [checks, fails])
 	quit(1 if fails > 0 else 0)

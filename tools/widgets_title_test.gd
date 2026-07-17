@@ -9,6 +9,7 @@ extends SceneTree
 
 const WidgetsS := preload("res://client/ui/Widgets.gd")
 const HudFontsS := preload("res://client/ui/HudFonts.gd")
+const IconRegistryS := preload("res://client/ui/IconRegistry.gd")
 
 var fails := 0
 var checks := 0
@@ -28,6 +29,16 @@ func _display_font():
 
 func _title_label(p: Dictionary) -> Label:
 	return p["title"] as Label
+
+# the header HBox is the FIRST child of the panel body VBox (before the HSeparator + content)
+func _header(p: Dictionary) -> HBoxContainer:
+	return (p["body"] as VBoxContainer).get_child(0) as HBoxContainer
+
+func _find_child(node: Node, klass) -> Node:
+	for c in node.get_children():
+		if is_instance_of(c, klass):
+			return c
+	return null
 
 func _init() -> void:
 	print("[widgets_title_test] running")
@@ -61,6 +72,41 @@ func _init() -> void:
 	var et := _title_label(emdash)
 	ok(not et.has_theme_font_override("font"), "em-dash title does NOT carry the display-font override")
 	(emdash["root"] as Node).queue_free()
+
+	# --- icon-bearing header: opts.icon inserts a header TextureRect BEFORE the (still branded) title ---
+	var iconp := WidgetsS.panel("Forge", "F / Esc", 560.0, func() -> void: pass, false,
+		{"icon": "forge", "persist": "forge", "legacy": "Forge"})
+	var ihead := _header(iconp)
+	var ic := _find_child(ihead, TextureRect)
+	ok(ic != null, "icon-bearing header carries a TextureRect")
+	ok(ic != null and (ic as TextureRect).texture == IconRegistryS.texture("forge"), "header icon wires the forge texture (no hardcoded path)")
+	ok(ihead.get_child(0) is TextureRect, "header icon is FIRST (before the title)")
+	var itl := _title_label(iconp)
+	ok(itl.text == "FORGE", "icon-bearing safe title still uppercased/branded")
+	if disp_available:
+		ok(itl.has_theme_font_override("font"), "icon-bearing safe title keeps the display face")
+	var ikh := _find_child(ihead, Label)     # first Label after the icon is the title; scan for the key hint
+	var kh_found := false
+	for c in ihead.get_children():
+		if c is Label and str((c as Label).text) == "F / Esc":
+			kh_found = true
+	ok(kh_found, "key hint label preserved in the header")
+	var closebtn := _find_child(ihead, Button)
+	ok(closebtn != null and str((closebtn as Button).text) == "✕", "close ✕ button preserved (code-native)")
+	(iconp["root"] as Node).queue_free()
+
+	# --- icon-free LEGACY call (no opts dict) still valid: first head child is the title Label, no icon ---
+	var legacy := WidgetsS.panel("Forge", "F / Esc", 560.0, func() -> void: pass, false)
+	var lhead := _header(legacy)
+	ok(lhead.get_child(0) is Label, "icon-free legacy call: first head child is the title Label (no icon)")
+	ok(_find_child(lhead, TextureRect) == null, "icon-free legacy call: header has NO TextureRect")
+	ok(legacy.has("root") and legacy.has("body") and legacy.has("title"), "legacy call returns the full window dict")
+	(legacy["root"] as Node).queue_free()
+
+	# --- a 2-arg legacy call (title + key hint only) still builds ---
+	var minimal := WidgetsS.panel("Plain", "X")
+	ok(minimal.has("root"), "2-arg legacy call still builds a window")
+	(minimal["root"] as Node).queue_free()
 
 	print("[widgets_title_test] %d checks, %d failures" % [checks, fails])
 	quit(1 if fails > 0 else 0)

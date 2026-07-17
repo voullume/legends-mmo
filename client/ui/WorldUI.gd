@@ -51,6 +51,62 @@ static func pad_label(text: String, tint: Color, pos: Vector3) -> Label3D:
 	lbl.position = pos
 	return lbl
 
+# ============================================================ Permanent Hybrid-Cutout world markers
+# Label3D cannot embed a screen-space Control texture or inherit the Theme, so a world marker is a
+# Node3D holding a billboarded Sprite3D (the icon) ABOVE a separate Label3D (display-safe text). The
+# icon carries identity; the text stays for wayfinding (icon-integration handoff §11). One factory for
+# the five service pads; distance + open-window fade drive BOTH children from a stable opaque base via
+# fade_pad_marker (no compounding). Icon textures/colors come from IconRegistry — no hardcoded paths.
+const PAD_ICON_PIXEL := 0.00062        # fixed_size sprite: ~constant screen size, a touch above the pad text
+const PAD_ICON_Y := 0.95               # world units above the pad text — clears the label cleanly up close and
+                                       # still reads as a stacked unit as the perspective gap compresses at range
+
+static func pad_marker(icon_id: String, text: String, tint: Color, pos: Vector3) -> Node3D:
+	var g := Node3D.new()
+	g.position = pos
+	g.set_meta("pad_marker", true)     # the world-fade loop recognizes markers vs. a bare Label3D pad
+	var tex := IconRegistry.texture(icon_id)
+	if tex != null:
+		var sp := Sprite3D.new()
+		sp.texture = tex
+		sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		sp.no_depth_test = true
+		sp.fixed_size = true
+		sp.pixel_size = PAD_ICON_PIXEL
+		sp.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		sp.modulate = tint
+		sp.position.y = PAD_ICON_Y
+		sp.render_priority = 1
+		g.add_child(sp)
+	g.add_child(pad_label(text, tint, Vector3.ZERO))   # reuse the pad text factory at the marker's local origin
+	return g
+
+# fade both marker children from their opaque base × k — no compounding (structure = [Sprite3D?, Label3D])
+static func fade_pad_marker(g: Node3D, k: float) -> void:
+	for c in g.get_children():
+		if c is Sprite3D:
+			(c as Sprite3D).modulate.a = k
+		elif c is Label3D:
+			(c as Label3D).modulate.a = k
+			(c as Label3D).outline_modulate.a = OUTLINE_COLOR.a * k
+
+# an entity-plate TIER marker (power_core / elite / shielded boss / resident): a fixed_size billboarded
+# Sprite3D that rides ABOVE a Label3D plate. Created lazily by the client — only special tiers get one,
+# never every distant mob (handoff §11) — then re-textured / re-colored / shown per frame and faded WITH
+# the plate. Hidden + textureless at rest so it never renders until a tier needs it.
+const PLATE_ICON_PIXEL := 0.0017       # fixed_size, matched to the PLATE_FONT tier line
+
+static func plate_tier_marker() -> Sprite3D:
+	var sp := Sprite3D.new()
+	sp.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	sp.no_depth_test = true
+	sp.fixed_size = true
+	sp.pixel_size = PLATE_ICON_PIXEL
+	sp.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	sp.render_priority = 1
+	sp.visible = false
+	return sp
+
 # HP bar — a 3-stop ramp so "getting low" reads before it's critical (was a single 35% flip)
 const HP_FULL := Color(0.3, 0.85, 0.4)
 const HP_MID := Color(0.94, 0.78, 0.3)

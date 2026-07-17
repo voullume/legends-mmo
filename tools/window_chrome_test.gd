@@ -101,5 +101,64 @@ func _run() -> void:
 		else:
 			ok(grip_local.end.is_equal_approx(pc.size), "plain: grip still pinned flush to the corner (unchanged)")
 
+	_run_persistence()
+
 	print("[window_chrome_test] %d checks, %d failures" % [checks, fails])
 	quit(1 if fails > 0 else 0)
+
+# Icon-bearing header + stable-persistence-key migration (handoff §6). A title-string change (emoji /
+# subtitle removal) moves the persistence key; a one-time migration must adopt the geometry saved
+# under the OLD title so users never lose placement, then re-home it under the stable key. Drives the
+# real visibility → _restore_window lifecycle. Uses throwaway keys and cleans them up.
+func _run_persistence() -> void:
+	var newk := "__wct_persist_new__"
+	var legk := "__wct_persist_legacy__"
+	var freshk := "__wct_persist_fresh__"
+	# seed a legacy saved geometry (as if the user had placed the old emoji-titled window)
+	var seed := ConfigFile.new()
+	seed.load(WidgetsS.WIN_CFG)                       # keep audio/fx + real window keys
+	for k in [newk, freshk]:
+		if seed.has_section_key("windows", k):
+			seed.erase_section_key("windows", k)     # clean slate for the new keys
+	seed.set_value("windows", legk, {"x": 300.0, "y": 200.0, "cw": 640.0, "ch": 420.0})
+	seed.save(WidgetsS.WIN_CFG)
+
+	var host := Control.new()
+	host.size = Vector2(1920, 1080)
+	root.add_child(host)
+	var p: Dictionary = WidgetsS.panel("PersistTest", "X / Esc", 560.0, func() -> void: pass, false,
+		{"icon": "inventory", "persist": newk, "legacy": legk})
+	var win: Control = p["root"]
+	host.add_child(win)
+	# header icon present (icon-bearing header case)
+	var head := (p["body"] as VBoxContainer).get_child(0)
+	var has_icon := false
+	for c in head.get_children():
+		if c is TextureRect:
+			has_icon = true
+	ok(has_icon, "persist: icon-bearing header carries a TextureRect")
+	win.visible = true                               # → visibility_changed → _restore_window → migration
+
+	var after := ConfigFile.new()
+	after.load(WidgetsS.WIN_CFG)
+	ok(after.has_section_key("windows", newk), "persist: geometry migrated to the stable key")
+	ok(not after.has_section_key("windows", legk), "persist: legacy key erased after migration")
+	var saved = after.get_value("windows", newk, {})
+	ok(saved is Dictionary and absf(float(saved.get("x", -1)) - 300.0) < 0.5, "persist: migrated geometry preserved (x=300)")
+	var pc: Control = p["panel"]
+	ok(absf(pc.position.x - 300.0) < 1.5 and absf(pc.position.y - 200.0) < 1.5,
+		"persist: window restored to the migrated position (got %s)" % pc.position)
+
+	# a fresh (unsaved) persist key opens + centers deterministically, no crash / no migration
+	var p2: Dictionary = WidgetsS.panel("PersistFresh", "X", 560.0, func() -> void: pass, false, {"persist": freshk})
+	host.add_child(p2["root"])
+	(p2["root"] as Control).visible = true
+	ok(true, "persist: fresh persist key opens without crash")
+
+	# clean up the throwaway keys so real user settings stay untouched
+	var clean := ConfigFile.new()
+	clean.load(WidgetsS.WIN_CFG)
+	for k in [newk, legk, freshk]:
+		if clean.has_section_key("windows", k):
+			clean.erase_section_key("windows", k)
+	clean.save(WidgetsS.WIN_CFG)

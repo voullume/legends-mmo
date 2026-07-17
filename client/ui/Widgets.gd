@@ -7,8 +7,15 @@ const WIN_CFG := "user://settings.cfg"   # reuse the audio/fx settings file (a [
 
 # The standard pop-up scaffold, now a MOVABLE + RESIZABLE window: a full-rect non-blocking root holds a
 # floating PanelContainer you drag by its header and resize by a bottom-right grip; position + size persist
-# per title. root → PanelContainer → Margin → VBox, with a header (title + key hint + optional ✕) and a rule.
+# per persistence KEY (opts.persist — a stable window_id decoupled from the display title so an emoji /
+# subtitle title-string change never resets saved placement). root → PanelContainer → Margin → VBox, with a
+# header (optional icon + title + key hint + optional ✕) and a rule.
 # `on_close` (a Callable) wires the ✕. Returns {root, panel, body, title} — caller adds `root` to the HUD.
+# `opts` (appended, never a mid-signature positional — handoff §6):
+#   opts.icon       → an IconRegistry semantic id rendered as a header TextureRect before the title;
+#   opts.icon_color → header-icon modulation (default SB_CYAN, matching the chrome rail);
+#   opts.persist    → the stable persistence key (default = title, backward-compatible);
+#   opts.legacy     → an OLD persistence key to migrate saved geometry FROM, once (title-string change).
 # `chrome` (phase B, marquee windows only): the window rides the full HudFrame PANEL chassis —
 # chamfered navy→ink gradient, cyan rail, header tab, ticks — with the body OPAQUE (data-menu rule).
 # The chassis replaces the theme stylebox and stacks UNDER the content inside the PanelContainer
@@ -19,7 +26,9 @@ const WIN_CFG := "user://settings.cfg"   # reuse the audio/fx settings file (a [
 # world shows but `pc` (MOUSE_FILTER_STOP) still eats the click — visually "outside" the window,
 # behaviorally inside. Fixing it needs a chamfer-polygon _has_point() override; not worth the
 # machinery for ~300px², but don't be surprised by it.
-static func panel(title: String, key_hint := "", min_width := 560.0, on_close = null, chrome := false) -> Dictionary:
+static func panel(title: String, key_hint := "", min_width := 560.0, on_close = null, chrome := false, opts := {}) -> Dictionary:
+	var persist_key := str(opts.get("persist", title))
+	var legacy_key := str(opts.get("legacy", ""))
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE   # non-modal: click the game around a floating window
@@ -43,6 +52,11 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 	head.mouse_filter = Control.MOUSE_FILTER_STOP     # the drag handle
 	head.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	vb.add_child(head)
+	var icon_id := str(opts.get("icon", ""))
+	if icon_id != "" and IconRegistry.has(icon_id):
+		var hi := IconWidget.make(icon_id, {"px": 24, "color": opts.get("icon_color", Palette.SB_CYAN)})
+		hi.mouse_filter = Control.MOUSE_FILTER_IGNORE     # let the drag reach the header
+		head.add_child(hi)
 	var t := Label.new()
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE      # let the drag reach the header
@@ -87,13 +101,13 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 		x.pressed.connect(on_close)
 		head.add_child(x)
 	vb.add_child(HSeparator.new())
-	_make_window(root, pc, head, title, min_width, chrome)
+	_make_window(root, pc, head, persist_key, min_width, chrome, legacy_key)
 	return {"root": root, "panel": pc, "body": vb, "title": t}
 
 # Wire drag (header) + resize (bottom-right grip) + persistence onto a Widgets panel.
 # `chrome`: the HudFrame PANEL tier chamfers the bottom-right corner away (up to 16px), so a
 # corner-pinned grip would float outside the rail over the world — inset it inside the chamfer.
-static func _make_window(root: Control, pc: PanelContainer, head: Control, title: String, min_width: float, chrome := false) -> void:
+static func _make_window(root: Control, pc: PanelContainer, head: Control, persist_key: String, min_width: float, chrome := false, legacy_key := "") -> void:
 	# resize grip (bottom-right), a sibling of pc kept pinned to the panel's corner by `pin`.
 	# CHROME GEOMETRY (don't retune casually — the two constraints nearly collide):
 	#   • the PANEL chamfer cuts the BR corner by up to 16px, so the grip's own BR corner must sit
@@ -124,7 +138,7 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 			if ev.pressed:
 				drag["off"] = root.get_local_mouse_position() - pc.position
 			else:
-				_save_window(title, pc)
+				_save_window(persist_key, pc)
 		elif ev is InputEventMouseMotion and drag["on"]:
 			_place_panel(root, pc, root.get_local_mouse_position() - drag["off"])
 			pin.call())
@@ -137,7 +151,7 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 				rz["start"] = root.get_local_mouse_position()
 				rz["base"] = pc.size
 			else:
-				_save_window(title, pc)
+				_save_window(persist_key, pc)
 		elif ev is InputEventMouseMotion and rz["on"]:
 			var d: Vector2 = root.get_local_mouse_position() - rz["start"]
 			var vp := root.size
@@ -153,7 +167,7 @@ static func _make_window(root: Control, pc: PanelContainer, head: Control, title
 			return
 		if not placed["v"]:
 			placed["v"] = true
-			_restore_window(root, pc, title, min_width)
+			_restore_window(root, pc, persist_key, min_width, legacy_key)
 		if not placed["vp"]:                 # re-clamp + re-pin when the game window is resized
 			placed["vp"] = true
 			var vpn := root.get_viewport()
@@ -236,19 +250,28 @@ static func reset_all_windows() -> void:
 			keep.append(w)
 	_windows = keep
 
-static func _save_window(title: String, pc: Control) -> void:
+static func _save_window(key: String, pc: Control) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(WIN_CFG)                        # keep the audio/fx sections
-	cfg.set_value("windows", title, {"x": pc.position.x, "y": pc.position.y,
+	cfg.set_value("windows", key, {"x": pc.position.x, "y": pc.position.y,
 		"cw": pc.custom_minimum_size.x, "ch": pc.custom_minimum_size.y})
 	cfg.save(WIN_CFG)
 
-static func _restore_window(root: Control, pc: PanelContainer, title: String, min_width: float) -> void:
+static func _restore_window(root: Control, pc: PanelContainer, key: String, min_width: float, legacy_key := "") -> void:
 	pc.reset_size()                          # compute the content-driven size first
 	var saved = null
 	var cfg := ConfigFile.new()
-	if cfg.load(WIN_CFG) == OK and cfg.has_section_key("windows", title):   # has_section_key → no missing-key error
-		saved = cfg.get_value("windows", title)
+	var loaded := cfg.load(WIN_CFG) == OK
+	if loaded and cfg.has_section_key("windows", key):   # has_section_key → no missing-key error
+		saved = cfg.get_value("windows", key)
+	elif loaded and legacy_key != "" and cfg.has_section_key("windows", legacy_key):
+		# one-time migration: a title-string change (emoji / subtitle removal) moved the persist key.
+		# Adopt the geometry saved under the OLD title so users never lose placement, then re-home it
+		# under the stable key and drop the stale legacy entry.
+		saved = cfg.get_value("windows", legacy_key)
+		cfg.set_value("windows", key, saved)
+		cfg.erase_section_key("windows", legacy_key)
+		cfg.save(WIN_CFG)
 	var vp := root.size
 	if saved is Dictionary:
 		if float(saved.get("ch", 0.0)) > 1.0:   # the user had resized it

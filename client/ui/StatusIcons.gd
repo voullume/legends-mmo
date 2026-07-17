@@ -4,8 +4,10 @@ extends RefCounted
 ## (see Server.status_st: timers = tenths-of-seconds ints, magnitudes = percent ints) into
 ## normalized chip entries; classification (buff/debuff), display priority, glyphs, colors and
 ## tooltip copy all live HERE — the StatusRow component renders whatever this returns, so every
-## frame (self / target / focus / party) stays in lockstep. Glyph chips only (chrome language,
-## no art dependency); real icon textures can replace `glyph` later without touching the flow.
+## frame (self / target / focus / party) stays in lockstep. Each entry now carries an `icon` id
+## (resolved through IconRegistry into a Hybrid-Cutout SVG texture); `glyph` remains as the plain
+## text fallback if a texture is ever absent. Meaning comes from silhouette + semantic color — no
+## readable letters — so StatusRow renders the icon, never the two-letter abbreviation.
 
 # Registry — insertion order IS the stable sort tiebreaker. `w` = wire format:
 #   t   → plain tenths int (remaining seconds)
@@ -14,27 +16,28 @@ extends RefCounted
 #   tp  → [tenths, percent]         (slow — note the reversed order on the wire)
 #   ct  → [count, tenths]           (guard charges / dot stacks)
 #   p   → plain percent, NO timer   (nextdmg — active until consumed)
+# `icon` = the IconRegistry semantic id (Hybrid-Cutout SVG); `glyph` = text fallback only.
 const DEFS := {
-	"stn": {"glyph": "✕", "name": "Stunned", "debuff": true, "color": Palette.DANGER, "w": "t"},
-	"slw": {"glyph": "SL", "name": "Slowed", "debuff": true, "color": Palette.SB_ORANGE, "w": "tp"},
-	"dot": {"glyph": "DT", "name": "Burning", "debuff": true, "color": Palette.DANGER, "w": "ct"},
-	"sh": {"glyph": "SH", "name": "Shield", "debuff": false, "color": Palette.SHIELD, "w": "at"},
-	"ba": {"glyph": "BA", "name": "Barrier", "debuff": false, "color": Palette.LAVENDER, "w": "pt"},
-	"dr": {"glyph": "DR", "name": "Damage Reduction", "debuff": false, "color": Palette.SB_CYAN, "w": "pt"},
-	"gd": {"glyph": "GD", "name": "Guard", "debuff": false, "color": Palette.SB_CYAN, "w": "ct"},
-	"rf": {"glyph": "RF", "name": "Reflect", "debuff": false, "color": Palette.SB_CYAN, "w": "t"},
-	"by": {"glyph": "BY", "name": "Shield Pierce", "debuff": false, "color": Palette.ACCENT, "w": "t"},
-	"nx": {"glyph": "NX", "name": "Empowered", "debuff": false, "color": Palette.ACCENT, "w": "p"},
-	"cr": {"glyph": "CR", "name": "Critical Chance", "debuff": false, "color": Palette.ACCENT, "w": "pt"},
-	"as": {"glyph": "AS", "name": "Attack Speed", "debuff": false, "color": Palette.ACCENT, "w": "pt"},
-	"ms": {"glyph": "MS", "name": "Move Speed", "debuff": false, "color": Palette.HEAL, "w": "pt"},
-	"ev": {"glyph": "EV", "name": "Evasion", "debuff": false, "color": Palette.HEAL, "w": "t"},
-	"ut": {"glyph": "UT", "name": "Untargetable", "debuff": false, "color": Palette.HEAL, "w": "t"},
+	"stn": {"icon": "stunned", "glyph": "✕", "name": "Stunned", "debuff": true, "color": Palette.DANGER, "w": "t"},
+	"slw": {"icon": "slowed", "glyph": "SL", "name": "Slowed", "debuff": true, "color": Palette.SB_ORANGE, "w": "tp"},
+	"dot": {"icon": "burning", "glyph": "DT", "name": "Burning", "debuff": true, "color": Palette.DANGER, "w": "ct"},
+	"sh": {"icon": "shield", "glyph": "SH", "name": "Shield", "debuff": false, "color": Palette.SHIELD, "w": "at"},
+	"ba": {"icon": "barrier", "glyph": "BA", "name": "Barrier", "debuff": false, "color": Palette.LAVENDER, "w": "pt"},
+	"dr": {"icon": "damage_reduction", "glyph": "DR", "name": "Damage Reduction", "debuff": false, "color": Palette.SB_CYAN, "w": "pt"},
+	"gd": {"icon": "guard", "glyph": "GD", "name": "Guard", "debuff": false, "color": Palette.SB_CYAN, "w": "ct"},
+	"rf": {"icon": "reflect", "glyph": "RF", "name": "Reflect", "debuff": false, "color": Palette.SB_CYAN, "w": "t"},
+	"by": {"icon": "shield_pierce", "glyph": "BY", "name": "Shield Pierce", "debuff": false, "color": Palette.ACCENT, "w": "t"},
+	"nx": {"icon": "empowered", "glyph": "NX", "name": "Empowered", "debuff": false, "color": Palette.ACCENT, "w": "p"},
+	"cr": {"icon": "critical_chance", "glyph": "CR", "name": "Critical Chance", "debuff": false, "color": Palette.ACCENT, "w": "pt"},
+	"as": {"icon": "attack_speed", "glyph": "AS", "name": "Attack Speed", "debuff": false, "color": Palette.ACCENT, "w": "pt"},
+	"ms": {"icon": "move_speed", "glyph": "MS", "name": "Move Speed", "debuff": false, "color": Palette.HEAL, "w": "pt"},
+	"ev": {"icon": "evasion", "glyph": "EV", "name": "Evasion", "debuff": false, "color": Palette.HEAL, "w": "t"},
+	"ut": {"icon": "untargetable", "glyph": "UT", "name": "Untargetable", "debuff": false, "color": Palette.HEAL, "w": "t"},
 }
 
 # Decode a snapshot `st` dict into DISPLAY-SORTED chip entries:
-#   {key, glyph, color, debuff, remaining (secs; -1.0 = untimed), amount (short chip text, "" = none),
-#    tip (tooltip), order (registry index)}
+#   {key, icon (IconRegistry id), glyph (text fallback), color, debuff, remaining (secs; -1.0 =
+#    untimed), amount (short chip text, "" = none), tip (tooltip), order (registry index)}
 # Sort contract (deterministic): debuffs first · then timed effects by shortest remaining
 # (untimed after timed) · then stable registry order.
 static func decode(st: Dictionary) -> Array:
@@ -123,5 +126,5 @@ static func _decode_one(key: String, def: Dictionary, v) -> Dictionary:
 			tip = "Stunned"
 	if remaining >= 0.0:
 		tip += "  ·  %.1fs" % remaining
-	return {"key": key, "glyph": str(def["glyph"]), "color": color, "debuff": debuff,
-		"remaining": remaining, "amount": amount, "tip": tip}
+	return {"key": key, "icon": str(def["icon"]), "glyph": str(def["glyph"]), "color": color,
+		"debuff": debuff, "remaining": remaining, "amount": amount, "tip": tip}

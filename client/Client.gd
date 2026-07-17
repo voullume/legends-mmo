@@ -218,12 +218,14 @@ var _vit_xp: Dictionary
 var _vit_xp_row: HBoxContainer
 var _vit_xp_text: Label
 var _vit_status: Label                     # respawning / save-note / bots line (exists in EVERY variant)
-var _tray: Control                         # ◈ credits · scrap · tokens (online only; UTILITY-tier strip)
+var _tray: Control                         # credits · scrap · tokens (online only; UTILITY-tier strip; icon+number rows)
 var _tray_was_visible := false             # HUD-edit preview bookkeeping
 var _tray_credits: Label
 var _tray_scrap: Label
 var _tray_tokens: Label
-var _cap_warn: Label                       # big red near-cap inventory warning, under the currency tray (online only)
+var _cap_row: Control                       # structural icon+label row: near-cap inventory warning (online only)
+var _cap_icon: TextureRect                  # swaps inventory_full (full) ↔ warning (nearly full)
+var _cap_warn: Label                       # big red near-cap inventory warning text, under the currency tray
 var _zone_banner: PanelContainer
 var _zone_label: Label
 var _vit_cache := {}                       # last-set texts — skip re-shaping unchanged labels every frame
@@ -1646,6 +1648,7 @@ func _spawn(f: Dictionary) -> void:
 		# (created lazily in _update_ui once ownership is known). All null for mob plates.
 		"plate": plate, "pips": pips, "backing": backing, "player_plate": not is_mob_plate,
 		"status_vp": null, "status_row": null, "status_sprite": null, "status_key": "<init>",
+		"tier_marker": null,   # lazy Hybrid-Cutout plate marker (power_core / elite / shielded / resident)
 		# pcds primed from the live cds: cooldowns already ticking when this fighter entered view are
 		# NOT fresh casts — an empty dict would phantom-fire every one of them as a cast tell.
 		"pcds": (f.get("cds", {}) as Dictionary).duplicate(),
@@ -2018,6 +2021,10 @@ func _update_world_label_fade(delta: float) -> void:
 				l.modulate.a = k
 				# outline_modulate is a SEPARATE channel — un-faded it leaves a dark ghost of the text
 				l.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * k
+			elif ch is Node3D and (ch as Node3D).has_meta("pad_marker"):
+				# a Hybrid-Cutout service-pad marker (icon Sprite3D + text Label3D) — fade both children
+				var m := ch as Node3D
+				WorldUI.fade_pad_marker(m, WorldUI.pad_fade(cpos.distance_to(m.global_position)) * _wfade)
 
 # nameplate-text fade (per fighter, from _update_ui). Bars stay — they scale with the world.
 func _plate_fade(world_pos: Vector3) -> float:
@@ -2559,15 +2566,39 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 # ============================================================ Part A — player identity plate
 # The mob / boss / core / dummy plate: fixed_size scoreboard (constant screen size). Byte-identical to
 # the pre-Part-A behavior — extracted verbatim so the player rework couldn't perturb it.
+# show (lazily creating) the plate's Hybrid-Cutout tier marker: a fixed_size billboarded icon riding
+# above the tier line. Only special tiers ever call this, so a plain distant mob never gets a marker
+# node (handoff §11). Returns the sprite so the caller can fade it with the plate.
+func _plate_marker(n: Dictionary, ui: Node3D, icon_id: String, color: Color, y: float) -> Sprite3D:
+	var sp: Sprite3D = n.get("tier_marker")
+	if sp == null or not is_instance_valid(sp):
+		sp = WorldUI.plate_tier_marker()
+		ui.add_child(sp)
+		n["tier_marker"] = sp
+	sp.texture = IconRegistry.texture(icon_id)
+	sp.modulate = color
+	sp.position.y = y
+	sp.visible = true
+	return sp
+
+func _hide_plate_marker(n: Dictionary) -> void:
+	var sp = n.get("tier_marker")
+	if sp != null and is_instance_valid(sp):
+		(sp as Sprite3D).visible = false
+
 func _update_mob_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabel: Label3D, ui: Node3D) -> void:
 	nameLabel.visible = false                     # mobs have no name line; label carries their tier/level
 	label.font_size = WorldUI.PLATE_FONT
+	var mk_icon := ""                             # Hybrid-Cutout tier marker (only special tiers get one)
+	var mk_col := Color.WHITE
 	if f.get("dummy", false):
 		label.text = "Training Dummy"
 		label.modulate = WorldUI.DUMMY
 	elif f.get("isCore", false):
-		label.text = "◈ POWER CORE"
+		label.text = "POWER CORE"              # ◈ dropped; a power_core Sprite3D marker rides alongside (§11)
 		label.modulate = WorldUI.CORE
+		mk_icon = "power_core"
+		mk_col = WorldUI.CORE
 	elif f.has("mobTier"):
 		var tier: String = str(f["mobTier"])
 		var lvl := int(f.get("mobLevel", 1))
@@ -2583,18 +2614,25 @@ func _update_mob_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabel: 
 			var uc := float(f.get("ultCast", 0.0))
 			if uc > 0.0:
 				var warn: Array = bdef.get("ultWarn", ["FULL CAMP RESET", "BREAK LINE OF SIGHT!"])
-				label.text = "⚠  %s  %d  ⚠\n%s" % [str(warn[0]), int(ceil(uc)), str(warn[1])]
+				# handoff §9: the red BOSS_ULT chassis + countdown + BREAK-LINE-OF-SIGHT text carry the
+				# alarm; the warning emoji is redundant and Label3D cannot embed a texture anyway.
+				label.text = "%s  %d\n%s" % [str(warn[0]), int(ceil(uc)), str(warn[1])]
 				label.modulate = WorldUI.BOSS_ULT
 			elif f.get("shielded", false):
-				# P3: core-shield cue — the boss is taking heavy DR while a power core lives (was invisible)
-				label.text = "Lv %d  ☠ %s\nQ%d · %s\n🛡 SHIELDED — DESTROY THE CORES" % [lvl, plate, ph + 1, str(pn[pi])]
+				# P3: core-shield cue — the boss is taking heavy DR while a power core lives (was invisible).
+				# Skull identity + shield emoji dropped (§9/§11); a shielded Sprite3D marker rides alongside.
+				label.text = "Lv %d  %s\nQ%d · %s\nSHIELDED — DESTROY THE CORES" % [lvl, plate, ph + 1, str(pn[pi])]
 				label.modulate = WorldUI.BOSS_SHIELDED
+				mk_icon = "shielded"
+				mk_col = WorldUI.BOSS_SHIELDED
 			else:
-				label.text = "Lv %d  ☠ %s\nQ%d · %s" % [lvl, plate, ph + 1, str(pn[pi])]
+				label.text = "Lv %d  %s\nQ%d · %s" % [lvl, plate, ph + 1, str(pn[pi])]   # skull prefix dropped (§9)
 				label.modulate = WorldUI.BOSS_PHASE[clampi(ph, 0, 3)]
 		elif tier == "elite":
-			label.text = "Lv %d  ★ ELITE" % lvl
+			label.text = "Lv %d  ELITE" % lvl              # star prefix dropped; an elite Sprite3D marker rides alongside (§11)
 			label.modulate = WorldUI.MOB_ELITE
+			mk_icon = "elite"
+			mk_col = WorldUI.MOB_ELITE
 		else:
 			label.text = "Lv %d" % lvl
 			label.modulate = WorldUI.MOB_LEVEL
@@ -2607,7 +2645,7 @@ func _update_mob_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabel: 
 		var pipstr := ""
 		for i in 4:
 			pipstr += "◆" if i < lit else "◇"
-		label.text += "\n⟳ %s" % pipstr
+		label.text += "\n%s" % pipstr             # ⟳ wobble-loop glyph removed (§ "Remove"); the ◆◇ pips stay code-native
 		if lit >= 3:
 			label.modulate = Color(1.0, 0.55, 0.2)
 	var fade_k := _plate_fade(ui.global_position)
@@ -2615,6 +2653,10 @@ func _update_mob_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabel: 
 	nameLabel.modulate.a *= fade_k
 	label.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
 	nameLabel.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
+	if mk_icon != "":                             # tier marker rides above the plate, faded WITH it (no compounding)
+		_plate_marker(n, ui, mk_icon, mk_col, BAR_H + 1.7).modulate.a = fade_k
+	else:
+		_hide_plate_marker(n)
 
 # Part A — the world-proportional, distance-clamped PLAYER identity plate: name + LV N on a restrained
 # navy/cyan backing, a dedicated wobble pip strip, and (self only) an overhead status renderer. Font
@@ -2643,8 +2685,8 @@ func _update_player_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabe
 	# hostile players stay red (a threat cue); friendly plates read in their (brightened) class color
 	var plate_col: Color = WorldUI.HOSTILE if hostile else WorldUI.friendly_plate(_class_vfx_color(str(f["classId"])))
 	var nm := WorldUI.clamp_name(str(f.get("name", "")))   # bounded long-name policy (glyph clamp + ellipsis)
-	if nm != "":                                   # character name (body font), resident marker rides it
-		nameLabel.text = nm + ("  ◆" if f.get("resident", false) else "")
+	if nm != "":                                   # character name (body font)
+		nameLabel.text = nm                        # resident indicator is now a Sprite3D marker, not a trailing ◆ (§11)
 		nameLabel.modulate = plate_col
 		nameLabel.visible = true
 	else:
@@ -2656,6 +2698,10 @@ func _update_player_plate(n: Dictionary, f: Dictionary, label: Label3D, nameLabe
 	label.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
 	nameLabel.outline_modulate.a = WorldUI.OUTLINE_COLOR.a * fade_k
 	WorldUI.fade_backing(n["backing"], fade_k)
+	if f.get("resident", false):                   # AI resident → a resident marker above the plate (replaces the trailing ◆)
+		_plate_marker(n, ui, "resident", IconRegistry.color("resident"), 1.72).modulate.a = fade_k
+	else:
+		_hide_plate_marker(n)
 	_drive_wobble_pips(n, float(f.get("wobble", 0.0)), fade_k)
 	if is_self:                                    # overhead debuff/buff chips — SELF ONLY (owner's ask)
 		_drive_overhead_status(n, f, plate, fade_k)
@@ -3391,7 +3437,7 @@ func _juice_suppressed() -> bool:
 
 # P4: push a transient top-right toast. bbcode text + accent stripe; big = level-up prominence.
 # reduce_fx keeps the toast (fade only, no slide). Shared infra — NetClient fires the events.
-func _toast(bbcode: String, accent: Color, big := false) -> void:
+func _toast(bbcode: String, accent: Color, big := false, icon := "") -> void:
 	if _toast_layer == null:
 		return
 	var card := PanelContainer.new()
@@ -3414,7 +3460,18 @@ func _toast(bbcode: String, accent: Color, big := false) -> void:
 	rt.add_theme_font_size_override("normal_font_size", Palette.SIZE_SECTION if big else Palette.SIZE_BODY)
 	rt.add_theme_font_size_override("bold_font_size", Palette.SIZE_TITLE if big else Palette.SIZE_SECTION)
 	rt.text = bbcode
-	card.add_child(rt)
+	# handoff §9: a toast icon rides as a SIBLING of the RichTextLabel (never an emoji inside BBCode)
+	if icon != "" and IconRegistry.has(icon):
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 9)
+		hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var ic := IconWidget.make(icon, {"px": 28 if big else 22, "color": IconRegistry.color(icon)})
+		hb.add_child(ic)
+		rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		hb.add_child(rt)
+		card.add_child(hb)
+	else:
+		card.add_child(rt)
 	card.modulate.a = 0.0
 	_toast_layer.add_child(card)
 	_toasts.push_front({"node": card, "phase": "in", "t": 0.0,
@@ -3506,17 +3563,25 @@ func _build_vitals() -> void:
 	var th := HBoxContainer.new()
 	th.add_theme_constant_override("separation", 14)
 	(td["body"] as MarginContainer).add_child(th)
-	_tray_credits = _tray_label(th, Palette.CREDITS)
-	_tray_scrap = _tray_label(th, Palette.SCRAP)
-	_tray_tokens = _tray_label(th, Palette.TOKENS)
-	# near-cap inventory warning — big red text right under the currency tray (shown within 5 of the 50-item cap)
+	_tray_credits = _tray_entry(th, "credits", Palette.CREDITS)
+	_tray_scrap = _tray_entry(th, "scrap", Palette.SCRAP)
+	_tray_tokens = _tray_entry(th, "tokens", Palette.TOKENS)
+	# near-cap inventory warning — a structural icon+text row under the currency tray (within 5 of the cap).
+	# The icon swaps inventory_full (suitcase-X, capacity exhausted) ↔ warning (nearly full) so a warning
+	# never falsely states the bag is already full (handoff §9).
+	_cap_row = HBoxContainer.new()
+	_cap_row.add_theme_constant_override("separation", 7)
+	_cap_row.visible = false
+	_cap_icon = IconWidget.make("inventory_full", {"px": 24, "color": Palette.DANGER})
+	_cap_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_cap_row.add_child(_cap_icon)
 	_cap_warn = Label.new()
 	_cap_warn.add_theme_font_size_override("font_size", 22)
 	_cap_warn.add_theme_color_override("font_color", Palette.DANGER)
 	_cap_warn.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	_cap_warn.add_theme_constant_override("outline_size", 5)
-	_cap_warn.visible = false
-	_hud_left.add_child(_cap_warn)
+	_cap_row.add_child(_cap_warn)
+	_hud_left.add_child(_cap_row)
 	# zone banner — a top-center chip (name + PvP state)
 	var zc := CenterContainer.new()
 	zc.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -3543,11 +3608,23 @@ func _build_vitals() -> void:
 	_zone_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_zone_banner.add_child(_zone_label)
 
-func _tray_label(parent: HBoxContainer, color: Color) -> Label:
+# A currency tray entry: a Hybrid-Cutout icon + a numeric Label composed into a structural HBox
+# (never a currency symbol prefixed into prose — handoff §8). Returns the numeric Label so the
+# per-frame writer only sets the NUMBER; the icon carries the identity. The icon takes a tooltip
+# (its accessible name) and STOPs the mouse for hover — the tray strip already shields clicks.
+func _tray_entry(parent: HBoxContainer, icon_id: String, color: Color) -> Label:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 4)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ic := IconWidget.make(icon_id, {"px": 16, "color": color, "tooltip": IconRegistry.fallback(icon_id)})
+	ic.mouse_filter = Control.MOUSE_FILTER_STOP
+	h.add_child(ic)
 	var l := Label.new()
 	l.add_theme_font_size_override("font_size", Palette.SIZE_BODY)
 	l.add_theme_color_override("font_color", color)
-	parent.add_child(l)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	parent.add_child(h)
 	return l
 
 # P4: (re)build the player frame's inner content for a layout variant. The bar/label member refs
@@ -3658,9 +3735,9 @@ func _player_frame_preview(on: bool) -> void:
 		_tray_was_visible = _tray.visible
 		_tray.visible = true
 		if str(_tray_credits.text) == "":
-			_tray_credits.text = "◈ 1,240"
-			_tray_scrap.text = "36 scrap"
-			_tray_tokens.text = "12 tokens"
+			_tray_credits.text = "1,240"
+			_tray_scrap.text = "36"
+			_tray_tokens.text = "12"
 		_vit_status_preview = true
 		if _vit_status_row != null:              # §3c: sample chips so the row is placeable in F2
 			_vit_status_row.drive(_VIT_SAMPLE_ST, "preview")
@@ -4170,7 +4247,7 @@ func _on_slot_hover(i: int) -> void:
 		return
 	var hab: Dictionary = GameData.CLASSES[str(pf["classId"])]["abilities"][i]
 	if _ability_locked(pf, str(hab["key"])):     # gameplay-length P2: locked → show the unlock requirement, not the stat sheet
-		_tt_label.text = "[b]%s[/b]  [color=%s]%s[/color]\n[color=%s]🔒 Unlocks at Level %d[/color]" % [str(hab["name"]), Palette.hex(Palette.TEXT_DIM), str(hab["type"]), Palette.hex(Palette.ACCENT), GameData.ability_unlock_level(str(pf["classId"]), str(hab["key"]))]
+		_tt_label.text = "[b]%s[/b]  [color=%s]%s[/color]\n[color=%s]Unlocks at Level %d[/color]" % [str(hab["name"]), Palette.hex(Palette.TEXT_DIM), str(hab["type"]), Palette.hex(Palette.ACCENT), GameData.ability_unlock_level(str(pf["classId"]), str(hab["key"]))]
 	else:
 		_tt_label.text = _ability_tooltip(hab, pf)
 	_tooltip.visible = true

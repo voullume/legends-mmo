@@ -192,7 +192,8 @@ var _lb_tabs := {}                           # Widgets.tab_row handle (highlight
 var _lb_entries := []
 var _lb_season := 0                  # P7d: current season of the active tab (0 = all-time board)
 var _lb_reset_unix := 0              # P7d: next-reset epoch for a seasonal tab (0 = no countdown)
-var _drill_banner: Label = null
+var _drill_banner: Control = null            # structural icon+label row (two_minute_drill icon + wave text)
+var _drill_banner_lbl: Label = null
 var _forge_pending := false
 var _shop_sell_cache := {}    # item_id -> {name, rarity, price} for the sell confirmation
 var _sell_confirm: Control = null            # PanelContainer (sizes to content + draws the themed box)
@@ -297,6 +298,8 @@ func _dev_open_panel() -> void:
 		"leaderboard": _toggle_leaderboard()
 		"camp": _toggle_camp()
 		"inventory": _toggle_inventory()
+		"talents": _toggle_talents()
+		"paragon": _toggle_paragon()
 		"shop": _toggle_shop()
 		"forge": _toggle_forge()
 		"vendor": _toggle_vendor()
@@ -459,10 +462,10 @@ func _item_stats_str(it: Dictionary) -> String:
 
 # compact "iLvl · power" tag for an item
 func _item_meta_str(it: Dictionary) -> String:
-	return "[color=#7f8a99]i%d · ✦%d[/color]" % [int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
+	return "[color=#7f8a99]i%d · IP %d[/color]" % [int(it.get("ilvl", 1)), int(it.get("item_power", 0))]
 
 func _build_inventory() -> void:
-	var p := Widgets.panel("Inventory", "I / Esc", 760.0, _toggle_inventory, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Inventory", "I / Esc", 760.0, _toggle_inventory, true, {"icon": "inventory", "persist": "inventory", "legacy": "Inventory"})   # phase B: marquee chrome
 	_inv_panel = p["root"]
 	_hud.add_child(_inv_panel)
 	var vb: VBoxContainer = p["body"]
@@ -506,7 +509,7 @@ func _build_inventory() -> void:
 
 # --- character sheet (K): computed base+gear attributes + applied combat finals + item power (P3) ---
 func _build_charsheet() -> void:
-	var p := Widgets.panel("Character", "K / Esc", 440.0, _toggle_charsheet, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Character", "K / Esc", 440.0, _toggle_charsheet, true, {"icon": "character", "persist": "character", "legacy": "Character"})   # phase B: marquee chrome
 	_sheet_panel = p["root"]
 	_hud.add_child(_sheet_panel)
 	var vb: VBoxContainer = p["body"]
@@ -574,7 +577,7 @@ func _render_charsheet() -> void:
 	var bonus: Dictionary = si.get("equip_bonus", {})
 	var fin: Dictionary = si if not si.is_empty() else (pf if pf != null else {})
 	# header card (gold rail): level + item power
-	_sheet_card("", "[color=%s]Level %d[/color]    [color=%s]✦ Item Power %d[/color]" % [
+	_sheet_card("", "[color=%s]Level %d[/color]    [color=%s]Item Power %d[/color]" % [
 		dim, int(si.get("level", 0)), gold, int(si.get("item_power", 0))], Palette.ACCENT)
 	# attributes card
 	var arows := ["[color=%s](base [color=%s]+gear[/color])[/color]" % [dim, gear]]
@@ -622,7 +625,7 @@ func _render_charsheet() -> void:
 				"HEAL": desc = "heal %d HP" % int(round(amt))
 				"HASTE": desc = "+%d%% move speed for %.0fs" % [int(round(amt * 100.0)), float(pr.get("dur", 3.0))]
 				"GUARD": desc = "-%d%% dmg taken for %.0fs" % [int(round(amt * 100.0)), float(pr.get("dur", 3.0))]
-			prows.append("[color=%s]✦ %s[/color] [color=%s](%s)[/color] %s" % [gold, nm, dim, trig, desc])
+			prows.append("[color=%s]• %s[/color] [color=%s](%s)[/color] %s" % [gold, nm, dim, trig, desc])
 		_sheet_card("Procs", "\n".join(prows), Palette.ACCENT)
 
 # ============================================================ Locker Loadout (paperdoll)
@@ -1042,7 +1045,7 @@ func _render_locker_detail() -> void:
 	info.custom_minimum_size = Vector2(290, 0)
 	if equipped != null:
 		var stats := _item_stats_str(equipped)
-		info.text = "[b][color=%s]%s[/color][/b]  [color=%s]★ EQUIPPED[/color]\n[color=%s]%s · %s · i%d · ✦%d[/color]%s" % [
+		info.text = "[b][color=%s]%s[/color][/b]  [color=%s]EQUIPPED[/color]\n[color=%s]%s · %s · i%d · IP %d[/color]%s" % [
 			_item_color_hex(equipped), _esc(str(equipped.get("name", "?"))), Palette.hex(Palette.XP),
 			Palette.hex(Palette.TEXT_FAINT), str(equipped.get("rarity", "")), key, int(equipped.get("ilvl", 1)),
 			int(equipped.get("item_power", 0)), ("\n" + stats if stats != "" else "")]
@@ -1083,7 +1086,13 @@ func _render_locker_detail() -> void:
 			b.clip_text = true
 			b.custom_minimum_size = Vector2(286, 30)
 			b.add_theme_color_override("font_color", _item_color(it))
-			b.text = "%s   ✦%d%s" % [str(it.get("name", "?")), int(it.get("item_power", 0)), ("  ▲" if is_up else "")]
+			b.text = "%s   IP %d" % [str(it.get("name", "?")), int(it.get("item_power", 0))]
+			if is_up:                                 # a strict upgrade over what it would replace → the Upgrade icon
+				b.icon = IconRegistry.texture("upgrade")
+				b.expand_icon = false
+				b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+				b.add_theme_constant_override("icon_max_width", 14)
+				b.add_theme_color_override("icon_normal_color", Palette.SUCCESS)
 			var iid2 := str(it.get("id", ""))
 			var slotk2 := str(it.get("slot", ""))
 			var itc: Dictionary = it                  # per-iteration copy for the hover-tooltip closure
@@ -1116,14 +1125,16 @@ func _item_tooltip_text(it: Dictionary, owned: Array) -> String:
 	var col: String = "#ff9d3c" if uid != "" else RARITY_COLORS.get(rar, "#cfd6df")   # uniques: gold
 	var slot: String = str(it.get("slot", ""))
 	var L := ["[color=%s][b]%s[/b][/color]%s" % [col, _esc(str(it.get("name", "?"))), ("  [color=#ff9d3c]UNIQUE[/color]" if uid != "" else "")]]
-	L.append("[color=#7f8a99]%s · %s · i%d · ✦%d[/color]" % [rar, slot, int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
+	L.append("[color=#7f8a99]%s · %s · i%d · IP %d[/color]" % [rar, slot, int(it.get("ilvl", 1)), int(it.get("item_power", 0))])
+	if bool(it.get("locked", false)):                              # the corner lock badge's readable hover cue (the icon is IGNORE)
+		L.append("[color=#ffb454]Locked — protected from sell / salvage[/color]")
 	var sid := str(it.get("set_id", ""))
 	if sid != "":
 		L.append("[color=#cdbcff]%s set[/color]" % str(GameData.SET_DEFS.get(sid, {}).get("name", sid)))
 	var pidv = it.get("proc_id")                                    # P6: proc description
 	var pid: String = "" if pidv == null else str(pidv)
 	if pid != "":
-		L.append("[color=#ffb454]✦ %s[/color]" % _proc_desc(pid, int(it.get("proc_tier", 0))))
+		L.append("[color=#ffb454]• %s[/color]" % _proc_desc(pid, int(it.get("proc_tier", 0))))
 	var stats := _item_stats_str(it)
 	if stats != "":
 		L.append(stats)
@@ -1228,17 +1239,25 @@ func _recount_gear() -> void:
 	_update_cap_warning()
 
 func _update_cap_warning() -> void:
-	if _cap_warn == null:
+	if _cap_row == null:
 		return
 	var cap := 50 + _my_gear_bag()               # P5: paragon gear-bag milestones raise the real cap (server trigger matches)
 	if _gear_count >= cap:
-		_cap_warn.text = "⚠  INVENTORY FULL  ·  %d / %d\nnew gear won't drop — sell items to make room" % [cap, cap]
-		_cap_warn.visible = true
+		_set_cap_icon("inventory_full")          # capacity exhausted → the suitcase-with-X
+		_cap_warn.text = "INVENTORY FULL  ·  %d / %d\nnew gear won't drop — sell items to make room" % [cap, cap]
+		_cap_row.visible = true
 	elif _gear_count >= cap - 5:
-		_cap_warn.text = "⚠  BAG NEARLY FULL  ·  %d / %d\nsell items — new gear stops dropping at %d" % [_gear_count, cap, cap]
-		_cap_warn.visible = true
+		_set_cap_icon("warning")                 # nearly full → a warning, NOT the full-state X
+		_cap_warn.text = "BAG NEARLY FULL  ·  %d / %d\nsell items — new gear stops dropping at %d" % [_gear_count, cap, cap]
+		_cap_row.visible = true
 	else:
-		_cap_warn.visible = false
+		_cap_row.visible = false
+
+func _set_cap_icon(icon_id: String) -> void:
+	if _cap_icon == null:
+		return
+	_cap_icon.texture = IconRegistry.texture(icon_id)
+	_cap_icon.modulate = IconRegistry.color(icon_id)
 
 # one-time after login: fetch the inventory so _gear_count (and the instant-open cache) is right immediately
 func _seed_gear_count() -> void:
@@ -1302,7 +1321,7 @@ func _render_inv_tiles() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_inv_controls.add_child(spacer)
-	var best := _ctrl_btn("⚡ Equip Best", Palette.ACCENT, _equip_best)
+	var best := IconWidget.icon_button("power_action", "Equip Best", Palette.ACCENT, _equip_best)
 	best.disabled = _equip_best_busy
 	_inv_controls.add_child(best)
 	if _inv_sort_mode == "build":                      # Builder Mode: furniture/props ONLY (gear tabs exclude these)
@@ -1416,11 +1435,11 @@ func _equip_best() -> void:
 		return
 	_equip_best_busy = true
 	for ch in _inv_controls.get_children():       # disable the button while running
-		if ch is Button and (ch as Button).text == "⚡ Equip Best":
+		if ch is Button and (ch as Button).text == "Equip Best":
 			(ch as Button).disabled = true
 	for i in actions.size():
 		var a = actions[i]
-		_inv_status.text = "⚡ equipping best gear…  (%d/%d)" % [i + 1, actions.size()]
+		_inv_status.text = "equipping best gear…  (%d/%d)" % [i + 1, actions.size()]
 		var seq := _inv_change_seq
 		if net != null and _connected:
 			net.equip.rpc_id(1, str(a["id"]), str(a["slot"]))
@@ -1550,14 +1569,28 @@ func _inv_tile(it: Dictionary) -> Button:
 	b.clip_text = true
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	var col := _item_color(it)
-	var prefix := ""
+	# state icons: Equipped / Upgrade ride the native Button.icon (left of the name); the Locked flag
+	# is an INDEPENDENT top-right corner badge, so both can show at once (handoff §7).
+	var state_icon := ""
+	var state_col := col
 	if bool(it.get("equipped", false)):
-		prefix += "★ "
-	elif _is_upgrade(it):                        # a bag item that beats what it'd replace → at-a-glance ▲
-		prefix += "▲ "
+		state_icon = "equipped"
+		state_col = Palette.SUCCESS
+	elif _is_upgrade(it):                        # a bag item that beats what it'd replace → at-a-glance
+		state_icon = "upgrade"
+		state_col = Palette.SUCCESS
+	if state_icon != "":
+		b.icon = IconRegistry.texture(state_icon)
+		b.expand_icon = false
+		b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		b.add_theme_constant_override("icon_max_width", 16)
+		b.add_theme_color_override("icon_normal_color", state_col)
+		b.add_theme_color_override("icon_hover_color", state_col.lightened(0.2))
+	b.text = str(it.get("name", "?"))
 	if bool(it.get("locked", false)):
-		prefix += "🔒 "
-	b.text = prefix + str(it.get("name", "?"))
+		var lk := IconWidget.make("locked", {"px": 13, "color": Palette.SB_ORANGE})   # decorative badge; lock cue is in the tile tooltip
+		b.add_child(lk)
+		lk.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_KEEP_SIZE, 3)
 	# common items were near-white on grey (low contrast) — lift the common tier to bright text
 	var txt: Color = Palette.TEXT_BRIGHT if str(it.get("rarity", "common")) == "common" else col
 	b.add_theme_color_override("font_color", txt)
@@ -1699,8 +1732,8 @@ func recv_quest_update(quest_id: String, progress: int, completed: bool) -> void
 
 # the single choke point for quest/circuit/drill/cosmetic notifications. P4: fires a top-right toast
 # AND keeps the chat-log append (scrollback history — the line already carries its own inline colors).
-func _quest_toast(line: String) -> void:
-	_toast(line, Palette.ACCENT)
+func _quest_toast(line: String, icon := "") -> void:
+	_toast(line, Palette.ACCENT, false, icon)
 	_chat_lines.append(line)
 	if _chat_lines.size() > 9:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
@@ -1722,9 +1755,9 @@ func recv_bounty_update(bounty_id: String, progress: int, claimed: bool) -> void
 				b["claimed"] = claimed
 				break
 	if claimed:
-		_quest_toast("[color=#ffd24d]✦ Bounty claimed![/color]")
+		_quest_toast("[color=#ffd24d]Bounty claimed![/color]", "bounty")
 	elif progress > 0:
-		_quest_toast("[color=#9fe8a0]✦ Bounty complete —[/color] ready to claim [color=#7f93a8](see the Quest Giver)[/color]")
+		_quest_toast("[color=#9fe8a0]Bounty complete —[/color] ready to claim [color=#7f93a8](see the Quest Giver)[/color]", "bounty")
 	if _qgiver_panel != null and _qgiver_panel.visible:
 		_render_qgiver()
 	if _quest_panel != null and _quest_panel.visible:
@@ -1828,7 +1861,7 @@ func _quest_tracker_preview(on: bool) -> void:
 	_update_quest_tracker()
 
 func _build_questlog() -> void:
-	var p := Widgets.panel("Quest Journal", "J / Esc", 560.0, _toggle_questlog, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Quest Journal", "J / Esc", 560.0, _toggle_questlog, true, {"icon": "quest", "persist": "quest_journal", "legacy": "Quest Journal"})   # phase B: marquee chrome
 	_quest_panel = p["root"]
 	_hud.add_child(_quest_panel)
 	var vb: VBoxContainer = p["body"]
@@ -1908,7 +1941,7 @@ func _render_questlog() -> void:
 				avail.append("[b][color=%s]%s[/color][/b]\n[color=%s]%s[/color]  [color=%s](reward: %s)[/color]" % [body, nm, dim, desc, faint, _reward_text(q)])
 			else:
 				var reason: String = ("needs lvl %d" % minl) if lvl < minl else ("requires: %s" % _esc(_prereq_name(prereq)))
-				locked.append("[color=%s]🔒 %s  (%s)[/color]" % [faint, nm, reason])
+				locked.append("[color=%s]%s  (%s)[/color]" % [faint, nm, reason])
 	_quest_rows.add_child(_qg_info("[color=%s]Accept & turn in quests at the [color=%s]Quest Giver[/color] in the Home Base (press E near it).[/color]" % [dim, Palette.hex(Palette.ACCENT)]))
 	var teaser := _secret_teaser()
 	if teaser != "":
@@ -1942,17 +1975,17 @@ func _secret_teaser() -> String:
 	if total == 0:
 		return ""
 	if ndone >= total and _has_key():
-		return "\n[color=#ffd24d]✦ The Final Lesson is open — seek what waits past the Head Coach Arena.[/color]"
-	var key_txt: String = "[color=#9fe8a0]🔑 Master Key forged[/color]" if _has_key() else "[color=#7f93a8]🔑 forge the Master Key (Camp Circuit)[/color]"
-	return "\n[color=#8a7fb0]✦ A hidden challenge stirs —[/color] [color=#cdbcff]%d/%d quests done[/color] · %s" % [ndone, total, key_txt]
+		return "\n[color=#ffd24d]• The Final Lesson is open — seek what waits past the Head Coach Arena.[/color]"
+	var key_txt: String = "[color=#9fe8a0]Master Key forged[/color]" if _has_key() else "[color=#7f93a8]forge the Master Key (Camp Circuit)[/color]"
+	return "\n[color=#8a7fb0]• A hidden challenge stirs —[/color] [color=#cdbcff]%d/%d quests done[/color] · %s" % [ndone, total, key_txt]
 
 func _reward_text(q: Dictionary) -> String:
 	var rw: Dictionary = q.get("rewards", {})
 	var parts := []
 	if int(rw.get("xp", 0)) > 0:
-		parts.append("[color=#9fe8a0]✦ %d XP[/color]" % int(rw["xp"]))
+		parts.append("[color=#9fe8a0]%d XP[/color]" % int(rw["xp"]))
 	if int(rw.get("credits", 0)) > 0:
-		parts.append("[color=#ffd24d]◈ %d[/color]" % int(rw["credits"]))
+		parts.append("[color=#ffd24d]%d credits[/color]" % int(rw["credits"]))
 	if int(rw.get("tokens", 0)) > 0:                       # P6a: Practice Tokens
 		parts.append("[color=#8ad6ff]%d Tokens[/color]" % int(rw["tokens"]))
 	if int(rw.get("pages", 0)) > 0:                        # P6a: Playbook Pages (attunement)
@@ -1979,7 +2012,7 @@ func _on_quest_meta(meta) -> void:
 
 # ---- quest giver (home-base NPC: the ONLY place to accept / turn in; J is a read-only journal) ----
 func _build_qgiver_dialog() -> void:
-	var p := Widgets.panel("📜 Quest Giver", "E / Esc", 560.0, _toggle_qgiver, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Quest Giver", "E / Esc", 560.0, _toggle_qgiver, true, {"icon": "quest_giver", "persist": "quest_giver", "legacy": "📜 Quest Giver"})   # phase B: marquee chrome
 	_qgiver_panel = p["root"]
 	_hud.add_child(_qgiver_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2189,7 +2222,7 @@ func _render_questgiver_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_qgiver_root.add_child(pillar)
-	_qgiver_root.add_child(WorldUI.pad_label("📜 Quest Giver",
+	_qgiver_root.add_child(WorldUI.pad_marker("quest_giver", "Quest Giver",
 		Color(0.72, 0.85, 1.0), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_questgiver_proximity() -> void:
@@ -2208,7 +2241,7 @@ func _update_questgiver_proximity() -> void:
 
 # ---- settings (audio volumes + mute; persisted by AudioManager to user://settings.cfg) ----
 func _build_settings() -> void:
-	var p := Widgets.panel("Settings", "O / Esc", 400.0, _toggle_settings)
+	var p := Widgets.panel("Settings", "O / Esc", 400.0, _toggle_settings, false, {"icon": "settings", "persist": "settings", "legacy": "Settings"})
 	_settings_panel = p["root"]
 	_hud.add_child(_settings_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2345,7 +2378,7 @@ const CONTROLS := [
 var _controls_panel: Control = null
 
 func _build_controls() -> void:
-	var p := Widgets.panel("Controls", "Esc", 460.0, _toggle_controls)
+	var p := Widgets.panel("Controls", "Esc", 460.0, _toggle_controls, false, {"icon": "controls", "persist": "controls", "legacy": "Controls"})
 	_controls_panel = p["root"]
 	_hud.add_child(_controls_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2451,7 +2484,7 @@ func recv_build_info(info: Dictionary) -> void:
 	_build_info = info
 
 func _build_shop() -> void:
-	var p := Widgets.panel("Shop", "B / Esc", 1010.0, _toggle_shop, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Shop", "B / Esc", 1010.0, _toggle_shop, true, {"icon": "shop", "persist": "shop", "legacy": "Shop"})   # phase B: marquee chrome
 	_shop_panel = p["root"]
 	_hud.add_child(_shop_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2546,10 +2579,11 @@ func recv_vendor_info(info: Dictionary) -> void:
 
 # P0 pattern-proof: the first panel migrated onto the Widgets scaffold + Palette tokens.
 func _build_vendor() -> void:
-	var p := Widgets.panel("◈ Practice Vendor — Rookie Camp Set", "V / Esc", 580.0, _toggle_vendor, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Practice Vendor", "V / Esc", 580.0, _toggle_vendor, true, {"icon": "practice_vendor", "persist": "practice_vendor", "legacy": "◈ Practice Vendor — Rookie Camp Set"})   # phase B: marquee chrome
 	_vendor_panel = p["root"]
 	_hud.add_child(_vendor_panel)
 	var vb: VBoxContainer = p["body"]
+	vb.add_child(Widgets.section("ROOKIE CAMP SET"))   # subtitle moved out of the window title (handoff §6)
 	_vendor_status = Widgets.status(Palette.TOKENS)
 	vb.add_child(_vendor_status)
 	vb.add_child(Widgets.hint("Earn Practice Tokens from Glitchyard kills + quest turn-ins. Equip 2 / 4 EPIC pieces for the set bonus (+END)."))
@@ -2622,10 +2656,11 @@ func _camp_portal() -> Variant:                  # find the Camp ENTRY portal (o
 	return null
 
 func _build_camp() -> void:
-	var p := Widgets.panel("⚔ Camp Circuit — Select Intensity", "C / Esc", 560.0, _toggle_camp, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Camp Circuit", "C / Esc", 560.0, _toggle_camp, true, {"icon": "camp_circuit", "persist": "camp_circuit", "legacy": "⚔ Camp Circuit — Select Intensity"})   # phase B: marquee chrome
 	_camp_panel = p["root"]
 	_hud.add_child(_camp_panel)
 	var vb: VBoxContainer = p["body"]
+	vb.add_child(Widgets.section("SELECT INTENSITY"))   # subtitle moved out of the window title (handoff §6)
 	_camp_status = Widgets.status(Palette.ACCENT)
 	vb.add_child(_camp_status)
 	vb.add_child(Widgets.hint("Higher Intensity = tougher mobs but better loot (ilvl / rarity / drops) + more XP & credits. Clear the gatekeeper at your top tier to unlock the next."))
@@ -2680,20 +2715,16 @@ func _render_camp() -> void:
 	var prow := HBoxContainer.new()
 	prow.add_theme_constant_override("separation", 10)
 	var plbl := Label.new()
-	plbl.text = "◈ Playbook Pages:  %d / %d" % [_my_pages(), _key_cost()]
+	plbl.text = "Playbook Pages:  %d / %d" % [_my_pages(), _key_cost()]
 	plbl.add_theme_color_override("font_color", Palette.TOKENS)
 	plbl.custom_minimum_size = Vector2(360, 0)
 	prow.add_child(plbl)
 	if _has_key():
-		var done := Label.new()
-		done.text = "🔑 Master Key forged"
-		done.add_theme_color_override("font_color", Palette.ACCENT)
-		prow.add_child(done)
+		prow.add_child(IconWidget.row("attunement_key", "Master Key forged",
+			{"px": 18, "color": Palette.ACCENT, "text_color": Palette.ACCENT}))
 	else:
-		var kbtn := Button.new()
-		kbtn.text = "🔑 Forge Master Key"
+		var kbtn := IconWidget.icon_button("attunement_key", "Forge Master Key", Palette.TEXT_BRIGHT, _on_craft_key)
 		kbtn.disabled = _my_pages() < _key_cost()
-		kbtn.pressed.connect(_on_craft_key)
 		prow.add_child(kbtn)
 	_camp_rows.add_child(prow)
 	var khint := Label.new()
@@ -2726,10 +2757,13 @@ func _render_camp() -> void:
 		albl.add_theme_color_override("font_color", Palette.TEXT_DIM)
 		arow.add_child(albl)
 		var already := (str(ad.get("type", "")) == "affix" and str(pend.get("affix", "")) == str(ad.get("affix", ""))) or (str(ad.get("type", "")) == "bonus" and bool(pend.get("bonus", false)))
-		var abtn := Button.new()
-		abtn.text = "✓ Queued" if already else "◈ %d" % int(ad["cost"])
+		var abtn: Button
+		if already:
+			abtn = _tile_btn("✓ Queued", Palette.SUCCESS, false, Callable())   # ✓ stays code-native
+		else:                                                                  # cost is in Playbook Pages, not credits
+			abtn = IconWidget.icon_button("playbook_pages", "%d" % int(ad["cost"]), Palette.TEXT_BRIGHT,
+				_on_buy_audible.bind(str(aid)), {"px": 16, "icon_color": Palette.LAVENDER})
 		abtn.disabled = already or _my_pages() < int(ad["cost"])
-		abtn.pressed.connect(_on_buy_audible.bind(str(aid)))
 		arow.add_child(abtn)
 		_camp_rows.add_child(arow)
 
@@ -2749,7 +2783,7 @@ func recv_audible(pending: Dictionary, pages: int) -> void:
 		me["pages"] = pages
 		_meta["self"] = me
 		_state["self"] = me
-	_quest_toast("[color=#8ad6ff]📋 Audible queued for your next Camp run.[/color]")
+	_quest_toast("[color=#8ad6ff]Audible queued for your next Camp run.[/color]", "objectives")
 	if _camp_panel != null and _camp_panel.visible:
 		_render_camp()
 
@@ -2766,16 +2800,16 @@ func _on_craft_key() -> void:
 # server → client: a Circuit run completed (bonus loot already granted server-side; announce + unlock)
 func recv_circuit_clear(intensity: int, max_intensity: int) -> void:
 	_show_banner("Victory", "Circuit Clear", "Intensity %d" % intensity)   # P8 hero banner
-	_quest_toast("[color=#ffd24d]⚔ Circuit Cleared — Intensity %d![/color]  Bonus loot + Pages awarded." % intensity)
+	_quest_toast("[color=#ffd24d]Circuit Cleared — Intensity %d![/color]  Bonus loot + Pages awarded." % intensity, "camp_circuit")
 	if max_intensity > intensity:
-		_quest_toast("[color=#9fe8a0]★ Intensity %d unlocked![/color]" % max_intensity)
+		_quest_toast("[color=#9fe8a0]Intensity %d unlocked![/color]" % max_intensity, "unlocked")
 	if _camp_panel != null and _camp_panel.visible:
 		_render_camp()                            # refresh the Pages counter live
 
 # server → client: the Master Key was forged
 func recv_key_crafted(ok: bool) -> void:
 	if ok:
-		_quest_toast("[color=#ffd24d]🔑 Master Key forged![/color]  The Final Lesson awaits past the Head Coach Arena.")
+		_quest_toast("[color=#ffd24d]Master Key forged![/color]  The Final Lesson awaits past the Head Coach Arena.", "attunement_key")
 	if _camp_panel != null and _camp_panel.visible:
 		_render_camp()
 
@@ -2788,10 +2822,11 @@ func _my_credits_val() -> int:
 	return int(_state.get("self", {}).get("credits", _my_credits()))
 
 func _build_wardrobe() -> void:
-	var p := Widgets.panel("🎨 Wardrobe — Dyes", "G / Esc", 600.0, _toggle_wardrobe, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Wardrobe", "G / Esc", 600.0, _toggle_wardrobe, true, {"icon": "wardrobe", "persist": "wardrobe", "legacy": "🎨 Wardrobe — Dyes"})   # phase B: marquee chrome
 	_wardrobe_panel = p["root"]
 	_hud.add_child(_wardrobe_panel)
 	var vb: VBoxContainer = p["body"]
+	vb.add_child(Widgets.section("DYES"))   # subtitle moved out of the window title (handoff §6)
 	_wardrobe_status = Widgets.status(Palette.ACCENT)
 	vb.add_child(_wardrobe_status)
 	vb.add_child(Widgets.hint("Cosmetic only — a colored wash on your character. Buy with credits (earned from kills / selling), then equip. Purely for style."))
@@ -2813,7 +2848,7 @@ func _render_wardrobe() -> void:
 		return
 	var owned := _my_cos_owned()
 	var equipped := _my_cos_dye()
-	_wardrobe_status.text = "Credits:  ◈ %d       Equipped:  %s" % [_my_credits_val(), (str(GameData.DYE_CATALOG.get(equipped, {}).get("name", "—")) if equipped != "" else "Default")]
+	_wardrobe_status.text = "Credits:  %d       Equipped:  %s" % [_my_credits_val(), (str(GameData.DYE_CATALOG.get(equipped, {}).get("name", "—")) if equipped != "" else "Default")]
 	for c in _wardrobe_rows.get_children():
 		c.queue_free()
 	# a "Default (no dye)" row first
@@ -2824,7 +2859,7 @@ func _render_wardrobe() -> void:
 	for oid in owned:                                # P7d: grant-only cosmetics (the Season Champion tint) aren't in DYE_IDS → an Equip-only row (owned never hits the Buy branch, so no missing-price crash)
 		if not (str(oid) in GameData.DYE_IDS) and GameData.DYE_CATALOG.has(str(oid)):
 			var sd: Dictionary = GameData.DYE_CATALOG[str(oid)]
-			_wardrobe_rows.add_child(_dye_row(str(oid), "🏆 " + str(sd.get("name", oid)), str(sd.get("color", "#ffffff")), owned, equipped))
+			_wardrobe_rows.add_child(_dye_row(str(oid), str(sd.get("name", oid)), str(sd.get("color", "#ffffff")), owned, equipped))
 
 func _dye_row(id: String, dye_name: String, color_hex: String, owned: Array, equipped: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -2854,10 +2889,9 @@ func _dye_row(id: String, dye_name: String, color_hex: String, owned: Array, equ
 		row.add_child(btn)
 	else:
 		var price := int(GameData.DYE_CATALOG[id]["price"])
-		var btn := Button.new()
-		btn.text = "Buy  ◈ %d" % price
+		var btn := IconWidget.icon_button("credits", "Buy  %d" % price, Palette.TEXT_BRIGHT,
+			_on_buy_dye.bind(id), {"px": 16, "icon_color": Palette.CREDITS})
 		btn.disabled = _my_credits_val() < price
-		btn.pressed.connect(_on_buy_dye.bind(id))
 		row.add_child(btn)
 	return row
 
@@ -2882,7 +2916,7 @@ func recv_cosmetics_changed(owned: Array, equipped: String) -> void:
 		_state["self"] = me
 	if _wardrobe_panel != null and _wardrobe_panel.visible:
 		_render_wardrobe()
-	_quest_toast("[color=#8ad6ff]🎨 Wardrobe updated.[/color]")
+	_quest_toast("[color=#8ad6ff]Wardrobe updated.[/color]", "wardrobe")
 
 # ---- Talent trees (gameplay-length P4): spend 1 point/level into a class-symmetric 3-branch stat tree ----
 const _TALENT_STAT_LABEL := {
@@ -2902,7 +2936,7 @@ func _my_talent_avail() -> int:   # derived from level + spent (never trust a st
 	return GameData.talent_points_available(_my_level_val(), _my_talent_spent())
 
 func _build_talents() -> void:
-	var p := Widgets.panel("🌳 Talents", "T / Esc", 600.0, _toggle_talents, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Talents", "T / Esc", 600.0, _toggle_talents, true, {"icon": "talents", "persist": "talents", "legacy": "🌳 Talents"})   # phase B: marquee chrome
 	_talent_panel = p["root"]
 	_hud.add_child(_talent_panel)
 	var vb: VBoxContainer = p["body"]
@@ -2932,7 +2966,7 @@ func _render_talents() -> void:
 	var avail := _my_talent_avail()
 	var flavor: Dictionary = GameData.TALENT_FLAVOR[cls]
 	var credits := _my_credits_val()
-	_talent_status.text = "%s   —   %d point%s available   (Lv %d · %d spent)   ◈ %d" % [
+	_talent_status.text = "%s   —   %d point%s available   (Lv %d · %d spent)   %d credits" % [
 		str(flavor.get("tree", "Talents")), avail, ("" if avail == 1 else "s"), _my_level_val(), _my_talent_spent(), credits]
 	for c in _talent_rows.get_children():
 		c.queue_free()
@@ -2945,10 +2979,9 @@ func _render_talents() -> void:
 	_talent_rows.add_child(HSeparator.new())
 	var rrow := HBoxContainer.new()
 	rrow.add_theme_constant_override("separation", 10)
-	var rbtn := Button.new()
-	rbtn.text = "Respec all  ◈ %d" % GameData.TALENT_RESPEC_CREDITS
+	var rbtn := IconWidget.icon_button("credits", "Respec all  %d" % GameData.TALENT_RESPEC_CREDITS,
+		Palette.TEXT_BRIGHT, _on_respec_talents, {"px": 16, "icon_color": Palette.CREDITS})
 	rbtn.disabled = _my_talent_spent() <= 0 or credits < GameData.TALENT_RESPEC_CREDITS
-	rbtn.pressed.connect(_on_respec_talents)
 	rrow.add_child(rbtn)
 	var rhint := Label.new()
 	rhint.text = "Refund every point to re-spend."
@@ -2967,7 +3000,7 @@ func _talent_row(cls: String, br: String, n: Dictionary, bflavor: Dictionary, ta
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	var nm := Label.new()
-	nm.text = "%s %s" % [str(bflavor.get(str(n["slot"]), stat)), ("★" if n.get("capstone", false) else "")]
+	nm.text = "%s%s" % [str(bflavor.get(str(n["slot"]), stat)), ("  (capstone)" if n.get("capstone", false) else "")]
 	nm.custom_minimum_size = Vector2(150, 0)
 	nm.add_theme_color_override("font_color", Palette.TEXT_BRIGHT if cur > 0 else Palette.TEXT)
 	row.add_child(nm)
@@ -2984,7 +3017,7 @@ func _talent_row(cls: String, br: String, n: Dictionary, bflavor: Dictionary, ta
 	row.add_child(desc)
 	if invested < req:                              # branch prerequisite not met
 		var lock := Label.new()
-		lock.text = "🔒 needs %d" % req
+		lock.text = "needs %d" % req
 		lock.add_theme_color_override("font_color", Palette.TEXT_FAINT)
 		row.add_child(lock)
 	elif cur >= nmax:
@@ -3028,7 +3061,7 @@ func recv_talent_point(level: int) -> void:
 		me["level"] = level
 		_meta["self"] = me
 		_state["self"] = me
-	_quest_toast("[color=#9fe8a0]🌳 Talent point earned (Lv %d)![/color]  Press [b]T[/b] to spend it." % level)
+	_quest_toast("[color=#9fe8a0]Talent point earned (Lv %d)![/color]  Press [b]T[/b] to spend it." % level, "talents")
 	if _talent_panel != null and _talent_panel.visible:
 		_render_talents()
 
@@ -3055,10 +3088,11 @@ func _paragon_dirty() -> bool:
 	return false
 
 func _build_paragon() -> void:
-	var p := Widgets.panel("⭐ Paragon — Bench Board", "B / Esc", 640.0, _toggle_paragon, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Paragon", "B / Esc", 640.0, _toggle_paragon, true, {"icon": "paragon", "persist": "paragon", "legacy": "⭐ Paragon — Bench Board"})   # phase B: marquee chrome
 	_paragon_panel = p["root"]
 	_hud.add_child(_paragon_panel)
 	var vb: VBoxContainer = p["body"]
+	vb.add_child(Widgets.section("BENCH BOARD"))   # subtitle moved out of the window title (handoff §6)
 	_paragon_status = Widgets.status(Palette.ACCENT2)
 	vb.add_child(_paragon_status)
 	vb.add_child(Widgets.hint("Past level 30, XP becomes Overtime — 1 Bench Board point per Paragon level. Pure quality-of-life (more loot / credits / Pages / scrap / tokens), never combat power. Reallocate freely, then Apply. Every 5 Paragon levels also grants +2 gear-inventory slots."))
@@ -3193,7 +3227,7 @@ func recv_paragon(perks: Dictionary, spent: int) -> void:
 		_meta["self"] = me
 		_state["self"] = me
 	_paragon_draft = perks.duplicate()            # re-sync the draft to what actually applied
-	_quest_toast("[color=#8ad6ff]⭐ Bench Board updated.[/color]")
+	_quest_toast("[color=#8ad6ff]Bench Board updated.[/color]", "paragon")
 	if _paragon_panel != null and _paragon_panel.visible:
 		_render_paragon()
 
@@ -3205,7 +3239,7 @@ func recv_paragon_level(level: int, available: int, bag_bonus: int) -> void:
 		_meta["self"] = me
 		_state["self"] = me
 	if available > 0:
-		_quest_toast("[color=#ffd24d]⭐ Paragon %d![/color]  A Bench Board point is ready — press [b]B[/b]." % level)
+		_quest_toast("[color=#ffd24d]Paragon %d![/color]  A Bench Board point is ready — press [b]B[/b]." % level, "paragon")
 	if _paragon_panel != null and _paragon_panel.visible:
 		_render_paragon()
 
@@ -3215,7 +3249,7 @@ const LB_CLEAR_CAP_MS := 3600000                 # P7d: MUST equal server CLEAR_
 const LB_TIME_CATS := ["circuit_time", "boss_time"]              # rendered as time, not a raw number
 const LB_SEASONAL_CATS := ["drill", "circuit_time", "boss_time"] # show the season + reset countdown (gear/intensity are all-time)
 func _build_leaderboard() -> void:
-	var p := Widgets.panel("🏆 Leaderboards", "L / Esc", 560.0, _toggle_leaderboard, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Leaderboards", "L / Esc", 560.0, _toggle_leaderboard, true, {"icon": "leaderboards", "persist": "leaderboards", "legacy": "🏆 Leaderboards"})   # phase B: marquee chrome
 	_lb_panel = p["root"]
 	_hud.add_child(_lb_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3299,19 +3333,26 @@ func _render_leaderboard() -> void:
 
 func recv_drill_end(wave: int) -> void:
 	_show_banner("Drill Complete", "Wave %d" % wave, "score submitted")    # P8 hero banner
-	_quest_toast("[color=#ffd24d]⏱ Two-Minute Drill — reached WAVE %d![/color]  Score submitted to the leaderboard." % wave)
+	_quest_toast("[color=#ffd24d]Two-Minute Drill — reached WAVE %d![/color]  Score submitted to the leaderboard." % wave, "two_minute_drill")
 
 # a big centered wave counter while inside the Drill (driven by the snapshot's drillWave)
 func _update_drill_banner() -> void:
 	if _drill_banner == null:
-		_drill_banner = Label.new()
-		_drill_banner.add_theme_font_size_override("font_size", 26)
-		_drill_banner.modulate = Color(1.0, 0.7, 0.25)
-		_drill_banner.visible = false
+		var row := HBoxContainer.new()               # structural: two_minute_drill icon + wave Label (§8)
+		row.add_theme_constant_override("separation", 8)
+		row.visible = false
+		var ic := IconWidget.make("two_minute_drill", {"px": 26, "color": Color(1.0, 0.7, 0.25)})
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(ic)
+		_drill_banner_lbl = Label.new()
+		_drill_banner_lbl.add_theme_font_size_override("font_size", 26)
+		_drill_banner_lbl.add_theme_color_override("font_color", Color(1.0, 0.7, 0.25))
+		row.add_child(_drill_banner_lbl)
+		_drill_banner = row
 		_hud.add_child(_drill_banner)
 	if str(_state.get("map", "")) == World.DRILL and _state.has("drillWave"):   # gate on the DRILL map, not just the
 		var vp: Vector2 = _hud.get_viewport().get_visible_rect().size           # cached META key (stale-safe across zones)
-		_drill_banner.text = "⏱  TWO-MINUTE DRILL  ·  WAVE %d" % int(_state["drillWave"])
+		_drill_banner_lbl.text = "TWO-MINUTE DRILL  ·  WAVE %d" % int(_state["drillWave"])
 		_drill_banner.position = Vector2(vp.x / 2.0 - 200.0, 24.0)
 		_drill_banner.visible = true
 		if _zone_banner != null:                  # the drill banner already names the zone top-center —
@@ -3368,7 +3409,7 @@ func _reforge_scrap_cost(rarity: String, rc: int) -> int:     # MUST match Serve
 
 # --- Forge panel (F at the forge pad): spend credits + scrap to upgrade gear (P4) ---
 func _build_forge() -> void:
-	var p := Widgets.panel("Forge", "F / Esc", 680.0, _toggle_forge, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Forge", "F / Esc", 680.0, _toggle_forge, true, {"icon": "forge", "persist": "forge", "legacy": "Forge"})   # phase B: marquee chrome
 	_forge_panel = p["root"]
 	_hud.add_child(_forge_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3437,7 +3478,7 @@ func _render_forge() -> void:
 	if _tooltip != null: _tooltip.visible = false
 	for ch in _forge_grid.get_children(): ch.queue_free()
 	for ch in _forge_craft_grid.get_children(): ch.queue_free()
-	_forge_status.text = "%d scrap   ◈ %d        Upgrade raises an item's stat cap (toward the 60/stat ceiling) + its Item Power." % [_my_scrap(), _my_credits()]
+	_forge_status.text = "%d scrap   %d credits        Upgrade raises an item's stat cap (toward the 60/stat ceiling) + its Item Power." % [_my_scrap(), _my_credits()]
 	var view := _forge_items.duplicate()                       # equipped first, then by item power
 	view.sort_custom(func(a, b):
 		var ae := 1 if bool(a.get("equipped", false)) else 0
@@ -3452,7 +3493,7 @@ func _render_forge() -> void:
 		var rar: String = str(it.get("rarity", "common"))
 		var lvl: int = int(it.get("upgrade_level", 0))
 		var rc: int = int(it.get("reforge_count", 0))
-		var eq: String = " [color=#ffd24d]★[/color]" if bool(it.get("equipped", false)) else ""
+		var eq: String = "  [color=#ffd24d](equipped)[/color]" if bool(it.get("equipped", false)) else ""
 		var lvtxt: String = " [color=#c9a36a]+%d[/color]" % lvl if lvl > 0 else ""
 		# cost line (kept verbatim from the old text UI: Upgrade →+N cost, Reforge cost)
 		var costline := ""
@@ -3463,15 +3504,15 @@ func _render_forge() -> void:
 			var cc: int = _upgrade_credit_cost(rar, lvl)
 			var ucost: int = _upgrade_scrap_cost(rar, lvl)
 			can_up = _my_credits() >= cc and _my_scrap() >= ucost
-			costline = "[color=%s]Upgrade →+%d: ◈%d +%dsc[/color]" % ["#9fe8a0" if can_up else "#ff8a8a", lvl + 1, cc, ucost]
+			costline = "[color=%s]Upgrade →+%d: %d credits +%dsc[/color]" % ["#9fe8a0" if can_up else "#ff8a8a", lvl + 1, cc, ucost]
 		var has_rf := int(RARITY_RANK.get(rar, 0)) >= 1          # uncommon+ has affixes to reroll
 		var can_rf := false
 		if has_rf:
 			var rcc: int = _reforge_credit_cost(rar, rc)
 			var rsc: int = _reforge_scrap_cost(rar, rc)
 			can_rf = _my_credits() >= rcc and _my_scrap() >= rsc
-			costline += "    [color=%s]Reforge: ◈%d +%dsc[/color]" % ["#cdbcff" if can_rf else "#ff8a8a", rcc, rsc]
-		var header := "[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · ✦%d)[/color]\n%s" % [
+			costline += "    [color=%s]Reforge: %d credits +%dsc[/color]" % ["#cdbcff" if can_rf else "#ff8a8a", rcc, rsc]
+		var header := "[color=%s]%s[/color]%s%s [color=#7f8a99](%s · i%d · IP %d)[/color]\n%s" % [
 			_item_color_hex(it), _esc(str(it.get("name", "?"))), eq, lvtxt,
 			str(it.get("slot", "")), int(it.get("ilvl", 1)), int(it.get("item_power", 0)), costline]
 		var row := HBoxContainer.new()
@@ -3503,7 +3544,7 @@ func _render_shop_buy() -> void:
 		return
 	if _tooltip != null: _tooltip.visible = false
 	if _shop_buy_status != null:
-		_shop_buy_status.text = "BUY    ◈ %d" % _my_credits()
+		_shop_buy_status.text = "BUY    %d credits" % _my_credits()
 	for ch in _shop_buy_grid.get_children(): ch.queue_free()
 	for ch in _shop_roll_row.get_children(): ch.queue_free()
 	var cat: Array = _shop_info.get("catalog", [])
@@ -3515,7 +3556,7 @@ func _render_shop_buy() -> void:
 		var price: int = int(e.get("price", 0))
 		var pcol: String = "#ffd24d" if _my_credits() >= price else "#ff8a8a"
 		var stats := _item_stats_str(e)
-		var header := "[color=%s]%s[/color] [color=#7f8a99](%s · %s)[/color]\n%s%s[color=%s]◈ %d[/color]" % [
+		var header := "[color=%s]%s[/color] [color=#7f8a99](%s · %s)[/color]\n%s%s[color=%s]%d credits[/color]" % [
 			RARITY_COLORS.get(rr, "#cfd6df"), _esc(str(e.get("name", ""))), rr, slot,
 			stats, ("   " if stats != "" else ""), pcol, price]
 		_shop_buy_grid.add_child(_grid_tile(Color.html(RARITY_COLORS.get(rr, "#cfd6df")), header, e, _sell_items, null,
@@ -3525,10 +3566,11 @@ func _render_shop_buy() -> void:
 	for rar in ["common", "uncommon", "rare", "epic"]:
 		if roll.has(rar):
 			var rprice: int = int(roll[rar])
-			_shop_roll_row.add_child(_tile_btn("Roll %s  ◈%d" % [rar.capitalize(), rprice],
-				Color.html(RARITY_COLORS.get(rar, "#cfd6df")), _my_credits() >= rprice,
+			_shop_roll_row.add_child(IconWidget.icon_button("credits", "Roll %s  %d" % [rar.capitalize(), rprice],
+				Color.html(RARITY_COLORS.get(rar, "#cfd6df")),
 				func() -> void:
-					if net != null and _connected: net.shop_roll.rpc_id(1, rar)))
+					if net != null and _connected: net.shop_roll.rpc_id(1, rar),
+				{"px": 16, "icon_color": Palette.CREDITS, "disabled": _my_credits() < rprice}))
 
 func _load_shop_sell() -> void:
 	if _shop_sell_grid == null or supa == null:
@@ -3563,7 +3605,7 @@ func _load_shop_sell() -> void:
 		_render_shop_buy()                       # refresh BUY hover-compare Δ with the freshly-loaded inventory
 
 # render the SELL list from the cached _sell_items + UI state (selection / sort / filter). Cheap to call
-# on every toggle — no network. Selecting is multi-select; equipped (★) and locked items are unselectable.
+# on every toggle — no network. Selecting is multi-select; equipped and locked items are unselectable.
 func _render_shop_sell() -> void:
 	if _shop_sell_grid == null:
 		return
@@ -3574,16 +3616,16 @@ func _render_shop_sell() -> void:
 	for it in items:
 		var rr0: String = str(it.get("rarity", "common"))
 		_shop_sell_cache[str(it.get("id", ""))] = {"name": str(it.get("name", "?")), "rarity": rr0, "price": int(sell.get(rr0, 0)), "scrap": int(SALVAGE_YIELD.get(rr0, 1))}
-	_shop_sell_status.text = "%s   %s" % ["SALVAGE" if _sell_salvage else "SELL", ("%d scrap" % _my_scrap()) if _sell_salvage else ("◈ %d" % _my_credits())]
+	_shop_sell_status.text = "%s   %s" % ["SALVAGE" if _sell_salvage else "SELL", ("%d scrap" % _my_scrap()) if _sell_salvage else ("%d credits" % _my_credits())]
 	for ch in _shop_sell_controls.get_children(): ch.queue_free()
 	for ch in _shop_sell_grid.get_children(): ch.queue_free()
 	for ch in _shop_sell_footer.get_children(): ch.queue_free()
 	var dim := Color(0.5, 0.58, 0.66)
-	# mode row: Sell (◈ credits) ↔ Salvage (scrap)
+	# mode row: Sell (credits) ↔ Salvage (scrap)
 	var moderow := HBoxContainer.new()
 	moderow.add_theme_constant_override("separation", 8)
 	moderow.add_child(_ctrl_label("mode:"))
-	moderow.add_child(_ctrl_btn(("● Sell ◈" if not _sell_salvage else "○ Sell ◈"), (Color.html("#bdf5c0") if not _sell_salvage else dim), func() -> void:
+	moderow.add_child(_ctrl_btn(("● Sell" if not _sell_salvage else "○ Sell"), (Color.html("#bdf5c0") if not _sell_salvage else dim), func() -> void:
 		_sell_salvage = false
 		_render_shop_sell()))
 	moderow.add_child(_ctrl_btn(("● Salvage" if _sell_salvage else "○ Salvage"), (Color.html("#c9a36a") if _sell_salvage else dim), func() -> void:
@@ -3608,7 +3650,7 @@ func _render_shop_sell() -> void:
 		if not sellable_by_rar.has(rar):
 			sellable_by_rar[rar] = []
 		(sellable_by_rar[rar] as Array).append(str(it.get("id", "")))
-	# per-rarity select-all (top tier flagged 🛡 protected → opt in explicitly)
+	# per-rarity select-all (top tier flagged protected → opt in explicitly)
 	var selrow := HFlowContainer.new()
 	selrow.add_child(_ctrl_label("select:"))
 	for rar in RARITY_ORDER:
@@ -3621,12 +3663,13 @@ func _render_shop_sell() -> void:
 				all_sel = false
 				break
 		var rar_l: String = rar
-		var prot: String = " 🛡" if rar == top_rar else ""
+		var prot: String = "  (protected)" if rar == top_rar else ""
 		selrow.add_child(_ctrl_btn("%s %s%s" % [("✓" if all_sel else "○"), rar.capitalize(), prot], Color.html(RARITY_COLORS.get(rar, "#cfd6df")), func() -> void:
 			_toggle_sell_rarity(rar_l)))
 	_shop_sell_controls.add_child(selrow)
 	if top_rar != "":
-		_shop_sell_controls.add_child(_ctrl_label("🛡 your top tier — protected; click to opt in"))
+		_shop_sell_controls.add_child(IconWidget.row("top_tier_protected", "your top tier — protected; click to opt in",
+			{"px": 16, "color": Palette.SB_CYAN, "text_color": Palette.TEXT_DIM}))
 	# sort row (client-side)
 	var sortrow := HBoxContainer.new()
 	sortrow.add_theme_constant_override("separation", 8)
@@ -3662,16 +3705,16 @@ func _render_shop_sell() -> void:
 		var selected: bool = _sell_selection.has(iid)
 		var price: int = int(sell.get(rar2, 0))
 		var val: int = int(SALVAGE_YIELD.get(rar2, 1)) if _sell_salvage else price
-		var valtxt: String = ("[color=#c9a36a]%d scrap[/color]" % val) if _sell_salvage else ("[color=#ffd24d]◈%d[/color]" % val)
+		var valtxt: String = ("[color=#c9a36a]%d scrap[/color]" % val) if _sell_salvage else ("[color=#ffd24d]%d credits[/color]" % val)
 		var marks: String = ""
-		if equipped: marks += "[color=#ffd24d]★[/color] "
-		marks += ("[color=#ffb454]🔒[/color] " if locked else "[color=#5a6472]🔓[/color] ")   # lock state, always shown
+		if equipped: marks += "[color=#ffd24d](equipped)[/color] "
+		marks += ("[color=#ffb454]locked[/color] " if locked else "[color=#5a6472]unlocked[/color] ")   # lock state, always shown
 		if selected: marks += "[color=#9fe8a0]✓[/color] "
 		var status: String = ""
 		if equipped: status = " [color=#7f93a8](equipped)[/color]"
 		elif locked: status = " [color=#7f93a8](locked · right-click to unlock)[/color]"
 		var stats := _item_stats_str(it)
-		var header := "%s[color=%s]%s[/color]%s\n[color=#7f8a99](%s · ✦%d)[/color]%s — %s" % [
+		var header := "%s[color=%s]%s[/color]%s\n[color=#7f8a99](%s · IP %d)[/color]%s — %s" % [
 			marks, _item_color_hex(it), _esc(str(it.get("name", "?"))), status,
 			str(it.get("slot", "")), int(it.get("item_power", 0)), ("  " + stats if stats != "" else ""), valtxt]
 		var border: Color = Color.html("#9fe8a0") if selected else _item_color(it)
@@ -3691,7 +3734,7 @@ func _render_shop_sell() -> void:
 			total += int(info["scrap"] if _sell_salvage else info["price"])
 	if n > 0:
 		var verb: String = "Salvage" if _sell_salvage else "Sell"
-		var unit: String = ("%d scrap" % total) if _sell_salvage else ("◈%d" % total)
+		var unit: String = ("%d scrap" % total) if _sell_salvage else ("%d credits" % total)
 		var btxt: String = ("%s Selected (%d) — %s" % [verb, sell_n, unit]) if n <= SELL_BATCH_MAX else ("%s Selected (%d of %d) — %s" % [verb, sell_n, n, unit])
 		_shop_sell_footer.add_child(_ctrl_btn(btxt, (Color.html("#ffcf8a") if _sell_salvage else Color.html("#bdf5c0")), func() -> void:
 			_confirm_sell_selected()))
@@ -3786,7 +3829,7 @@ func _confirm_sell_selected() -> void:
 				net.salvage_many.rpc_id(1, ids)
 			_sell_selection.clear())
 	else:
-		_show_sell_confirm("Sell %d item%s for ◈%d?" % [ids.size(), plural, total], func() -> void:
+		_show_sell_confirm("Sell %d item%s for %d credits?" % [ids.size(), plural, total], func() -> void:
 			if net != null and _connected:
 				net.shop_sell_many.rpc_id(1, ids)
 			_sell_selection.clear())
@@ -3881,7 +3924,7 @@ func _render_shop_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_shop_root.add_child(pillar)
-	_shop_root.add_child(WorldUI.pad_label("🛒 Shop",
+	_shop_root.add_child(WorldUI.pad_marker("shop", "Shop",
 		Color(1.0, 0.88, 0.5), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_shop_proximity() -> void:
@@ -3901,7 +3944,7 @@ func _update_shop_proximity() -> void:
 
 # ---- Builder Mode (P3): the Build Shop pad + panel (buy furniture) + the locked-locker "Purchase" prompt ----
 func _build_build_shop_panel() -> void:
-	var p := Widgets.panel("Build Shop", "P / Esc", 560.0, _toggle_build_shop, true)   # phase B: marquee chrome
+	var p := Widgets.panel("Build Shop", "P / Esc", 560.0, _toggle_build_shop, true, {"icon": "build_shop", "persist": "build_shop", "legacy": "Build Shop"})   # phase B: marquee chrome
 	_build_shop_panel = p["root"]
 	_hud.add_child(_build_shop_panel)
 	var vb: VBoxContainer = p["body"]
@@ -3945,7 +3988,7 @@ func _render_build_shop_catalog() -> void:
 	var full := owned >= cap
 	if _build_shop_status != null:
 		var fulltag := "   [color=#ff8a8a]· FULL[/color]" if full else ""
-		_build_shop_status.text = "◈ %d credits    ·    %d/%d furniture owned%s" % [_my_credits(), owned, cap, fulltag]
+		_build_shop_status.text = "%d credits    ·    %d/%d furniture owned%s" % [_my_credits(), owned, cap, fulltag]
 	for ch in _build_shop_grid.get_children(): ch.queue_free()
 	var cat: Array = _build_info.get("catalog", [])
 	if cat.is_empty():
@@ -3967,7 +4010,7 @@ func _render_build_shop_catalog() -> void:
 			captag = "   [color=#ff8a8a]· inventory full[/color]"
 		elif at_model_cap:
 			captag = "   [color=#ff8a8a]· MAX[/color]"
-		var header := "[color=%s]%s[/color] [color=#7f8a99](%s)[/color]\n[color=%s]◈ %d[/color]   [color=%s]%d/%d[/color]%s" % \
+		var header := "[color=%s]%s[/color] [color=#7f8a99](%s)[/color]\n[color=%s]%d credits[/color]   [color=%s]%d/%d[/color]%s" % \
 			[namecol, _esc(model), tier, pcol, price, ccol, mcount, model_cap, captag]
 		var border := Color.html("#8fb3d9") if not blocked else Color.html("#414b57")   # dimmed border when capped
 		var m := model
@@ -3981,7 +4024,7 @@ func _render_build_shop_catalog() -> void:
 				elif mmax:
 					_toast("[color=#ff8a8a]You already own the max (%d) of %s[/color]" % [mcap, _esc(m)], Color.html("#ff8a8a"))
 				elif _my_credits() < pr:
-					_toast("[color=#ff8a8a]Not enough credits for %s (◈%d)[/color]" % [_esc(m), pr], Color.html("#ff8a8a"))
+					_toast("[color=#ff8a8a]Not enough credits for %s (%d credits)[/color]" % [_esc(m), pr], Color.html("#ff8a8a"))
 				elif net != null and _connected:
 					net.build_buy.rpc_id(1, m)))
 
@@ -4016,7 +4059,7 @@ func _render_build_shop_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_build_shop_root.add_child(pillar)
-	_build_shop_root.add_child(WorldUI.pad_label("🔨 Build Shop",
+	_build_shop_root.add_child(WorldUI.pad_marker("build_shop", "Build Shop",
 		Color(0.7, 0.85, 1.0), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_build_shop_proximity() -> void:
@@ -4044,7 +4087,7 @@ func _update_locker_portal_proximity() -> void:
 		_near_locker_portal = d <= World.PORTAL_RADIUS + 26.0
 	if _near_locker_portal:
 		_interact_offer("locker_portal", "Y",
-			"Unlock your Locker Room  (◈ %d)" % int(_build_info.get("unlock_cost", 10000)))
+			"Unlock your Locker Room  (%d credits)" % int(_build_info.get("unlock_cost", 10000)))
 	else:
 		_interact_clear("locker_portal")
 
@@ -4163,7 +4206,7 @@ func _lb_set_on(on: bool) -> void:
 	if not _coords_on:
 		_toggle_coords()                            # the coord readout pairs naturally with placing
 	_lb_refresh_palette()
-	_toast("[color=#9fe8a0]🔨 Build mode[/color]\n[color=#cfd6df]LMB place · [ ] pick · , . rotate · - = size · PgUp/Dn lift · G grab/move · X remove · F4 exit[/color]", Palette.ACCENT)
+	_toast("[color=#9fe8a0]Build mode[/color]\n[color=#cfd6df]LMB place · [ ] pick · , . rotate · - = size · PgUp/Dn lift · G grab/move · X remove · F4 exit[/color]", Palette.ACCENT, false, "build_shop")
 
 # the editor's input (only reached, via Client._input → _extra_input, while _lb_on). Mirrors _deco_input but RPC-driven.
 func _extra_input(e: InputEvent) -> bool:
@@ -4363,7 +4406,7 @@ func _lb_undo_last() -> void:
 	_lb_grab_id = ""
 	_lb_grab_model = ""
 	_lb_grab_from = {}
-	_toast("[color=#9fe8a0]↩ Undo[/color]", Palette.ACCENT)
+	_toast("[color=#9fe8a0]Undo[/color]", Palette.ACCENT)
 	_lb_update_lbl()
 
 # confirm the pending [Y]/[N] delete → remove the highlighted prop (recording it for undo).
@@ -4414,12 +4457,16 @@ func _lb_build_del_menu(model: String) -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	_lb_del_panel.add_child(vb)
+	var titlerow := HBoxContainer.new()
+	titlerow.alignment = BoxContainer.ALIGNMENT_CENTER
+	titlerow.add_theme_constant_override("separation", 8)
+	titlerow.add_child(IconWidget.make("delete", {"px": 22, "color": Palette.DANGER}))
 	var title := Label.new()
-	title.text = "🗑  Delete this %s?" % model
+	title.text = "Delete this %s?" % model
 	title.add_theme_font_size_override("font_size", 18)
 	title.add_theme_color_override("font_color", Palette.DANGER)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(title)
+	titlerow.add_child(title)
+	vb.add_child(titlerow)
 	var sub := Label.new()
 	sub.text = "It goes back to your Build tab · Ctrl+Z undoes it"
 	sub.add_theme_color_override("font_color", Palette.TEXT_DIM)
@@ -4429,7 +4476,7 @@ func _lb_build_del_menu(model: String) -> void:
 	row.add_theme_constant_override("separation", 12)
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vb.add_child(row)
-	row.add_child(_tile_btn("🗑  Delete  (Y)", Palette.DANGER, true, _lb_confirm_delete))
+	row.add_child(IconWidget.icon_button("delete", "Delete  (Y)", Palette.DANGER, _lb_confirm_delete, {"px": 18}))
 	row.add_child(_tile_btn("Keep  (N)", Palette.TEXT, true, func() -> void: _lb_del_id = ""))
 	row.add_child(_tile_btn("Pick another  (X)", Palette.ACCENT2, true, _lb_retarget_delete))
 	_hud.add_child(_lb_del_panel)
@@ -4484,11 +4531,15 @@ func _show_build_help() -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 12)
 	_build_help_panel.add_child(vb)
+	var titlerow := HBoxContainer.new()
+	titlerow.add_theme_constant_override("separation", 9)
+	titlerow.add_child(IconWidget.make("build_shop", {"px": 24, "color": Palette.ACCENT}))
 	var title := Label.new()
-	title.text = "🔨  Welcome to your Locker Room"
+	title.text = "Welcome to your Locker Room"
 	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_color_override("font_color", Palette.ACCENT)
-	vb.add_child(title)
+	titlerow.add_child(title)
+	vb.add_child(titlerow)
 	var body := RichTextLabel.new()
 	body.bbcode_enabled = true
 	body.fit_content = true
@@ -4545,7 +4596,7 @@ func _update_locker_help_hint() -> void:
 		_build_help_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_build_help_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_build_help_hint.z_index = 4096
-		_build_help_hint.text = "🔨 Press  [ H ]  for build help"
+		_build_help_hint.text = "Press  [ H ]  for build help"
 		_hud.add_child(_build_help_hint)
 	_build_help_hint.visible = in_locker and not _lb_on and _build_help_panel == null
 
@@ -4571,18 +4622,18 @@ func _lb_update_lbl() -> void:
 	if _lb_del_id != "":                            # a delete is pending confirmation → red prompt (see the red highlight)
 		var dm := str(_lb_decal_by_id(_lb_del_id).get("model", "prop"))
 		_lb_lbl.add_theme_color_override("font_color", Color(1.0, 0.6, 0.6))
-		_lb_lbl.text = "⚠ DELETE  %s ?  (highlighted red)\n  [Y] yes, remove it   ·   [N] no, keep it   ·   [X] target a different prop   ·   F4 exit" % dm
+		_lb_lbl.text = "DELETE  %s ?  (highlighted red)\n  [Y] yes, remove it   ·   [N] no, keep it   ·   [X] target a different prop   ·   F4 exit" % dm
 		return
 	_lb_lbl.add_theme_color_override("font_color", Color(0.7, 0.95, 0.75))   # normal green
 	# ALWAYS show the controls (even with no furniture) so the player never loses the reference.
 	if _lb_grab_id != "":                           # moving: name the prop prominently so it's clear what will move
 		var gm := _lb_grab_model if _lb_grab_model != "" else "prop"
-		_lb_lbl.text = "🔨 BUILD — ▶ MOVING  %s ◀    yaw %.0f°  size %.1f  lift %.1f\n  the preview follows your cursor · , . rotate · - = size · PgUp/Dn lift · click or G to drop it here · Ctrl+Z undo · F4 exit" % [gm, rad_to_deg(_lb_yaw), _lb_h, _lb_oy]
+		_lb_lbl.text = "BUILD — ▶ MOVING  %s ◀    yaw %.0f°  size %.1f  lift %.1f\n  the preview follows your cursor · , . rotate · - = size · PgUp/Dn lift · click or G to drop it here · Ctrl+Z undo · F4 exit" % [gm, rad_to_deg(_lb_yaw), _lb_h, _lb_oy]
 		return
 	var sel := "(none — buy at the Build Shop [P])"
 	if not _lb_pal.is_empty():
 		sel = "[ ] %s  (%d/%d)" % [str((_lb_pal[_lb_idx] as Dictionary).get("model", "?")), _lb_idx + 1, _lb_pal.size()]
-	_lb_lbl.text = "🔨 BUILD    %s    yaw %.0f°  size %.1f  lift %.1f\n  L-click place · G grab/move · X remove · Ctrl+Z undo · , . rotate · - = size · PgUp/Dn lift · F4 exit" % [sel, rad_to_deg(_lb_yaw), _lb_h, _lb_oy]
+	_lb_lbl.text = "BUILD    %s    yaw %.0f°  size %.1f  lift %.1f\n  L-click place · G grab/move · X remove · Ctrl+Z undo · , . rotate · - = size · PgUp/Dn lift · F4 exit" % [sel, rad_to_deg(_lb_yaw), _lb_h, _lb_oy]
 
 # per-frame preview at the cursor: the to-place palette prop, OR — while moving — the grabbed prop itself (so you
 # see its height/rotation follow the cursor before you drop it). The original placed copy still renders (server
@@ -4716,7 +4767,7 @@ func _render_vendor_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_vendor_root.add_child(pillar)
-	_vendor_root.add_child(WorldUI.pad_label("◈ Practice Vendor",
+	_vendor_root.add_child(WorldUI.pad_marker("practice_vendor", "Practice Vendor",
 		Color(0.5, 0.9, 1.0), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_vendor_proximity() -> void:
@@ -4765,7 +4816,7 @@ func _render_forge_pad() -> void:
 	pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pillar.position = pos + Vector3(0.0, 1.3, 0.0)
 	_forge_root.add_child(pillar)
-	_forge_root.add_child(WorldUI.pad_label("🔨 Forge",
+	_forge_root.add_child(WorldUI.pad_marker("forge", "Forge",
 		Color(1.0, 0.6, 0.4), pos + Vector3(0.0, 3.4, 0.0)))
 
 func _update_forge_proximity() -> void:
@@ -4839,8 +4890,8 @@ func recv_loot(item: String, rarity: String, slot: String, amt: int, stat: Strin
 	var col: String = RARITY_COLORS.get(rarity, "#cfd6df")
 	var bonus := ("   +%d %s" % [amt, stat]) if amt != 0 else ""
 	# P4: a rarity-accented loot toast (top-right) + keep the chat-log line as history
-	_toast("[color=#ffd24d]★ Looted[/color]  [color=%s]%s[/color]\n[color=#7f93a8]%s · %s%s[/color]" % [col, _esc(item), rarity, slot, bonus], Color.html(col))
-	_chat_lines.append("[color=#ffd24d]★ Looted[/color] [color=%s]%s[/color] [color=#7f93a8](%s · %s)%s[/color]" % [col, _esc(item), rarity, slot, bonus])
+	_toast("[color=#ffd24d]Looted[/color]  [color=%s]%s[/color]\n[color=#7f93a8]%s · %s%s[/color]" % [col, _esc(item), rarity, slot, bonus], Color.html(col), false, "loot")
+	_chat_lines.append("[color=#ffd24d]Looted[/color] [color=%s]%s[/color] [color=#7f93a8](%s · %s)%s[/color]" % [col, _esc(item), rarity, slot, bonus])
 	if _chat_lines.size() > 9:
 		_chat_lines = _chat_lines.slice(_chat_lines.size() - 9)
 	_chat_log.text = "\n".join(_chat_lines)
@@ -5354,7 +5405,12 @@ func _show_invite_popup(fid: String, nm: String) -> void:
 	row.add_theme_constant_override("separation", 10)
 	vb.add_child(row)
 	var btn := Button.new()
-	btn.text = "👥  Invite"
+	btn.text = "Invite"
+	btn.icon = IconRegistry.texture("party")          # party invite reuses the Party asset (§4)
+	btn.expand_icon = false
+	btn.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	btn.add_theme_constant_override("icon_max_width", 18)
+	btn.add_theme_color_override("icon_normal_color", Palette.ACCENT2)
 	btn.custom_minimum_size = Vector2(150, 40)
 	btn.add_theme_color_override("font_color", Palette.ACCENT2)
 	btn.pressed.connect(func() -> void:
@@ -5392,12 +5448,16 @@ func recv_party_invite(inviter_name: String, inviter_fid: String) -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 14)
 	_invite_prompt.add_child(vb)
+	var titlerow := HBoxContainer.new()
+	titlerow.alignment = BoxContainer.ALIGNMENT_CENTER
+	titlerow.add_theme_constant_override("separation", 9)
+	titlerow.add_child(IconWidget.make("party", {"px": 24, "color": Palette.ACCENT}))
 	var title := Label.new()
-	title.text = "👥  PARTY INVITE"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.text = "PARTY INVITE"
 	title.add_theme_font_size_override("font_size", Palette.SIZE_TITLE)
 	title.add_theme_color_override("font_color", Palette.ACCENT)
-	vb.add_child(title)
+	titlerow.add_child(title)
+	vb.add_child(titlerow)
 	var lbl := Label.new()
 	lbl.text = "%s invited you to their party" % inviter_name
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -5455,12 +5515,16 @@ func _show_next_loot_roll() -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 12)
 	_loot_roll_panel.add_child(vb)
+	var titlerow := HBoxContainer.new()
+	titlerow.alignment = BoxContainer.ALIGNMENT_CENTER
+	titlerow.add_theme_constant_override("separation", 9)
+	titlerow.add_child(IconWidget.make("random_roll", {"px": 24, "color": Palette.ACCENT}))   # party loot uses Random Roll (§4)
 	var title := Label.new()
-	title.text = "🎲  PARTY LOOT"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.text = "PARTY LOOT"
 	title.add_theme_font_size_override("font_size", Palette.SIZE_TITLE)
 	title.add_theme_color_override("font_color", Palette.ACCENT)
-	vb.add_child(title)
+	titlerow.add_child(title)
+	vb.add_child(titlerow)
 	var rar := str(info.get("rarity", "common"))
 	var rcol: String = Palette.UNIQUE_HEX if bool(info.get("unique", false)) else RARITY_COLORS.get(rar, "#cfd6df")
 	var item := RichTextLabel.new()
@@ -5538,7 +5602,7 @@ func recv_loot_roll_result(drop_id: int, result: Dictionary) -> void:
 		for fid in rolls:
 			parts.append("%s %d" % [_roster_name(str(fid)), int(rolls[fid])])
 		roll_txt = "\n[color=%s]%s[/color]" % [Palette.hex(Palette.TEXT_FAINT), "  ·  ".join(parts)]
-	_toast("[b]🎲 %s[/b] won [color=%s]%s[/color]%s" % [_esc(winner), rcol, _esc(str(info.get("name", "?"))), roll_txt], Palette.ACCENT)
+	_toast("[b]%s[/b] won [color=%s]%s[/color]%s" % [_esc(winner), rcol, _esc(str(info.get("name", "?"))), roll_txt], Palette.ACCENT, false, "random_roll")
 
 func _roster_name(fid: String) -> String:         # party-member display name from the roster (fallback to the fid)
 	for m in _party:
@@ -5617,7 +5681,7 @@ func _update_boss_telegraph() -> void:
 	_ult_tint.visible = true
 	_ult_banner.visible = true
 	_ult_tint.color.a = lerpf(0.10, 0.40, clampf(1.0 - uc / 3.0, 0.0, 1.0))   # intensify as impact nears
-	_ult_banner.text = "⚠  FULL CAMP RESET  %d  ⚠\nBREAK LINE OF SIGHT — GET BEHIND COVER" % int(ceil(uc))
+	_ult_banner.text = "FULL CAMP RESET  %d\nBREAK LINE OF SIGHT — GET BEHIND COVER" % int(ceil(uc))   # warning emoji dropped (§9); the red tint + countdown carry it
 
 # P4: suppress the shared vignette/death juice while the session isn't live (connection error /
 # pre-first-snapshot). _state is never cleared on a drop, so _render_world keeps running — without
@@ -6091,7 +6155,7 @@ func receive_snapshot(snap: Dictionary) -> void:
 		if _last_level > 0 and lvl > _last_level:
 			AudioManager.play_sfx("level_up")
 			_show_banner("Level Up", "Level %d" % lvl)   # P8: replaces the full-screen gold flash
-			_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level %d[/color]" % [Palette.hex(Palette.ACCENT), lvl], Palette.ACCENT, true)
+			_toast("[b]LEVEL UP[/b]\nYou reached [color=%s]Level %d[/color]" % [Palette.hex(Palette.ACCENT), lvl], Palette.ACCENT, true)
 		_last_level = lvl
 		var alive_now := bool(lpf.get("alive", true))    # P8: respawn banner (death side = overlay)
 		if alive_now and not _last_alive:
@@ -6099,16 +6163,16 @@ func receive_snapshot(snap: Dictionary) -> void:
 		_last_alive = alive_now
 	var unlocked_now := _locker_unlocked()        # Builder Mode: toast the first time you own your Locker Room
 	if unlocked_now and not _was_locker_unlocked:
-		_toast("[color=#9fe8a0]🔓 Locker Room unlocked![/color]\nWalk through the portal in the home base to enter.", Palette.ACCENT)
+		_toast("[color=#9fe8a0]Locker Room unlocked![/color]\nWalk through the portal in the home base to enter.", Palette.ACCENT, false, "unlocked")
 	_was_locker_unlocked = unlocked_now
 	_handle_events()             # spawn damage-number / hit FX from this snapshot's events
 	if _dev_open != "" and _player_id != "" and _find_fighter(_player_id) != null and _dev_walkto.x == INF:
 		_dev_open_panel()        # dev screenshot hook: open a panel once we have a live fighter (+ finished any --walkto)
 	if _dev_juice and _player_id != "" and _find_fighter(_player_id) != null:
 		_dev_juice = false       # dev screenshot hook: fire the P4 juice once (toasts + zone card + flash)
-		_toast("[color=#ffd24d]★ Looted[/color]  [color=#c77dff]Epic Cleats[/color]\n[color=#7f93a8]epic · feet  +18 SPD[/color]", Color.html("#c77dff"))
+		_toast("[color=#ffd24d]Looted[/color]  [color=#c77dff]Epic Cleats[/color]\n[color=#7f93a8]epic · feet  +18 SPD[/color]", Color.html("#c77dff"), false, "loot")
 		_toast("[color=#9fe8a0]✔ Quest complete:[/color] Boot Camp", Palette.ACCENT)
-		_toast("[b]⭐ LEVEL UP[/b]\nYou reached [color=%s]Level 3[/color]" % Palette.hex(Palette.ACCENT), Palette.ACCENT, true)
+		_toast("[b]LEVEL UP[/b]\nYou reached [color=%s]Level 3[/color]" % Palette.hex(Palette.ACCENT), Palette.ACCENT, true)
 		_show_banner("Now Entering", "The Glitchyard", "", Palette.SB_CYAN)
 
 func assign_fighter(fid: String) -> void:
@@ -6397,13 +6461,13 @@ func _update_hud() -> void:
 	_vit_status.add_theme_color_override("font_color",
 		Palette.DANGER_SOFT if not pf["alive"] else Palette.TEXT_DIM)
 	_tray.visible = true                          # the currency tray is an online-only strip
-	_vit_set("credits", _tray_credits, "◈ %d" % int(pf.get("credits", 0)))
-	_vit_set("scrap", _tray_scrap, "%d scrap" % _my_scrap())
-	_vit_set("tokens", _tray_tokens, "%d tokens" % _my_tokens())
+	_vit_set("credits", _tray_credits, "%d" % int(pf.get("credits", 0)))   # icon carries identity
+	_vit_set("scrap", _tray_scrap, "%d" % _my_scrap())
+	_vit_set("tokens", _tray_tokens, "%d" % _my_tokens())
 	_zone_banner.visible = true
 	var pvp := bool(_state.get("pvp", false))
 	var zone := _zone_name(str(_state.get("map", "")))
-	_vit_set("zone", _zone_label, ("⚔ %s · PVP" % zone.to_upper()) if pvp else zone.to_upper())
+	_vit_set("zone", _zone_label, ("%s · PVP" % zone.to_upper()) if pvp else zone.to_upper())   # hostile-swords prefix dropped (§9); the red PVP text + tint carry hostility
 	if bool(_vit_cache.get("zone_pvp", false)) != pvp:
 		_vit_cache["zone_pvp"] = pvp
 		_zone_label.add_theme_color_override("font_color", Palette.DANGER if pvp else Palette.ACCENT2)

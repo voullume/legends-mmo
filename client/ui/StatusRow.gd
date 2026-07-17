@@ -5,7 +5,10 @@ extends HBoxContainer
 ## registry) — the frames only call drive(st) with the fighter's snapshot `st` dict each frame.
 ##   • classification / priority / deterministic sort → StatusIcons.decode
 ##   • cap + "+n" overflow chip (self 6, others 5 — set `cap`)
-##   • compact glyph chrome (ink chip, buff/debuff-colored rail, amount badge, duration underbar)
+##   • compact icon chrome: a Hybrid-Cutout SVG (IconWidget/IconRegistry) centered in the ink chip,
+##     modulated to the buff/debuff semantic color, over the amount badge + duration underbar. The
+##     centered mark replaces the old two-letter glyph Label; the glyph survives ONLY as a fallback
+##     if a texture is ever absent (never a two-letter abbreviation once the asset exists).
 ##   • native tooltip per chip (themed TooltipPanel); MOUSE_FILTER_PASS so combat clicks and the
 ##     party-row select still land underneath.
 ## Chips rebuild only when the status COMPOSITION changes; per-frame drives just refresh the
@@ -100,14 +103,7 @@ func _make_chip(e: Dictionary) -> Dictionary:
 	inner.custom_minimum_size = Vector2(chip_px, chip_px)
 	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(inner)
-	var g := Label.new()                         # the glyph, centered
-	g.text = str(e["glyph"])
-	g.size = Vector2(chip_px, chip_px - 2)
-	g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	g.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	g.add_theme_font_size_override("font_size", _glyph_size())
-	g.add_theme_color_override("font_color", e["color"])
-	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var g := _make_mark(e)                        # centered icon TextureRect (or glyph fallback)
 	inner.add_child(g)
 	var a := Label.new()                         # amount badge (absorb / charges / stacks), bottom-right
 	a.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -126,8 +122,36 @@ func _make_chip(e: Dictionary) -> Dictionary:
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	inner.add_child(bar)
 	add_child(root)
-	return {"key": str(e["key"]), "root": root, "glyph": g, "amt": a, "bar": bar,
+	return {"key": str(e["key"]), "root": root, "mark": g, "amt": a, "bar": bar,
 		"base": maxf(0.001, float(e["remaining"]))}
+
+# the centered chip mark: the Hybrid-Cutout SVG icon (modulated to the chip's semantic color), inset
+# 1px inside the chassis border so the amount badge + duration underbar drawn over it stay legible —
+# even at the 14px party-row size (the hardest case, handoff §10). Falls back to the old centered
+# two-letter glyph Label only when the texture is genuinely absent (staged migration / missing asset).
+func _make_mark(e: Dictionary) -> Control:
+	var icon_id := str(e.get("icon", ""))
+	if icon_id != "" and IconRegistry.texture(icon_id) != null:
+		var art := maxi(8, chip_px - 2)
+		var ic := IconWidget.make(icon_id, {"px": art, "color": e["color"]})
+		# anchor the icon to FILL the chip (1px inset, 2px reserved at the bottom for the duration
+		# underbar) so its size is DERIVED from the chip on every layout — a plain explicit `.size`
+		# on a free-canvas TextureRect does not survive a relayout and blows up to the texture size.
+		ic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		ic.offset_left = 1
+		ic.offset_top = 1
+		ic.offset_right = -1
+		ic.offset_bottom = -2
+		return ic
+	var g := Label.new()                         # text fallback (never a two-letter abbrev once art exists)
+	g.text = str(e["glyph"])
+	g.size = Vector2(chip_px, chip_px - 2)
+	g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	g.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	g.add_theme_font_size_override("font_size", _glyph_size())
+	g.add_theme_color_override("font_color", e["color"])
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return g
 
 func _update_chip(c: Dictionary, e: Dictionary) -> void:
 	(c["amt"] as Label).text = str(e["amount"])
