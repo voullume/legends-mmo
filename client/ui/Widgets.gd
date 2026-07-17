@@ -44,12 +44,19 @@ static func panel(title: String, key_hint := "", min_width := 560.0, on_close = 
 	head.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	vb.add_child(head)
 	var t := Label.new()
-	t.text = title
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE      # let the drag reach the header
-	var tf := HudFonts.display_variant(Palette.SIZE_TITLE, 0.06)   # window titles wear the display face
-	if tf != null:
-		t.add_theme_font_override("font", tf)
+	# window titles wear the display face — but ONLY when display-safe, exactly like section() (line ~271).
+	# panel() used to apply it UNCONDITIONALLY, so a title carrying an emoji / em-dash / ◈ / · forced the
+	# caps-only face onto glyphs it lacks (the FONTS-README rule the _DISPLAY_OK comment spells out). Those
+	# now fall back to the body font (readable), and safe titles keep the branded uppercase display face.
+	if display_safe(title):
+		t.text = title.to_upper()
+		var tf := HudFonts.display_variant(Palette.SIZE_TITLE, 0.06)
+		if tf != null:
+			t.add_theme_font_override("font", tf)
+	else:
+		t.text = title
 	t.add_theme_font_size_override("font_size", Palette.SIZE_TITLE)
 	t.add_theme_color_override("font_color", Palette.TEXT_BRIGHT)
 	head.add_child(t)
