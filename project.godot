@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Legends MMO"
-config/version="1.8.0"
+config/version="1.8.1"
 config/description="MMORPG built on the Legends of the Arena combat engine (shared/)."
 run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.6")

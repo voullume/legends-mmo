@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.8.1 — 2026-07-17
+
+- Part A nameplate + overhead statuses
+
+_(rolls up commits since the previous tag; base 12d8c10)_
+
 ## v1.8.0 — 2026-07-16
 
 - UI consistency pass: theme now renders (CanvasLayer fix), buff/debuff status icons on all unit frames, world-label clutter fade, sports-tech chrome on all main windows
