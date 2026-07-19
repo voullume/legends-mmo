@@ -1743,6 +1743,15 @@ func _quest_toast(line: String, icon := "") -> void:
 
 func _refresh_quests() -> void:
 	_update_quest_tracker()
+	_refresh_quest_panels()
+
+# re-render the open Quest Giver / Journal panels from current state. Called on any quest OR bounty
+# change so an accept / turn-in / progress tick reflects immediately — not only after a close+reopen.
+func _refresh_quest_panels() -> void:
+	if _qgiver_panel != null and _qgiver_panel.visible:
+		_render_qgiver()
+	if _quest_panel != null and _quest_panel.visible:
+		_render_questlog()
 
 # P6b: server → client bounty nudge (a slot became claimable, or a claim resolved). Optimistically patch the
 # cached META array so the giver panel reflects it instantly, toast, and re-render the panel if it's open.
@@ -1758,12 +1767,7 @@ func recv_bounty_update(bounty_id: String, progress: int, claimed: bool) -> void
 		_quest_toast("[color=#ffd24d]Bounty claimed![/color]", "bounty")
 	elif progress > 0:
 		_quest_toast("[color=#9fe8a0]Bounty complete —[/color] ready to claim [color=#7f93a8](see the Quest Giver)[/color]", "bounty")
-	if _qgiver_panel != null and _qgiver_panel.visible:
-		_render_qgiver()
-	if _quest_panel != null and _quest_panel.visible:
-		_render_questlog()
-	if _qgiver_panel != null and _qgiver_panel.visible:
-		_render_qgiver()
+	_refresh_quest_panels()
 
 # the always-on HUD tracker (active quests + progress). Rebuilt only on a quest event, not per
 # frame. P6: rides a PANEL-tier chassis (the module node) with variants — standard (full rows),
