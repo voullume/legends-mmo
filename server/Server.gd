@@ -3561,7 +3561,7 @@ func _award_kills() -> void:
 					_distribute_loot(credit_pid, drop, str(mapname))
 				_quest_on_kill(credit_pid, victim)             # advance any matching kill-quest
 				_bounty_on_kill(credit_pid, victim)            # gameplay-length P6b: advance any matching kill-bounty
-				if str(victim.get("classId", "")) == "rival_coach":   # Phase 8 S2: the Rival Coach pays Pages too (repeatable; deliberately NOT on the boss_time board)
+				if str(victim.get("classId", "")) == "arrowbound_howler":   # W5: the Howler pays the rival's Pages chunk (repeatable; deliberately NOT on the boss_time board)
 					_award_pages(credit_pid, RIVAL_PAGES)
 				if str(victim.get("classId", "")) == "head_coach":   # the campaign boss drops a Playbook-Pages chunk (attunement)
 					_award_pages(credit_pid, BOSS_PAGES)
@@ -4395,7 +4395,7 @@ const BOUNTY_WEEKLY := {
 	"w_elites":   {"name": "Weekly Muster",  "kind": "kill",    "match": {"tier": "elite"}, "count": 60, "desc": "Defeat 60 elite opponents this week.", "rewards": {"tokens": 90, "pages": 240}},
 	"w_drill":    {"name": "Weekly Drills",  "kind": "drill",   "wave": 12, "count": 3, "desc": "Reach wave 12 of a Drill, 3 times this week.", "rewards": {"credits": 5000, "pages": 260}},
 	# Phase 8 S2: the away chase — one Rival Coach win a week (10-min respawn, so contention-light)
-	"w_rival":    {"name": "Away Win",       "kind": "kill",    "match": {"map": "away_boss", "tier": "boss"}, "count": 1, "min_level": 8, "desc": "Defeat the Rival Coach this week.", "rewards": {"credits": 3000, "tokens": 60, "pages": 120}},
+	"w_rival":    {"name": "Away Win",       "kind": "kill",    "match": {"map": "away_boss", "tier": "boss"}, "count": 1, "min_level": 8, "desc": "Defeat the Arrowbound Howler this week.", "rewards": {"credits": 3000, "tokens": 60, "pages": 120}},
 }
 
 var _bounty_busy := {}                             # pid → a bounty claim is in flight

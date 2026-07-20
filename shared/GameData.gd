@@ -341,6 +341,8 @@ const CLASSES := {
 	# head_coach.glb in rival crimson (recolor channel) at a smaller h — the away-jersey thesis: he IS
 	# literally another coach. Fought AT-level (16) solo-first: dmgScale is the solo-viability dial
 	# (playtest-tunable), respawnS 600 (a leveling-chain quest boss, not a 30-min endgame event).
+	# NOTE (W5): the Arrowbound Howler took the sideline — this def is kept DORMANT (golden-
+	# fingerprinted, admin-spawnable) like rally_cone; the owner may re-seat it elsewhere later.
 	"rival_coach": {
 		"name": "The Rival Coach", "sport": "", "mob": true, "model": "head_coach", "anim": "boss", "h": 4.2,
 		"lane": 0, "color": "#C43C2E", "recolor": true, "phased": true, "coreCount": 3, "kbImmune": true,
@@ -621,6 +623,36 @@ const CLASSES := {
 	# W4 elite: replaces the away_2 sled anchor (the medic stays — the healer-camp lesson is the
 	# medic's, not the anchor's). Ground Slam mirrors pancakeslam/shockwave; Croak Wave mirrors
 	# ladderlock's pure-slow zone (no dmg — the controller identity). kbImmune like the old anchor.
+	# W5 BOSS (owner decision locked 2026-07-20): the Arrowbound Howler takes the Rival Coach's
+	# sideline. BODY-NUMERIC PARITY with rival_coach on purpose — stats/hpMult/dmgScale/coreShield/
+	# coreCount byte-identical, so the arena keeps its "one tier below the raid" promise. The KIT is
+	# re-seated (hotter P1: zone+pounce+summon), deliberately — the body, not the kit, carries parity.
+	# Teaching subset preserved (stab_away pin 12): phased + threshSummon + coreShield + hazard zone,
+	# NO campreset ult, no respawnS (30-min cadence; the rival_cores keep the 45s shield-down window).
+	# Signature Howl = the FIRST rigged phased boss's summon — the wilds answer the call (skinks).
+	"arrowbound_howler": {
+		"name": "The Arrowbound Howler", "sport": "", "mob": true, "rig": true, "model": "arrowbound_howler", "h": 3.4,
+		"lane": 0, "color": "#7A4FC9", "phased": true, "coreCount": 3, "kbImmune": true,
+		"coreShield": 0.40, "hpMult": 0.6, "dmgScale": 0.6,
+		"plate": "ARROWBOUND HOWLER", "phases": ["PROWL", "HUNT", "FRENZY", "LAST STAND"],
+		"threshSummon": {"mobType": "netvine_skink", "count": 2},   # each phase entry: the wilds answer
+		"stats": {"PWR": 54, "PRE": 32, "SPD": 26, "END": 82, "INS": 28, "CLU": 24},
+		"abilities": [
+			# the signature — listed first (_ab_order tries specials in source order once phase-unlocked)
+			{"key": "sighowl", "name": "Signature Howl", "type": "summon", "mobType": "netvine_skink", "count": 2, "cd": 18.0, "phase": 1},
+			# P0 Prowl
+			{"key": "bite", "name": "Arrowbound Bite", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 70, "phase": 0},
+			{"key": "ripclaw", "name": "Rip Claw", "type": "meleeAoe", "dmg": 42, "cd": 6.0, "radius": 95, "cast": 0.5, "phase": 0},
+			# P1 Hunt — the hazard lesson stays
+			{"key": "huntground", "name": "Hunting Ground", "type": "zone", "cd": 12.0, "radius": 120, "dur": 5.0, "dmg": 8.0, "slow": {"amt": 0.35, "dur": 0.6}, "phase": 1},
+			{"key": "pounce", "name": "Pounce", "type": "dashAttack", "dmg": 74, "cd": 8.0, "dist": 200, "cast": 0.5, "knockback": 90, "wallStun": 1.2, "phase": 1},
+			# P2 Frenzy
+			{"key": "frenzysweep", "name": "Frenzy Sweep", "type": "meleeAoe", "dmg": 54, "cd": 10.0, "radius": 150, "cast": 0.7, "knockback": 55, "phase": 2},
+			# P3 Last Stand
+			{"key": "deathhowl", "name": "Death Howl", "type": "meleeAoe", "dmg": 20, "cd": 8.0, "radius": 130, "stun": 0.9, "cast": 0.4, "phase": 3},
+			{"key": "finishpounce", "name": "Killing Pounce", "type": "meleeAoe", "dmg": 70, "cd": 9.0, "radius": 110, "cast": 0.55, "knockback": 45, "phase": 3},
+		],
+	},
 	# W4b elite (owner accepted the pass-1 animation set 2026-07-20): replaces away_3's ball_machine
 	# slot — the ranged-elite seat. Quill Barrage is the proven spread fan (scatter shape); a mobile
 	# bruiser that closes to melee and unloads point-blank fans. Quills are dorsal, so no frontalDR.

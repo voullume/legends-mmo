@@ -6488,7 +6488,7 @@ func _zone_name(map: String) -> String:
 		"away_1": return "Wildlife Expanse · Overgrown Practice Field"
 		"away_2": return "Wildlife Expanse · Overrun Gauntlet"
 		"away_3": return "Wildlife Expanse · Reclaimed Stadium"
-		"away_boss": return "Wildlife Expanse · Rival Sideline"
+		"away_boss": return "Wildlife Expanse · Howler's Sideline"
 		"finals_1": return "The Finals · Contenders' Quarter"
 		"finals_2": return "The Finals · Champions' Gate"
 		"arena": return "Arena"

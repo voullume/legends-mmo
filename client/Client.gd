@@ -90,7 +90,9 @@ const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"},
 	"scrapmask_forager": {"scrapguard": "attack"},   # guard-up gesture = the claw-rake anticipation pose
 	"rallywing_magpie": {"rallyscreech": "flutter"},  # the screech IS the flutter — the rig's spare accent clip
 	"emerald_warfrog": {"groundslam": "attack_ground_slam", "croakwave": "attack_croak"},  # dedicated elite clips
-	"splinterback_elite": {"quillbarrage": "attack_quill_barrage"}}   # dedicated elite clip
+	"splinterback_elite": {"quillbarrage": "attack_quill_barrage"},   # dedicated elite clip
+	"arrowbound_howler": {"sighowl": "attack_howl", "deathhowl": "attack_howl", "pounce": "attack_pounce",
+		"finishpounce": "attack_pounce", "huntground": "attack"}}   # boss clips (zone = ground-scratch marking read)
 const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
 const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
 # Action clips are authored 2.7–4.3s — far longer than abilities actually fire. Play each one to ~a
@@ -544,9 +546,11 @@ const RIGGED_MOBS := {
 	"rallywing_magpie": {"render_h": 1.867, "foot_y": 0.0},   # wingtips inflate the AABB — def.h compensates
 	"emerald_warfrog": {"render_h": 1.765, "foot_y": 0.0},
 	"splinterback_elite": {"render_h": 1.723, "foot_y": 0.0},
+	"arrowbound_howler": {"render_h": 1.413, "foot_y": 0.0},
 }
 const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death", "cast",
-	"flutter", "attack_ground_slam", "attack_croak", "attack_quill_barrage"]   # extras are exists-guarded per rig (magpie/warfrog/splinterback specials)
+	"flutter", "attack_ground_slam", "attack_croak", "attack_quill_barrage",
+	"attack_howl", "attack_pounce"]   # extras are exists-guarded per rig (magpie/warfrog/splinterback/howler specials)
 
 func _load_rigged_mobs() -> void:
 	for id in RIGGED_MOBS:

@@ -222,8 +222,8 @@ const QUESTS := {
 	# gate (L16 + gear 800): the away chain "graduates" into the shipped raid. Repeat kills also pay Pages
 	# via the server's RIVAL_PAGES hook; this quest is the once-only dye + credits.
 	"rival_down": {
-		"name": "Beat the Rival",
-		"desc": "The Rival Coach waits on his own sideline, behind his power cores. Take the away win — then gear up on his sideline until you hit gear score 800, and report to the Head Coach Arena for the real thing.",
+		"name": "Fell the Howler",
+		"desc": "The Arrowbound Howler — the beast that drove the rival squad from their own sideline — waits behind the power cores. Take it down — then gear up on that sideline until you hit gear score 800, and report to the Head Coach Arena for the real thing.",
 		"min_level": 15, "prereq": "away3_elites",
 		"objective": {"type": "kill", "match": {"map": "away_boss", "tier": "boss"}, "count": 1},
 		"rewards": {"xp": 1600, "credits": 1000, "dye": "rival_crimson"},

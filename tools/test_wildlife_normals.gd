@@ -46,6 +46,17 @@ func _init() -> void:
 		var wbad: bool = ab.has("onKillBuff") or ab.has("onHitSelfShieldPct") or ab.has("dispelBuffs") \
 			or ab.has("selfBuff") or ab.has("aiPressure") or (ab.has("buff") and (ab["buff"] as Dictionary).has("guard"))
 		ok(not wbad, "warfrog/%s: no expansion-only fields" % ab["key"])
+	# W5 boss: howler (rival_coach numeric-parity teaching boss; Signature Howl = drill summon shape)
+	var hw: Dictionary = GameData.CLASSES.get("arrowbound_howler", {})
+	ok(not hw.is_empty() and bool(hw.get("phased", false)) and bool(hw.get("rig", false)) and float(hw.get("coreShield", 0.0)) == 0.4, "howler: phased rigged boss with coreShield 0.40")
+	ok(float(hw.get("hpMult", 0.0)) == 0.6 and float(hw.get("dmgScale", 0.0)) == 0.6, "howler: rival_coach numeric parity (hpMult/dmgScale 0.6)")
+	ok(str((hw.get("threshSummon", {}) as Dictionary).get("mobType", "")) == "netvine_skink", "howler: phase waves summon skinks")
+	var sh: Dictionary = hw["abilities"][0]
+	ok(sh["type"] == "summon" and str(sh["mobType"]) == "netvine_skink" and sh.has("count") and sh.has("cd") and int(sh.get("phase", -1)) >= 1, "howler: Signature Howl is the proven summon shape, phase-gated")
+	var hw_ult := false
+	for ab in hw["abilities"]:
+		if str(ab["type"]) == "campreset": hw_ult = true
+	ok(not hw_ult, "howler: NO campreset ult (teaching-boss promise preserved)")
 	# W4b elite: splinterback (Quill Barrage = ball_machine scatter spread shape)
 	var sb: Dictionary = GameData.CLASSES.get("splinterback_elite", {})
 	ok(not sb.is_empty() and bool(sb.get("mob", false)) and bool(sb.get("rig", false)) and bool(sb.get("kbImmune", false)), "splinterback: def exists, mob+rig+kbImmune")

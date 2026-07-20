@@ -226,28 +226,28 @@ func _run() -> void:
 	var boss = null
 	var cores := 0
 	for f in _mobs_in("away_boss"):
-		if str(f["classId"]) == "rival_coach": boss = f
+		if str(f["classId"]) == "arrowbound_howler": boss = f
 		if str(f["classId"]) == "rival_core": cores += 1
-	ok(boss != null and cores == 3, "away_boss: the Rival Coach + exactly 3 slow-respawn rival cores")
-	ok(str(boss.get("mobTier", "")) == "boss" and int(boss.get("mobLevel", 0)) == 16, "rival_coach: tier boss, level 16")
+	ok(boss != null and cores == 3, "away_boss: the Arrowbound Howler + exactly 3 slow-respawn rival cores (W5)")
+	ok(str(boss.get("mobTier", "")) == "boss" and int(boss.get("mobLevel", 0)) == 16, "arrowbound_howler: tier boss, level 16")
 
 	# ---- 12. the TEACHING SUBSET pin: phased + summon + hazard + cores, but NO camp-reset ult ----
-	var rdef: Dictionary = GameData.CLASSES["rival_coach"]
+	var rdef: Dictionary = GameData.CLASSES["arrowbound_howler"]
 	ok(bool(rdef.get("phased", false)) and rdef.has("threshSummon") and float(rdef.get("coreShield", 0.0)) > 0.0,
-		"rival_coach: phased + threshSummon + coreShield (the teaching primitives)")
+		"arrowbound_howler: phased + threshSummon + coreShield (the teaching primitives)")
 	var has_ult := false
 	var has_zone := false
 	for ab in rdef["abilities"]:
 		if str(ab["type"]) == "campreset": has_ult = true
 		if str(ab["type"]) == "zone": has_zone = true
-	ok(not has_ult, "rival_coach: NO campreset ult — one primitive tier below the raid (the plan's escalation)")
-	ok(has_zone, "rival_coach: carries the hazard-zone lesson")
-	ok(not rdef.has("respawnS"), "rival_coach: keeps the 30-min boss cadence (a 600s cadence made it the game's best farm — review)")
+	ok(not has_ult, "arrowbound_howler: NO campreset ult — one primitive tier below the raid (the plan's escalation)")
+	ok(has_zone, "arrowbound_howler: carries the hazard-zone lesson")
+	ok(not rdef.has("respawnS"), "arrowbound_howler: keeps the 30-min boss cadence (the rival_coach review lesson)")
 	ok(float(GameData.CLASSES["rival_core"].get("respawnS", 0.0)) >= 30.0 and float(GameData.CLASSES["rival_core"].get("respawnS", 0.0)) <= 90.0,
 		"rival_core: the CORES carry the slow respawn (solo can earn the shield-down window; GY raid cores untouched)")
 	ok(not GameData.CLASSES["power_core"].has("respawnS"), "power_core: the GY raid cores keep their shipped 6-s cadence")
-	ok(str(rdef.get("plate", "")) == "RIVAL COACH" and (rdef.get("phases", []) as Array).size() == 4,
-		"rival_coach: carries its own boss-chrome plate + 4 phase names (client reads per-def)")
+	ok(str(rdef.get("plate", "")) == "ARROWBOUND HOWLER" and (rdef.get("phases", []) as Array).size() == 4,
+		"arrowbound_howler: carries its own boss-chrome plate + 4 phase names (client reads per-def)")
 	# PARITY PINS (review): "one tier below the raid" must hold NUMERICALLY — compare the real spawned
 	# fighters (hpMult/dmgScale baked in by _scale_mob). The rival must not out-stat the raid boss.
 	var hc = null
@@ -286,7 +286,7 @@ func _run() -> void:
 	_walk(13, 1920.0, 550.0)                                  # → the Rival Sideline
 	ok(str(srv._session[13]["map"]) == "away_boss", "walk: away_3 boss door → away_boss")
 	var bf = srv._find(vet2["fid"])
-	ok(Vector2(bf["x"] - 620.0, bf["y"] - 410.0).length() > 320.0, "walk: the boss-room arrival is outside the Rival Coach's aggro")
+	ok(Vector2(bf["x"] - 620.0, bf["y"] - 410.0).length() > 320.0, "walk: the boss-room arrival is outside the boss's aggro")
 	_walk(13, 80.0, 410.0)                                    # back → away_3
 	ok(str(srv._session[13]["map"]) == "away_3", "walk: boss room back pad → away_3")
 	var df = srv._find(vet2["fid"])
@@ -339,7 +339,7 @@ func _run() -> void:
 	ok(srv.RIVAL_PAGES > 0, "pages: the Rival Coach kill hook exists (RIVAL_PAGES)")
 	ok(srv.BOUNTY_WEEKLY.has("w_rival"), "bounty: the weekly Away Win exists")
 	ok(Quests.kill_matches({"objective": {"type": "kill", "match": srv.BOUNTY_WEEKLY["w_rival"]["match"], "count": 1}},
-		{"tier": "boss", "map": "away_boss", "class": "rival_coach", "level": 16}), "bounty: w_rival matches the Rival Coach kill")
+		{"tier": "boss", "map": "away_boss", "class": "arrowbound_howler", "level": 16}), "bounty: w_rival matches the away-boss kill")
 
 	# ================================================================ S3 — "The Finals District"
 	# ---- 18. the district boots: rosters + the Gallery's court ----

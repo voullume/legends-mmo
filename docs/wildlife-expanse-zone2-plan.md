@@ -216,6 +216,20 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
 - Stray-fire note (pre-existing, unchanged exposure): missed quills fly up to ~1720u like the old
   turret's scatter did from the same seat.
 
+## W5 COMPLETE (2026-07-20) — THE ROSTER IS DONE: all 7 wildlife mobs live
+
+- The Arrowbound Howler holds the sideline ("Wildlife Expanse · Howler's Sideline"). BODY parity
+  with rival_coach byte-exact (stats/hpMult 0.6/dmgScale 0.6/coreShield 0.40/coreCount 3); the
+  KIT is re-seated (hotter P1: Hunting Ground zone + Pounce + Signature Howl skink-summon;
+  4 phases PROWL/HUNT/FRENZY/LAST STAND). Teaching subset preserved and pinned (no campreset,
+  no respawnS, hazard zone, threshSummon→skinks). RIVAL_PAGES hook retargeted; quest "Fell the
+  Howler" (id/matcher/dye untouched); rival_coach def dormant. First RIGGED phased boss — shield
+  aura/scoreboard def-keyed and confirmed live via a zero-input --shot capture (SHIELDED cue up).
+- Golden 32→33 (chain-proven), identity unchanged (7th consecutive ship), stab 145, normals 55.
+- Engine notes recorded: SUMMON_CAP 3 clamps phase-wave(2)+Howl(2) to 3 live adds (anti-snowball
+  working as designed); per-phase emissive is procedural-boss-only (rigged boss skips it,
+  cosmetic); boss_time stays head_coach-only (deliberate).
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.

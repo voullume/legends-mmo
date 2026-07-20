@@ -24,7 +24,7 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 const AWAY1 := "away_1"                     # Overgrown Practice Field — lvl 9-10 wildlife + the tackle_brute elite (W4 swaps elites)
 const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the warfrog anchor (W4)
 const AWAY3 := "away_3"                     # Reclaimed Stadium   — lvl 15-16 wildlife, the drill_sergeant guards the boss door (S2)
-const AWAY_BOSS := "away_boss"              # Rival Sideline      — THE RIVAL COACH (teaching boss: cores, no ult) (S2)
+const AWAY_BOSS := "away_boss"                 # Howler's Sideline — THE ARROWBOUND HOWLER (teaching boss: cores, no ult) (W5)
 const FINALS1 := "finals_1"                 # Contenders' Quarter — lvl 19-21, behind finals_gate (L17 + IP800) (S3)
 const FINALS2 := "finals_2"                 # Champions' Gate     — lvl 23-25 + THE GRAND GALLERY elite-plus (S3)
 # INSTANCE TEMPLATES (endgame P0+). Never created as a static shared world — the server spins up a private
@@ -195,7 +195,7 @@ const PORTALS := {
 		# every camp by > AGGRO 320 (the lane pairs sit at y 350/650).
 		{"x": 120.0,  "y": 550.0,  "to": AWAY2, "tx": 200.0,  "ty": 560.0, "label": "◀ Overrun Gauntlet"},
 		# the boss door — walk-up (difficulty is the gate; away_gate rides for restore re-validation only)
-		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "away_gate", "label": "▶ Rival Sideline"},
+		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "away_gate", "label": "▶ Howler's Sideline"},
 	],
 	AWAY_BOSS: [
 		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of
@@ -323,7 +323,7 @@ const MOBS := {
 	AWAY_BOSS: [  # Rival Sideline — the teaching boss: 3 SLOW-respawn cores shield it (0.40 DR), NO ult.
 		# rival_core (respawnS 45, lvl 10) — a solo rotation can genuinely earn the shield-down window;
 		# the GY raid's 6-s power_core cadence would keep the boolean shield permanently up on a soloist.
-		{"class": "rival_coach", "level": 16, "tier": "boss",   "x": 620.0, "y": 410.0},
+		{"class": "arrowbound_howler", "level": 16, "tier": "boss", "x": 620.0, "y": 410.0},   # W5: the Howler took the sideline (numeric parity with the rival)
 		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 450.0, "y": 300.0},
 		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 790.0, "y": 300.0},
 		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 620.0, "y": 560.0},
