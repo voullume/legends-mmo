@@ -4112,6 +4112,22 @@ func _build_hotbar(class_id: String) -> void:
 		bsb.set_corner_radius_all(7)
 		bg.add_theme_stylebox_override("panel", bsb)
 		slot.add_child(bg)
+		# full-color ability painting (AbilityIcons, client presentation only) — added right after
+		# bg so every state overlay (cooldown wipe, keycap, seconds, ready tick, lock) draws above
+		# it; authored color is preserved (no modulation — slot chrome carries the role colors)
+		var tex := AbilityIcons.texture(class_id, str(ab["key"]))
+		if tex != null:
+			var art := TextureRect.new()
+			# expand mode FIRST: with the default (KEEP_SIZE) the 256px texture inflates the
+			# control's minimum, and a plain-Control parent never re-lays it back down to 54px
+			art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			art.texture = tex
+			art.position = Vector2(3, 3)         # 3px inset inside the 60px slot
+			art.size = Vector2(54, 54)
+			slot.add_child(art)
 		var cd := ColorRect.new()                # cooldown wipe (dark, height = cd fraction)
 		cd.color = Color(0, 0, 0, 0.62)
 		cd.position = Vector2(1, 1)
@@ -4135,25 +4151,26 @@ func _build_hotbar(class_id: String) -> void:
 		kl.add_theme_color_override("font_color", Palette.SB_CYAN)
 		cap.add_child(kl)
 		slot.add_child(cap)
-		var nl := Label.new()                    # ability name (small, wrapped, auto-fit ≤2 lines)
-		nl.text = str(ab["name"])
-		nl.position = Vector2(3, 30)
-		nl.size = Vector2(54, 28)
-		nl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		nl.clip_text = true                      # never bleed outside the slot at any size
-		# v1.7.0's longer names ("Punching Save", "Claim the Crowd") overflowed the 54×28 budget at
-		# font 10 — shrink per slot until the wrapped block fits (display aliases were rejected:
-		# ability keys/names are pinned by tests and owner-facing docs)
-		var nfont := nl.get_theme_font("font")
-		var nfs := 10
-		while nfs > 7:
-			var nsz := nfont.get_multiline_string_size(nl.text, HORIZONTAL_ALIGNMENT_LEFT, 54.0, nfs)
-			if nsz.x <= 54.0 and nsz.y <= 28.0:
-				break
-			nfs -= 1
-		nl.add_theme_font_size_override("font_size", nfs)
-		nl.add_theme_color_override("font_color", Palette.TEXT)
-		slot.add_child(nl)
+		if tex == null:                          # missing art → the readable name fallback, never an empty slot
+			var nl := Label.new()                # ability name (small, wrapped, auto-fit ≤2 lines)
+			nl.text = str(ab["name"])
+			nl.position = Vector2(3, 30)
+			nl.size = Vector2(54, 28)
+			nl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			nl.clip_text = true                  # never bleed outside the slot at any size
+			# v1.7.0's longer names ("Punching Save", "Claim the Crowd") overflowed the 54×28 budget at
+			# font 10 — shrink per slot until the wrapped block fits (display aliases were rejected:
+			# ability keys/names are pinned by tests and owner-facing docs)
+			var nfont := nl.get_theme_font("font")
+			var nfs := 10
+			while nfs > 7:
+				var nsz := nfont.get_multiline_string_size(nl.text, HORIZONTAL_ALIGNMENT_LEFT, 54.0, nfs)
+				if nsz.x <= 54.0 and nsz.y <= 28.0:
+					break
+				nfs -= 1
+			nl.add_theme_font_size_override("font_size", nfs)
+			nl.add_theme_color_override("font_color", Palette.TEXT)
+			slot.add_child(nl)
 		var cs := Label.new()                    # cooldown seconds (center)
 		cs.position = Vector2(0, 18)
 		cs.size = Vector2(60, 24)
