@@ -317,7 +317,7 @@ const MOBS := {
 		{"class": "rallywing_magpie",  "level": 15, "tier": "minion", "x": 520.0,  "y": 380.0},
 		{"class": "netvine_skink",     "level": 15, "tier": "minion", "x": 520.0,  "y": 720.0},
 		{"class": "scrapmask_forager", "level": 15, "tier": "minion", "x": 1000.0, "y": 380.0},
-		{"class": "ball_machine",   "level": 15, "tier": "elite",  "x": 1000.0, "y": 720.0},
+		{"class": "splinterback_elite", "level": 15, "tier": "elite", "x": 1000.0, "y": 720.0},   # W4b: the quill-back takes the ranged-elite seat
 		{"class": "drill_sergeant", "level": 16, "tier": "elite",  "x": 1700.0, "y": 550.0},   # the boss-door guard (220 from the pad — jukeable)
 	],
 	AWAY_BOSS: [  # Rival Sideline — the teaching boss: 3 SLOW-respawn cores shield it (0.40 DR), NO ult.

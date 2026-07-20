@@ -46,12 +46,21 @@ func _init() -> void:
 		var wbad: bool = ab.has("onKillBuff") or ab.has("onHitSelfShieldPct") or ab.has("dispelBuffs") \
 			or ab.has("selfBuff") or ab.has("aiPressure") or (ab.has("buff") and (ab["buff"] as Dictionary).has("guard"))
 		ok(not wbad, "warfrog/%s: no expansion-only fields" % ab["key"])
+	# W4b elite: splinterback (Quill Barrage = ball_machine scatter spread shape)
+	var sb: Dictionary = GameData.CLASSES.get("splinterback_elite", {})
+	ok(not sb.is_empty() and bool(sb.get("mob", false)) and bool(sb.get("rig", false)) and bool(sb.get("kbImmune", false)), "splinterback: def exists, mob+rig+kbImmune")
+	var qb: Dictionary = sb["abilities"][1]
+	ok(qb["type"] == "spread" and qb.has("count") and qb.has("arc") and qb.has("range") and qb.has("speed"), "splinterback: quill barrage is the proven spread shape")
+	for ab in sb["abilities"]:
+		var sbad: bool = ab.has("onKillBuff") or ab.has("onHitSelfShieldPct") or ab.has("dispelBuffs") \
+			or ab.has("selfBuff") or ab.has("aiPressure") or (ab.has("buff") and (ab["buff"] as Dictionary).has("guard"))
+		ok(not sbad, "splinterback/%s: no expansion-only fields" % ab["key"])
 
-	# --- current away spawn tables (W3 normals + W4 warfrog anchor) -------------------------------
+	# --- current away spawn tables (W3 normals + W4 warfrog + W4b splinterback) --------------------
 	var want := {
 		"away_1": {"netvine_skink": 2, "tacklehorn_grazer": 2, "tackle_brute": 1},
 		"away_2": {"scrapmask_forager": 2, "tacklehorn_grazer": 1, "rallywing_magpie": 1, "field_medic": 1, "emerald_warfrog": 1},
-		"away_3": {"rallywing_magpie": 1, "netvine_skink": 1, "scrapmask_forager": 1, "ball_machine": 1, "drill_sergeant": 1},
+		"away_3": {"rallywing_magpie": 1, "netvine_skink": 1, "scrapmask_forager": 1, "splinterback_elite": 1, "drill_sergeant": 1},
 	}
 	for zone in want:
 		var counts := {}

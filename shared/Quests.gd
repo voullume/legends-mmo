@@ -212,7 +212,7 @@ const QUESTS := {
 	},
 	"away3_elites": {
 		"name": "Clear the Door",
-		"desc": "A leftover Ball Machine rakes the floor and the rivals' Drill Sergeant still guards the sideline door. Bring down 2 of the Stadium's elites.",
+		"desc": "A quill-backed Splinterback prowls the floor and the rivals' Drill Sergeant still guards the sideline door. Bring down 2 of the Stadium's elites.",
 		"min_level": 14, "prereq": "away3_stadium",
 		"objective": {"type": "kill", "match": {"map": "away_3", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 1200, "credits": 700, "tokens": 35,

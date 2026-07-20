@@ -202,6 +202,20 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
 - W4b when the splinterback hold lifts: away_3 ball_machine slot; MUST also add
   attack_quill_barrage to RIGGED_ROLES + ANIM_OVERRIDE (same for howler's howl/pounce at W5).
 
+## W4b COMPLETE (2026-07-20) — splinterback live; ALL 6 approved wildlife mobs shipped
+
+- Owner accepted the pass-1 animation set; splinterback_elite replaces ball_machine in away_3
+  (ball_machine keeps GY4/GY5). Head Slam melee + Quill Barrage spread (scatter shape, wobble
+  rider deliberately dropped — no-control bruiser identity); kbImmune mobile chaser. Golden
+  31→32 (chain-proven); identity unchanged (6th ship). Commit `b00510a`, shipped v1.9.2.
+- **Owner feel-pass notes (from review)**: away_3 elite TTK +30% but facetank DPS −24% and ALL
+  control pressure gone (the turret's wobble/stun riders); the zone loses its dodging-turret-fire
+  teaching texture (splinterback is slower than every class — ranged players kill it risk-free);
+  a chaser at 1000,720 can now be dragged ~720u east into the drill_sergeant door guard for a
+  double-elite pull (the turret never could). All deliberate identity trades — confirm in play.
+- Stray-fire note (pre-existing, unchanged exposure): missed quills fly up to ~1720u like the old
+  turret's scatter did from the same seat.
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.

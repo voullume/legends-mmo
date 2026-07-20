@@ -621,6 +621,18 @@ const CLASSES := {
 	# W4 elite: replaces the away_2 sled anchor (the medic stays — the healer-camp lesson is the
 	# medic's, not the anchor's). Ground Slam mirrors pancakeslam/shockwave; Croak Wave mirrors
 	# ladderlock's pure-slow zone (no dmg — the controller identity). kbImmune like the old anchor.
+	# W4b elite (owner accepted the pass-1 animation set 2026-07-20): replaces away_3's ball_machine
+	# slot — the ranged-elite seat. Quill Barrage is the proven spread fan (scatter shape); a mobile
+	# bruiser that closes to melee and unloads point-blank fans. Quills are dorsal, so no frontalDR.
+	"splinterback_elite": {
+		"name": "Splinterback", "sport": "", "mob": true, "rig": true, "model": "splinterback_elite", "h": 2.9,
+		"lane": 0, "color": "#B08A4F", "kbImmune": true,
+		"stats": {"PWR": 54, "PRE": 34, "SPD": 34, "END": 72, "INS": 22, "CLU": 18},
+		"abilities": [
+			{"key": "headslam", "name": "Head Slam", "type": "melee", "basic": true, "dmg": 42, "cd": 1.5, "range": 66},
+			{"key": "quillbarrage", "name": "Quill Barrage", "type": "spread", "dmg": 30, "count": 5, "arc": 0.85, "cd": 8.0, "range": 300, "speed": 430},
+		],
+	},
 	"emerald_warfrog": {
 		"name": "Emerald Warfrog", "sport": "", "mob": true, "rig": true, "model": "emerald_warfrog", "h": 3.0,
 		"lane": 0, "color": "#2E9E63", "kbImmune": true,
