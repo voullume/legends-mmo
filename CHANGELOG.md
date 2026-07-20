@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.8.4 — 2026-07-20
+
+- Netvine Skink vertical slice, ships dark (Wildlife Expanse W2) — admin-spawn only, no player-visible change
+
+_(rolls up commits since the previous tag; base ac66b35)_
+
 ## v1.8.3 — 2026-07-20
 
 - 64 full-color ability icons on all 8 class hotbars (client-only); rolls up the Quest Giver/Journal live-refresh fix
