@@ -194,7 +194,7 @@ const QUESTS := {
 	},
 	"away2_medics": {
 		"name": "Cut the Support",
-		"desc": "The rival stragglers hold the Gauntlet: their Field Medic keeps the line standing and their Blocking Sled anchors it. Bring down 2 elites.",
+		"desc": "The rival stragglers' Field Medic keeps the Gauntlet's line standing — and a massive Emerald Warfrog has claimed the east anchor. Bring down 2 elites.",
 		"min_level": 11, "prereq": "away2_gauntlet",
 		"objective": {"type": "kill", "match": {"map": "away_2", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 800, "credits": 500, "tokens": 35},

@@ -48,7 +48,7 @@ func _run() -> void:
 	var elites2 := 0
 	for f in m2:
 		if str(f.get("mobTier", "")) == "elite": elites2 += 1
-	ok(elites2 == 2, "away_2: exactly 2 elites (medic + sled)")
+	ok(elites2 == 2, "away_2: exactly 2 elites (medic + warfrog, W4)")
 	for f in m1 + m2:
 		ok(GameData.CLASSES.has(str(f["classId"])), "def exists: %s" % f["classId"])
 		if not GameData.CLASSES.has(str(f["classId"])): break

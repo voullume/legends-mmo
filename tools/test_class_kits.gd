@@ -15,12 +15,12 @@ const Abilities = preload("res://shared/Abilities.gd")
 const AI = preload("res://shared/AI.gd")
 const Rng = preload("res://shared/Rng.gd")
 
-# Fingerprint of every mob:true CLASSES entry. Baseline moved 2026-07-20 (W3): +tacklehorn_grazer
-# +scrapmask_forager +rallywing_magpie (Wildlife Expanse normals; W2 added netvine_skink). Each
-# rebase proved the prior set byte-identical first (W3: hash minus the 3 new == 4135971324 (W2);
-# W2: hash minus netvine_skink == 578105494 (pre-expansion)).
-const MOB_GOLDEN_COUNT := 30
-const MOB_GOLDEN_HASH := 2466136904
+# Fingerprint of every mob:true CLASSES entry. Baseline moved 2026-07-20 (W4): +emerald_warfrog
+# (W3 added the 3 normals, W2 netvine_skink). Each rebase proved the prior set byte-identical
+# first (W4: hash minus warfrog == 2466136904 (W3); W3 minus the 3 == 4135971324 (W2); W2 minus
+# skink == 578105494 (pre-expansion)).
+const MOB_GOLDEN_COUNT := 31
+const MOB_GOLDEN_HASH := 2727547741
 
 const DT := 1.0 / 30.0
 

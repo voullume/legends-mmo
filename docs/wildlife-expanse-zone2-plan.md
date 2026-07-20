@@ -185,6 +185,23 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   ("Away Captain's Badge", "Rival Playmaker's Glove") — granted copies keep old names forever if
   renamed later; decide at W4/W5.
 
+## W4 COMPLETE (2026-07-20) — warfrog anchor live (splinterback still HELD → W4b)
+
+- emerald_warfrog replaces sled_juggernaut in away_2's east-anchor slot (same position/level/
+  tier; field_medic KEPT — the healer lesson is the medic's). Kit: Swipe melee + Ground Slam
+  meleeAoe(kb) + Croak Wave pure-slow zone (ladderlock shape; opens pulls from range — the
+  drill_sergeant zone precedent). kbImmune, NO frontalDR (controller identity, not a wall).
+  Review-driven END 78→86 for raw-pool parity with the old sled.
+- Golden 30→31 (subset-proven); bal_identity unchanged (5th ship); stab_away 145; normals test
+  46 (warfrog shape checks). Multi-attack clip roles (attack_ground_slam/attack_croak) added to
+  RIGGED_ROLES exists-guarded.
+- **Owner feel-pass items**: the anchor is deliberately softer front-on than the sled
+  (frontalDR gone: ~-58% effective frontal HP, DPS -33%, offset by +11% ms + slow control +
+  burst) — away2_medics/d_gauntlet complete faster; confirm the trade feels right. Warfrog
+  death anim is the weakest of the set (W1 note) — pass-3 candidate.
+- W4b when the splinterback hold lifts: away_3 ball_machine slot; MUST also add
+  attack_quill_barrage to RIGGED_ROLES + ANIM_OVERRIDE (same for howler's howl/pounce at W5).
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.

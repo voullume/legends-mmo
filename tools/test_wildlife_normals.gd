@@ -1,5 +1,5 @@
 extends SceneTree
-## W3 roster-swap sim test (docs/wildlife-expanse-zone2-plan.md): the three new normals run the
+## W3/W4 roster sim test (docs/wildlife-expanse-zone2-plan.md): the wildlife normals + elite run the
 ## deterministic engine correctly — def shapes stay inside mob-proven ability schemas, every
 ## special casts, the magpie's Rally Screech actually shields an ally, fights terminate, and
 ## replays are byte-identical. Also pins the away-zone spawn tables to the W3 wildlife roster.
@@ -21,7 +21,7 @@ func ok(cond: bool, what: String) -> void:
 		print("  FAIL: %s" % what)
 
 func _init() -> void:
-	print("== wildlife normals (W3) sim test ==")
+	print("== wildlife normals + elite (W3/W4) sim test ==")
 	# --- def shapes: mob-proven schemas only -----------------------------------------------------
 	for id in ["tacklehorn_grazer", "scrapmask_forager", "rallywing_magpie"]:
 		var d: Dictionary = GameData.CLASSES.get(id, {})
@@ -35,18 +35,29 @@ func _init() -> void:
 	ok((GameData.CLASSES["scrapmask_forager"]["abilities"][1] as Dictionary)["type"] == "selfbuff", "forager: guard is selfbuff")
 	var rs: Dictionary = GameData.CLASSES["rallywing_magpie"]["abilities"][1]
 	ok(rs["type"] == "allybuff" and rs.has("shieldPct") and rs.has("dur"), "magpie: screech is the field_medic allybuff shape")
+	# W4 elite: warfrog shapes (Ground Slam = pancakeslam/shockwave meleeAoe; Croak Wave = ladderlock zone)
+	var wf: Dictionary = GameData.CLASSES.get("emerald_warfrog", {})
+	ok(not wf.is_empty() and bool(wf.get("mob", false)) and bool(wf.get("rig", false)) and bool(wf.get("kbImmune", false)), "warfrog: def exists, mob+rig+kbImmune")
+	var gs: Dictionary = wf["abilities"][1]
+	ok(gs["type"] == "meleeAoe" and gs.has("radius") and gs.has("cast") and gs.has("knockback"), "warfrog: ground slam is the proven meleeAoe shape")
+	var cw: Dictionary = wf["abilities"][2]
+	ok(cw["type"] == "zone" and cw.has("radius") and cw.has("dur") and (cw["slow"] as Dictionary).has("amt") and not cw.has("dmg"), "warfrog: croak wave is the ladderlock pure-slow zone shape")
+	for ab in wf["abilities"]:
+		var wbad: bool = ab.has("onKillBuff") or ab.has("onHitSelfShieldPct") or ab.has("dispelBuffs") \
+			or ab.has("selfBuff") or ab.has("aiPressure") or (ab.has("buff") and (ab["buff"] as Dictionary).has("guard"))
+		ok(not wbad, "warfrog/%s: no expansion-only fields" % ab["key"])
 
-	# --- W3 spawn tables -------------------------------------------------------------------------
+	# --- current away spawn tables (W3 normals + W4 warfrog anchor) -------------------------------
 	var want := {
 		"away_1": {"netvine_skink": 2, "tacklehorn_grazer": 2, "tackle_brute": 1},
-		"away_2": {"scrapmask_forager": 2, "tacklehorn_grazer": 1, "rallywing_magpie": 1, "field_medic": 1, "sled_juggernaut": 1},
+		"away_2": {"scrapmask_forager": 2, "tacklehorn_grazer": 1, "rallywing_magpie": 1, "field_medic": 1, "emerald_warfrog": 1},
 		"away_3": {"rallywing_magpie": 1, "netvine_skink": 1, "scrapmask_forager": 1, "ball_machine": 1, "drill_sergeant": 1},
 	}
 	for zone in want:
 		var counts := {}
 		for row in World.MOBS[zone]:
 			counts[row["class"]] = int(counts.get(row["class"], 0)) + 1
-		ok(counts == want[zone], "%s roster matches W3 plan (%s)" % [zone, counts])
+		ok(counts == want[zone], "%s roster matches the plan (%s)" % [zone, counts])
 		for row in World.MOBS[zone]:
 			ok(GameData.CLASSES.has(str(row["class"])), "%s: def exists for %s" % [zone, row["class"]])
 

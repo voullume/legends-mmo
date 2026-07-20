@@ -22,7 +22,7 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 # THE AWAY CIRCUIT (gameplay-length Phase 8, plan: docs/phase8-away-circuit-plan.md) — the second biome:
 # an "away games" chain for the 9-16 band, branched off HOME's north edge behind the away_gate (lvl 8).
 const AWAY1 := "away_1"                     # Overgrown Practice Field — lvl 9-10 wildlife + the tackle_brute elite (W4 swaps elites)
-const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the sled
+const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the warfrog anchor (W4)
 const AWAY3 := "away_3"                     # Reclaimed Stadium   — lvl 15-16 wildlife, the drill_sergeant guards the boss door (S2)
 const AWAY_BOSS := "away_boss"              # Rival Sideline      — THE RIVAL COACH (teaching boss: cores, no ult) (S2)
 const FINALS1 := "finals_1"                 # Contenders' Quarter — lvl 19-21, behind finals_gate (L17 + IP800) (S3)
@@ -311,7 +311,7 @@ const MOBS := {
 		{"class": "rallywing_magpie",  "level": 13, "tier": "minion", "x": 980.0,  "y": 350.0},
 		{"class": "scrapmask_forager", "level": 12, "tier": "minion", "x": 980.0,  "y": 650.0},
 		{"class": "field_medic",     "level": 12, "tier": "elite",  "x": 1240.0, "y": 650.0},
-		{"class": "sled_juggernaut", "level": 13, "tier": "elite",  "x": 1580.0, "y": 420.0},   # east anchor — ≥200 from the fwd pad (jukeable, the shipped grammar)
+		{"class": "emerald_warfrog", "level": 13, "tier": "elite",  "x": 1580.0, "y": 420.0},   # W4: the warfrog takes the east-anchor slot (≥200 from the fwd pad — jukeable, the shipped grammar)
 	],
 	AWAY3: [  # Reclaimed Stadium — the chain's last field zone; the drill_sergeant guards the boss door
 		{"class": "rallywing_magpie",  "level": 15, "tier": "minion", "x": 520.0,  "y": 380.0},

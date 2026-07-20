@@ -618,6 +618,19 @@ const CLASSES := {
 			{"key": "rallyscreech", "name": "Rally Screech", "type": "allybuff", "targetType": "ally", "shieldPct": 0.12, "dur": 3.0, "cd": 9.0},
 		],
 	},
+	# W4 elite: replaces the away_2 sled anchor (the medic stays — the healer-camp lesson is the
+	# medic's, not the anchor's). Ground Slam mirrors pancakeslam/shockwave; Croak Wave mirrors
+	# ladderlock's pure-slow zone (no dmg — the controller identity). kbImmune like the old anchor.
+	"emerald_warfrog": {
+		"name": "Emerald Warfrog", "sport": "", "mob": true, "rig": true, "model": "emerald_warfrog", "h": 3.0,
+		"lane": 0, "color": "#2E9E63", "kbImmune": true,
+		"stats": {"PWR": 56, "PRE": 30, "SPD": 30, "END": 86, "INS": 24, "CLU": 18},   # END 86: raw-pool parity with the old sled anchor (its frontalDR is deliberately NOT inherited — controller, not wall)
+		"abilities": [
+			{"key": "swipe", "name": "Swipe", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 64},
+			{"key": "groundslam", "name": "Ground Slam", "type": "meleeAoe", "dmg": 58, "cd": 9.0, "radius": 100, "cast": 0.55, "knockback": 60},
+			{"key": "croakwave", "name": "Croak Wave", "type": "zone", "cd": 12.0, "radius": 110, "dur": 4.0, "slow": {"amt": 0.30, "dur": 0.6}},
+		],
+	},
 }
 
 # --- Bracket tuning: per-format dmg/hp/ms multipliers (5v5 is baseline) ---
