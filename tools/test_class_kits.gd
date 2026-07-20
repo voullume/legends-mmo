@@ -15,10 +15,11 @@ const Abilities = preload("res://shared/Abilities.gd")
 const AI = preload("res://shared/AI.gd")
 const Rng = preload("res://shared/Rng.gd")
 
-# Fingerprint of every mob:true CLASSES entry at the pre-expansion baseline (2026-07-15). The
-# expansion must not touch a single mob field — recompute and compare (see _mob_signature).
-const MOB_GOLDEN_COUNT := 26
-const MOB_GOLDEN_HASH := 578105494
+# Fingerprint of every mob:true CLASSES entry. Baseline moved 2026-07-20 (W2): +netvine_skink
+# (Wildlife Expanse vertical slice) — the prior 26 defs were verified byte-identical to the old
+# golden 578105494 before rebasing (hash of the set minus netvine_skink still equals it).
+const MOB_GOLDEN_COUNT := 27
+const MOB_GOLDEN_HASH := 4135971324
 
 const DT := 1.0 / 30.0
 
@@ -621,7 +622,7 @@ func _t_mob_freeze() -> void:
 	print("[mob freeze]")
 	var sig := _mob_signature()
 	ok(sig["count"] == MOB_GOLDEN_COUNT, "still %d mob defs (got %d)" % [MOB_GOLDEN_COUNT, sig["count"]])
-	ok(sig["hash"] == MOB_GOLDEN_HASH, "mob defs byte-identical to the pre-expansion golden")
+	ok(sig["hash"] == MOB_GOLDEN_HASH, "mob defs byte-identical to the current golden (rebased 2026-07-20, +netvine_skink)")
 	var clean := true
 	for k in GameData.CLASSES:
 		if not GameData.CLASSES[k].get("mob", false):

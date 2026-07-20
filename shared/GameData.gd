@@ -573,6 +573,19 @@ const CLASSES := {
 		"stats": {"PWR": 1, "PRE": 1, "SPD": 1, "END": 44, "INS": 1, "CLU": 1},
 		"abilities": [],
 	},
+	# ── Wildlife Expanse mobs (Zone-2 re-roster, docs/wildlife-expanse-zone2-plan.md) — the owner's
+	# rigged quadruped GLBs staged in W1 (models/meshy/mobs/rigged/ + clips/). Kits reuse ONLY ability
+	# types already proven on mobs (no new sim rng). W2 ships DARK: no World.MOBS rows until W3, so
+	# nothing spawns for players — the F1 admin "Spawn Skink" button is the sole way in.
+	"netvine_skink": {
+		"name": "Netvine Skink", "sport": "", "mob": true, "rig": true, "model": "netvine_skink", "h": 1.7,
+		"lane": 0, "color": "#7FA65A",
+		"stats": {"PWR": 36, "PRE": 34, "SPD": 66, "END": 30, "INS": 22, "CLU": 16},
+		"abilities": [
+			{"key": "vinelash", "name": "Vine Lash", "type": "melee", "basic": true, "dmg": 30, "cd": 1.2, "range": 56},
+			{"key": "netsnare", "name": "Net Snare", "type": "projectile", "dmg": 26, "cd": 7.0, "range": 240, "speed": 380, "slow": {"amt": 0.35, "dur": 1.5}},
+		],
+	},
 }
 
 # --- Bracket tuning: per-format dmg/hp/ms multipliers (5v5 is baseline) ---

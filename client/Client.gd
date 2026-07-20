@@ -85,7 +85,8 @@ const BOTS := ["linebacker", "setter"]
 
 # Meshy clip-name map (sport → renderer anim roles). Soccer throws by kicking.
 # Per-ability clip overrides (classId → {ability key → clip name}), beyond the by-type default.
-const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"}}
+const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"},
+	"netvine_skink": {"netsnare": "attack"}}   # net throw reuses the forelimb-sweep clip (no ranged clip on the rig)
 const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
 const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
 # Action clips are authored 2.7–4.3s — far longer than abilities actually fire. Play each one to ~a
@@ -523,13 +524,17 @@ func _make_core_kit(def: Dictionary) -> Dictionary:
 	return {"model": pivot, "anim": null, "anims": {}, "scale": 1.0,
 		"mob": "core", "animTarget": anim_node, "baseY": 0.0, "sizeY": h}
 
-# Rigged mobs (the foam dummies): Meshy biped exports with real skeletal clips. render_h = the rendered
-# mesh height at model-scale 1 (≈ skeleton bone-extent × ~1.07), foot_y = the foot-bone Y at scale 1 —
-# both measured offline (tools/smoke_rigged.gd) so scale-to-height + grounding need no runtime posing.
+# Rigged mobs: skeletal GLBs with real clips. render_h = the rendered mesh height at model-scale 1,
+# foot_y = the lowest-point Y at scale 1 — both measured offline (tools/smoke_rigged.gd) so
+# scale-to-height + grounding need no runtime posing. Meshy biped exports (foam dummies/drill) were
+# measured via bone-extent ×~1.07 (their 0.01 armature scale defeats mesh AABBs); Blender true-scale
+# wildlife rigs use the mesh-AABB column directly.
 const RIGGED_MOBS := {
 	"foam_dummy":  {"render_h": 1.31, "foot_y": 0.075},
 	"foam_dummy2": {"render_h": 1.45, "foot_y": 0.0},   # this model's sole sits at the mesh origin (no drop)
 	"drill_sergeant": {"render_h": 1.71, "foot_y": 0.03},   # Devil Drill Sergeant (also has a cast/shout clip)
+	# Wildlife Expanse (Blender true-scale quadruped rigs — mesh-AABB measured, feet authored at y=0)
+	"netvine_skink": {"render_h": 0.927, "foot_y": 0.0},
 }
 const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death", "cast"]
 

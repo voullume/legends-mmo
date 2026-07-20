@@ -4862,7 +4862,7 @@ func _build_admin_panel() -> void:
 		["Items", [["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}]], 2],
 		["Survival", [["God Mode", "god", {}], ["Heal", "heal", {}]], 2],
 		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}], ["AW1", "goto", {"map": "away_1"}], ["AW2", "goto", {"map": "away_2"}], ["AW3", "goto", {"map": "away_3"}], ["RIVAL", "goto", {"map": "away_boss"}], ["FIN1", "goto", {"map": "finals_1"}], ["FIN2", "goto", {"map": "finals_2"}]], 4],
-		["Mobs", [["Spawn Mob", "spawn_mob", {"level": 3}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}]], 3],
+		["Mobs", [["Spawn Mob", "spawn_mob", {"level": 3}], ["Spawn Skink", "spawn_mob", {"class": "netvine_skink", "level": 3, "tier": "minion"}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}]], 3],
 	]
 	for grp in groups:
 		vb.add_child(Widgets.section(str(grp[0])))
