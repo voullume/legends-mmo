@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.9.0 — 2026-07-20
+
+- Wildlife Expanse: the away zones' camps are now wild creatures (netvine skink, tacklehorn grazer, scrapmask forager, rallywing magpie) with new attack mechanics; zones re-themed. Update your client — old clients show placeholder capsules for the new creatures.
+
+_(rolls up commits since the previous tag; base 04f2a7e)_
+
 ## v1.8.4 — 2026-07-20
 
 - Netvine Skink vertical slice, ships dark (Wildlife Expanse W2) — admin-spawn only, no player-visible change
