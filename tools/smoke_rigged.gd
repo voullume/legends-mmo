@@ -36,11 +36,17 @@ func _init() -> void:
 		var meshes := []
 		_find_all(inst, MeshInstance3D, Transform3D.IDENTITY, meshes)
 		var mesh_h := 0.0
+		var mesh_min := INF
 		for pair in meshes:
 			var aabb: AABB = (pair[0] as MeshInstance3D).get_aabb()
 			for i in 8:
 				var p: Vector3 = pair[1] * aabb.get_endpoint(i)
 				mesh_h = maxf(mesh_h, p.y)
+				mesh_min = minf(mesh_min, p.y)
+		# W3 hardening (review note): the wildlife foot_y=0.0 assumption rests on min-Y ≈ 0 — surface
+		# a re-export that moves the feet instead of silently corrupting render_h/foot_y.
+		if mesh_min < -0.02 or mesh_min > 0.05:
+			print("  ^ WARNING %s: mesh min-Y %.3f != 0 — foot_y assumption broken, re-measure!" % [id, mesh_min])
 		if skels.is_empty():
 			print("%-22s NO SKELETON (meshAABB_h=%.3f)" % [id, mesh_h]); inst.queue_free(); continue
 		var lo := INF

@@ -482,6 +482,8 @@ const CLASSES := {
 	# --- Phase 8 (the Away Circuit, docs/phase8-away-circuit-plan.md): rival-team minions for the 9-16 band.
 	# Same P3a recolor grammar (existing GLBs + the dye channel) and only shipped/AI-proven ability types +
 	# field shapes (allybuff mirrors field_medic's extrapads; projectile slow rides the generic Sim.gd:180 path).
+	# NOTE (W3): rally_cone's last spawn rows were swapped out by the wildlife roster — the def is
+	# kept DORMANT (golden-fingerprinted, admin-spawnable; Drill-pool candidate) like rival_coach at W5.
 	"rally_cone": {
 		"name": "Rally Cone", "sport": "", "mob": true, "model": "cone", "anim": "cone", "h": 1.5,
 		"lane": 0, "color": "#E0433D", "recolor": true,
@@ -584,6 +586,36 @@ const CLASSES := {
 		"abilities": [
 			{"key": "vinelash", "name": "Vine Lash", "type": "melee", "basic": true, "dmg": 30, "cd": 1.2, "range": 56},
 			{"key": "netsnare", "name": "Net Snare", "type": "projectile", "dmg": 26, "cd": 7.0, "range": 240, "speed": 380, "slow": {"amt": 0.35, "dur": 1.5}},
+		],
+	},
+	# W3 normals (roster swap, away_1-3 minion rows). Charge mirrors the sled's driveblock (lighter);
+	# Scrap Guard mirrors the proven dr/dur selfbuff shape (no aiPressure — mob-freeze rule); Rally
+	# Screech is byte-shaped on field_medic's extrapads allybuff (the mob-proven support primitive).
+	"tacklehorn_grazer": {
+		"name": "Tacklehorn Grazer", "sport": "", "mob": true, "rig": true, "model": "tacklehorn_grazer", "h": 2.6,
+		"lane": 0, "color": "#C9A15A",
+		"stats": {"PWR": 52, "PRE": 26, "SPD": 40, "END": 60, "INS": 20, "CLU": 16},
+		"abilities": [
+			{"key": "hornjab", "name": "Horn Jab", "type": "melee", "basic": true, "dmg": 36, "cd": 1.4, "range": 62},
+			{"key": "tacklecharge", "name": "Tacklehorn Charge", "type": "dashAttack", "dmg": 52, "cd": 7.5, "dist": 175, "cast": 0.45, "knockback": 70, "wallStun": 1.2},
+		],
+	},
+	"scrapmask_forager": {
+		"name": "Scrapmask Forager", "sport": "", "mob": true, "rig": true, "model": "scrapmask_forager", "h": 1.9,
+		"lane": 0, "color": "#8B7A5E",
+		"stats": {"PWR": 42, "PRE": 32, "SPD": 52, "END": 44, "INS": 24, "CLU": 20},
+		"abilities": [
+			{"key": "clawrake", "name": "Claw Rake", "type": "melee", "basic": true, "dmg": 32, "cd": 1.25, "range": 56},
+			{"key": "scrapguard", "name": "Scrap Guard", "type": "selfbuff", "cd": 11.0, "buff": {"dr": 0.30, "dur": 2.5}},
+		],
+	},
+	"rallywing_magpie": {
+		"name": "Rallywing Magpie", "sport": "", "mob": true, "rig": true, "model": "rallywing_magpie", "h": 2.1,
+		"lane": 0, "color": "#4FC3E8",
+		"stats": {"PWR": 34, "PRE": 42, "SPD": 62, "END": 36, "INS": 32, "CLU": 22},
+		"abilities": [
+			{"key": "beakpeck", "name": "Beak Peck", "type": "melee", "basic": true, "dmg": 28, "cd": 1.2, "range": 54},
+			{"key": "rallyscreech", "name": "Rally Screech", "type": "allybuff", "targetType": "ally", "shieldPct": 0.12, "dur": 3.0, "cd": 9.0},
 		],
 	},
 }

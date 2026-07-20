@@ -161,10 +161,37 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   mesh min-Y and assert ≈0 for wildlife rigs. h:1.7 chosen for readability (0.927m rig ×1.83)
   — owner eyeball during W3.
 
+## W3 COMPLETE (2026-07-20) — roster swap live
+
+- 11 away_1-3 minion rows → wildlife (positions/levels/tiers preserved; medic joint-pull intact;
+  elites/boss untouched for W4/W5). 3 new defs (grazer dashAttack charge, forager dr selfbuff,
+  magpie field_medic-shaped allybuff shield). Re-theme: banner "Wildlife Expanse · Overgrown
+  Practice Field / Overrun Gauntlet / Reclaimed Stadium", portal labels, gate message, quest +
+  bounty flavor (quest matchers are map/tier-keyed — progress carries; W3 added antecedent
+  bridges to the elite quests' "Their…" text). rally_cone now DORMANT (def kept, noted).
+- Golden rebased 27→30 (W2-27 subset hash-proven == 4135971324). bal_identity unchanged AGAIN.
+- Tests: test_wildlife_normals (40 checks — incl. deterministic Rally-Screech-shields-hurt-ally
+  scenario; the engine only shields packmates < 85% HP), stab_away 145 (9 pins updated), class
+  kits 223, full UI sweep. Hardening: flutter added to RIGGED_ROLES (curated .res now loads);
+  smoke_rigged min-Y warning.
+- Live smoke: all 4 models rendered in-zone, camps aggro/respawn correctly, residents farm the
+  wildlife exactly as the old roster (polite-assist credits flow), banners/labels live.
+- Review: 0 blockers; 3 confirmed minors all fixed pre-ship (assets staged, pronoun bridges,
+  orphan noted).
+- **Owner-eyeball items from W3**: (a) away_1 east camp is now a joint pull of TWO grazers
+  (heavier than the old foam/tire pair — deliberate but worth a feel check); (b) the away zones
+  still render the rival-clay ground texture under wildlife banners — the terrain/props re-skin
+  is NOT yet scheduled: added below as an open item; (c) epic reward items keep rival-era names
+  ("Away Captain's Badge", "Rival Playmaker's Glove") — granted copies keep old names forever if
+  renamed later; decide at W4/W5.
+
 ## Open items / holds
 
-- Magpie pass-2 owner review (blocks its W3 inclusion only).
+- ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.
 - Splinterback pass-1 confirm-or-redo (blocks its W4 inclusion only).
+- **Away-zone terrain/props re-skin** (new, from W3 review): the zones still render rival-clay
+  ground + sports props under Wildlife Expanse banners. Needs an owner-directed art/decor pass —
+  candidate W3b (client-only ground texture swap is cheap; props are a bigger call).
 - W5 detail decisions: howler respawn (600s legacy vs 1800s boss default), retire rival_coach def
   fully or keep dormant.
 - W7 detail decisions: bounty claim location, resident personas/lines for the new setting,

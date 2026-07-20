@@ -173,28 +173,28 @@ const QUESTS := {
 	# IP800 numeric pass (explicit ilvl, not the legacy shape that _grant_quest_item normalizes to ~IP 27).
 	"away1_roadgame": {
 		"name": "Road Game",
-		"desc": "The season goes on the road. Take the Away Games gate (north side of Home) and beat 12 of the rival's trainees on the Rival Practice Field.",
+		"desc": "The away fields have gone wild. Take the Wildlife Expanse gate (north side of Home) and put down 12 of the creatures overrunning the old practice field.",
 		"min_level": 8, "prereq": "",
 		"objective": {"type": "kill", "match": {"map": "away_1"}, "count": 12},
 		"rewards": {"xp": 420, "credits": 260, "tokens": 20},
 	},
 	"away1_blocker": {
 		"name": "The Lot Marshal",
-		"desc": "Their enforcer — a Tackle Bag Brute — runs the east lot. Put it down.",
+		"desc": "The rival squad fled the wilds, but their enforcer — a Tackle Bag Brute — still runs the east lot. Put it down.",
 		"min_level": 9, "prereq": "away1_roadgame",
 		"objective": {"type": "kill", "match": {"map": "away_1", "tier": "elite"}, "count": 1},
 		"rewards": {"xp": 520, "credits": 320, "tokens": 25},
 	},
 	"away2_gauntlet": {
-		"name": "Visitors' Gauntlet",
-		"desc": "Push into the Visitors' Gauntlet and take down 15 of the rival squad.",
+		"name": "The Overrun Gauntlet",
+		"desc": "Push into the Overrun Gauntlet and cull 15 of the wildlife pack — watch for the Rallywing shields.",
 		"min_level": 10, "prereq": "away1_blocker",
 		"objective": {"type": "kill", "match": {"map": "away_2"}, "count": 15},
 		"rewards": {"xp": 650, "credits": 420, "tokens": 25},
 	},
 	"away2_medics": {
 		"name": "Cut the Support",
-		"desc": "Their Field Medic keeps the line standing and their Blocking Sled anchors it. Bring down 2 of the Gauntlet's elites.",
+		"desc": "The rival stragglers hold the Gauntlet: their Field Medic keeps the line standing and their Blocking Sled anchors it. Bring down 2 elites.",
 		"min_level": 11, "prereq": "away2_gauntlet",
 		"objective": {"type": "kill", "match": {"map": "away_2", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 800, "credits": 500, "tokens": 35},
@@ -204,7 +204,7 @@ const QUESTS := {
 	# toward the Head Coach gate (bonus_amt matches _make_item's epic budget at ilvl 20: 8×(3+0.4·20)=88).
 	"away3_stadium": {
 		"name": "Silence the Stadium",
-		"desc": "The Rival Stadium is their house. Make it quiet — take down 18 of the home squad.",
+		"desc": "The wilds have reclaimed the stadium floor. Clear it — take down 18 of the pack before the sideline door.",
 		"min_level": 13, "prereq": "away2_medics",
 		"objective": {"type": "kill", "match": {"map": "away_3"}, "count": 18},
 		"rewards": {"xp": 1000, "credits": 600, "tokens": 30,
@@ -212,7 +212,7 @@ const QUESTS := {
 	},
 	"away3_elites": {
 		"name": "Clear the Door",
-		"desc": "A Ball Machine rakes the floor and their Drill Sergeant guards the sideline door. Bring down 2 of the Stadium's elites.",
+		"desc": "A leftover Ball Machine rakes the floor and the rivals' Drill Sergeant still guards the sideline door. Bring down 2 of the Stadium's elites.",
 		"min_level": 14, "prereq": "away3_stadium",
 		"objective": {"type": "kill", "match": {"map": "away_3", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 1200, "credits": 700, "tokens": 35,

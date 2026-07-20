@@ -86,7 +86,9 @@ const BOTS := ["linebacker", "setter"]
 # Meshy clip-name map (sport → renderer anim roles). Soccer throws by kicking.
 # Per-ability clip overrides (classId → {ability key → clip name}), beyond the by-type default.
 const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"},
-	"netvine_skink": {"netsnare": "attack"}}   # net throw reuses the forelimb-sweep clip (no ranged clip on the rig)
+	"netvine_skink": {"netsnare": "attack"},      # net throw reuses the forelimb-sweep clip (no ranged clip on the rig)
+	"scrapmask_forager": {"scrapguard": "attack"},   # guard-up gesture = the claw-rake anticipation pose
+	"rallywing_magpie": {"rallyscreech": "flutter"}}  # the screech IS the flutter — the rig's spare accent clip
 const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
 const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
 # Action clips are authored 2.7–4.3s — far longer than abilities actually fire. Play each one to ~a
@@ -535,8 +537,11 @@ const RIGGED_MOBS := {
 	"drill_sergeant": {"render_h": 1.71, "foot_y": 0.03},   # Devil Drill Sergeant (also has a cast/shout clip)
 	# Wildlife Expanse (Blender true-scale quadruped rigs — mesh-AABB measured, feet authored at y=0)
 	"netvine_skink": {"render_h": 0.927, "foot_y": 0.0},
+	"tacklehorn_grazer": {"render_h": 1.774, "foot_y": 0.0},
+	"scrapmask_forager": {"render_h": 1.116, "foot_y": 0.0},
+	"rallywing_magpie": {"render_h": 1.867, "foot_y": 0.0},   # wingtips inflate the AABB — def.h compensates
 }
-const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death", "cast"]
+const RIGGED_ROLES := ["idle", "walk", "run", "attack", "hit", "death", "cast", "flutter"]   # flutter: magpie accent (loader is exists-guarded — other rigs unaffected)
 
 func _load_rigged_mobs() -> void:
 	for id in RIGGED_MOBS:

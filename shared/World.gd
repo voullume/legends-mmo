@@ -21,9 +21,9 @@ const GY_SECRET := "glitchyard_secret"      # the SECRET boss arena (Head Coach 
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 # THE AWAY CIRCUIT (gameplay-length Phase 8, plan: docs/phase8-away-circuit-plan.md) — the second biome:
 # an "away games" chain for the 9-16 band, branched off HOME's north edge behind the away_gate (lvl 8).
-const AWAY1 := "away_1"                     # Rival Practice Field — lvl 9-10 + the tackle_brute elite
-const AWAY2 := "away_2"                     # Visitors' Gauntlet  — lvl 12-13, healer-camp lesson (field_medic) + the sled
-const AWAY3 := "away_3"                     # Rival Stadium       — lvl 15-16, the drill_sergeant guards the boss door (S2)
+const AWAY1 := "away_1"                     # Overgrown Practice Field — lvl 9-10 wildlife + the tackle_brute elite (W4 swaps elites)
+const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the sled
+const AWAY3 := "away_3"                     # Reclaimed Stadium   — lvl 15-16 wildlife, the drill_sergeant guards the boss door (S2)
 const AWAY_BOSS := "away_boss"              # Rival Sideline      — THE RIVAL COACH (teaching boss: cores, no ult) (S2)
 const FINALS1 := "finals_1"                 # Contenders' Quarter — lvl 19-21, behind finals_gate (L17 + IP800) (S3)
 const FINALS2 := "finals_2"                 # Champions' Gate     — lvl 23-25 + THE GRAND GALLERY elite-plus (S3)
@@ -50,7 +50,7 @@ const GY5_SPAWN := Vector2(220, 550)
 const GYB_SPAWN := Vector2(140, 410)         # boss arena: arrive far WEST, well clear of the central boss camp
 const GYS_SPAWN := Vector2(160, 460)         # secret arena: arrive far WEST of Head Coach PRIME
 const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you here
-const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Away Games portal drops you here (west, clear of camps)
+const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Wildlife Expanse portal drops you here (west, clear of camps)
 const AWAY2_SPAWN := Vector2(200, 500)
 const AWAY3_SPAWN := Vector2(220, 550)
 const AWAYB_SPAWN := Vector2(140, 410)       # boss room: arrive far WEST, well clear of the central Rival Coach
@@ -124,7 +124,7 @@ const PORTALS := {
 		{"x": 1180.0, "y": 200.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
 		# Phase 8: the Away Circuit (second biome) — visible-but-locked until level 8 (away_gate; the server
 		# explains the requirement on approach, same UX as boss_ready).
-		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "away_gate", "label": "▶ Away Games"},
+		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "away_gate", "label": "▶ Wildlife Expanse"},
 		# Phase 8 S3: the Finals — visible-but-locked until L17 + gear 800 (deliberately keyed on level+IP,
 		# NOT the Head Coach kill, so a stalled raid never hard-blocks the capstone branch).
 		{"x": 1480.0, "y": 200.0, "to": FINALS1, "tx": 200.0, "ty": 520.0, "gate": "finals_gate", "label": "▶ The Finals"},
@@ -181,26 +181,26 @@ const PORTALS := {
 		# from its inbound pads, so without this a tampered last_map="away_2" restore would skip the level-8
 		# check entirely (adversarial-review find). Zero UX cost — anyone standing here already passed it.
 		# S2 rule: every deeper away/finals pad carries its chain's gate for the same reason.
-		{"x": 1620.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "away_gate", "label": "▶ Visitors' Gauntlet"},
+		{"x": 1620.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "away_gate", "label": "▶ Overrun Gauntlet"},
 	],
 	AWAY2: [
 		# back-drop lands mid away_1 (1080,475), WEST of its tackle_brute elite @1500 (> AGGRO_RANGE 320) —
 		# same convention as the GY3→GY2 drop (TP grace blocks re-port, not aggro).
-		{"x": 120.0,  "y": 500.0,  "to": AWAY1, "tx": 1080.0, "ty": 475.0, "label": "◀ Rival Practice Field"},
+		{"x": 120.0,  "y": 500.0,  "to": AWAY1, "tx": 1080.0, "ty": 475.0, "label": "◀ Overgrown Practice Field"},
 		# S2: the withheld forward pad ships now that its destination exists (carries the chain gate — S1 rule)
-		{"x": 1770.0, "y": 500.0,  "to": AWAY3, "tx": 220.0,  "ty": 550.0, "gate": "away_gate", "label": "▶ Rival Stadium"},
+		{"x": 1770.0, "y": 500.0,  "to": AWAY3, "tx": 220.0,  "ty": 550.0, "gate": "away_gate", "label": "▶ Reclaimed Stadium"},
 	],
 	AWAY3: [
 		# back-drop lands at away_2's spawn corridor (200,560) — the only spot in its denser mid that clears
 		# every camp by > AGGRO 320 (the lane pairs sit at y 350/650).
-		{"x": 120.0,  "y": 550.0,  "to": AWAY2, "tx": 200.0,  "ty": 560.0, "label": "◀ Visitors' Gauntlet"},
+		{"x": 120.0,  "y": 550.0,  "to": AWAY2, "tx": 200.0,  "ty": 560.0, "label": "◀ Overrun Gauntlet"},
 		# the boss door — walk-up (difficulty is the gate; away_gate rides for restore re-validation only)
 		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "away_gate", "label": "▶ Rival Sideline"},
 	],
 	AWAY_BOSS: [
 		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of
 		# the rack cover panel @1300,550 (the review caught the drop landing inside its collision band)
-		{"x": 80.0,   "y": 410.0,  "to": AWAY3, "tx": 1350.0, "ty": 550.0, "label": "◀ Rival Stadium"},
+		{"x": 80.0,   "y": 410.0,  "to": AWAY3, "tx": 1350.0, "ty": 550.0, "label": "◀ Reclaimed Stadium"},
 	],
 	# Phase 8 S3 — the Finals district. finals_2's FORWARD pad (→ the Commissioner's arena) is withheld
 	# until S4 ships the destination (no dangling pads). Deeper pads carry finals_gate (the S1 restore rule).
@@ -293,29 +293,30 @@ const MOBS := {
 	],
 	# Phase 8 — the Away Circuit camps (docs/phase8-away-circuit-plan.md). Same grammar as the GY chain:
 	# lane-pair camps west→east with a level gradient, elites anchoring the east by the forward pad.
-	AWAY1: [  # Rival Practice Field — the 9-10 on-ramp behind the away_gate
-		{"class": "rally_cone",   "level": 9,  "tier": "minion", "x": 520.0,  "y": 330.0},
-		{"class": "rally_cone",   "level": 9,  "tier": "minion", "x": 520.0,  "y": 620.0},
-		{"class": "foam_dummy",   "level": 9,  "tier": "minion", "x": 960.0,  "y": 330.0},
-		{"class": "tire_dummy",   "level": 10, "tier": "minion", "x": 960.0,  "y": 620.0},
+	AWAY1: [  # Overgrown Practice Field — the 9-10 on-ramp; W3 wildlife roster (same camps/levels/tiers,
+		# classes swapped — the quest matchers are map/tier-keyed so progress carries seamlessly)
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 520.0,  "y": 330.0},
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 520.0,  "y": 620.0},
+		{"class": "tacklehorn_grazer", "level": 9,  "tier": "minion", "x": 960.0,  "y": 330.0},
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "minion", "x": 960.0,  "y": 620.0},
 		# the elite guard sits 200 from the forward pad (the shipped-grammar minimum — jukeable, not a
 		# mandatory hit) and 340 from away_2's back-drop @1080 (> AGGRO 320).
 		{"class": "tackle_brute", "level": 10, "tier": "elite",  "x": 1420.0, "y": 475.0},   # the "Lot Marshal" (nameplate: Tackle Bag Brute)
 	],
-	AWAY2: [  # Visitors' Gauntlet — first healer-camp lesson: the medic sits IN its lane camp's pull
+	AWAY2: [  # Overrun Gauntlet — first healer-camp lesson: the medic sits IN its lane camp's pull
 		# (260 from the blocker < AGGRO 320, the CAMP-instance joint-pull convention) so the lesson always
 		# fires — engage the lane and the medic wakes with it; focus the healer or the fight drags.
-		{"class": "away_blocker",    "level": 12, "tier": "minion", "x": 520.0,  "y": 350.0},
-		{"class": "whistle_cone",    "level": 12, "tier": "minion", "x": 520.0,  "y": 650.0},
-		{"class": "line_judge",      "level": 13, "tier": "minion", "x": 980.0,  "y": 350.0},
-		{"class": "away_blocker",    "level": 12, "tier": "minion", "x": 980.0,  "y": 650.0},
+		{"class": "scrapmask_forager", "level": 12, "tier": "minion", "x": 520.0,  "y": 350.0},
+		{"class": "tacklehorn_grazer", "level": 12, "tier": "minion", "x": 520.0,  "y": 650.0},
+		{"class": "rallywing_magpie",  "level": 13, "tier": "minion", "x": 980.0,  "y": 350.0},
+		{"class": "scrapmask_forager", "level": 12, "tier": "minion", "x": 980.0,  "y": 650.0},
 		{"class": "field_medic",     "level": 12, "tier": "elite",  "x": 1240.0, "y": 650.0},
 		{"class": "sled_juggernaut", "level": 13, "tier": "elite",  "x": 1580.0, "y": 420.0},   # east anchor — ≥200 from the fwd pad (jukeable, the shipped grammar)
 	],
-	AWAY3: [  # Rival Stadium — the chain's last field zone; the summoner guards the boss door (GY5 pattern)
-		{"class": "rally_cone",     "level": 15, "tier": "minion", "x": 520.0,  "y": 380.0},
-		{"class": "spring_cone",    "level": 15, "tier": "minion", "x": 520.0,  "y": 720.0},
-		{"class": "away_blocker",   "level": 15, "tier": "minion", "x": 1000.0, "y": 380.0},
+	AWAY3: [  # Reclaimed Stadium — the chain's last field zone; the drill_sergeant guards the boss door
+		{"class": "rallywing_magpie",  "level": 15, "tier": "minion", "x": 520.0,  "y": 380.0},
+		{"class": "netvine_skink",     "level": 15, "tier": "minion", "x": 520.0,  "y": 720.0},
+		{"class": "scrapmask_forager", "level": 15, "tier": "minion", "x": 1000.0, "y": 380.0},
 		{"class": "ball_machine",   "level": 15, "tier": "elite",  "x": 1000.0, "y": 720.0},
 		{"class": "drill_sergeant", "level": 16, "tier": "elite",  "x": 1700.0, "y": 550.0},   # the boss-door guard (220 from the pad — jukeable)
 	],

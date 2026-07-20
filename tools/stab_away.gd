@@ -1,7 +1,7 @@
 extends "res://tools/stab/stab_base.gd"
 ## Phase 8 S1 — THE AWAY CIRCUIT (away_1/away_2) invariants, against the REAL server (headless, no net):
 ##   • both zones auto-boot as static worlds with exactly the planned camps (classes/tiers/levels);
-##   • the HOME "▶ Away Games" pad is VISIBLE-but-locked below level 8 (not hidden), refuses the teleport,
+##   • the HOME "▶ Wildlife Expanse" pad (W3 re-theme) is VISIBLE-but-locked below level 8, refuses the teleport,
 ##     and explains itself via the generalized gate prompt; a level-8 character walks straight through;
 ##   • portal round-trips: HOME → away_1 → away_2 → back → back → HOME (real _check_portals walk);
 ##   • NO dangling pads: every away portal's destination world exists (S2's away_3 pad is withheld);
@@ -43,8 +43,8 @@ func _run() -> void:
 	ok(m2.size() == 6, "away_2: 6 spawns (got %d)" % m2.size())
 	var c1 := {}
 	for f in m1: c1[str(f["classId"])] = c1.get(str(f["classId"]), 0) + 1
-	ok(int(c1.get("rally_cone", 0)) == 2 and int(c1.get("foam_dummy", 0)) == 1 and int(c1.get("tire_dummy", 0)) == 1
-		and int(c1.get("tackle_brute", 0)) == 1, "away_1 roster: 2×rally_cone + foam + tire + tackle_brute")
+	ok(int(c1.get("netvine_skink", 0)) == 2 and int(c1.get("tacklehorn_grazer", 0)) == 2
+		and int(c1.get("tackle_brute", 0)) == 1, "away_1 roster (W3): 2×netvine_skink + 2×tacklehorn_grazer + tackle_brute")
 	var elites2 := 0
 	for f in m2:
 		if str(f.get("mobTier", "")) == "elite": elites2 += 1
@@ -58,15 +58,15 @@ func _run() -> void:
 	var pads: Array = srv._portals_for_player("home", 1)
 	var seen_away := false
 	for p in pads:
-		if str(p["label"]) == "▶ Away Games": seen_away = true
-	ok(seen_away, "gate: the Away Games pad is VISIBLE while locked (not a hidden gate)")
+		if str(p["label"]) == "▶ Wildlife Expanse": seen_away = true
+	ok(seen_away, "gate: the Wildlife Expanse pad is VISIBLE while locked (not a hidden gate)")
 	ok(not srv._portal_unlocked(1, "away_gate"), "gate: level 1 is locked out")
 	_walk(1, 300.0, 200.0)                                                # stand on the pad
 	ok(str(srv._session[1]["map"]) == "home", "gate: locked walk-on does NOT teleport")
 	var prompts: Array = fnet.calls("recv_chat", 1)
 	var explained := false
 	for c in prompts:
-		if str(c["args"][1]).contains("Away Games") and str(c["args"][1]).contains("level 8"): explained = true
+		if str(c["args"][1]).contains("Wildlife Expanse") and str(c["args"][1]).contains("level 8"): explained = true
 	ok(explained, "gate: the sealed pad explains itself (generalized prompt)")
 
 	var vet: Dictionary = await login("Traveler", 2, {"level": 9})
@@ -100,11 +100,11 @@ func _run() -> void:
 	await srv._do_quest_accept(2, "away1_roadgame")
 	await settle()
 	ok((srv._session[2]["quests"] as Dictionary).has("away1_roadgame"), "quest: accepted at level 9")
-	# kill a rally_cone in away_1 via the REAL award path (event → _award_kills)
+	# kill a netvine_skink in away_1 via the REAL award path (event → _award_kills)
 	_walk(2, 300.0, 200.0)                                    # back into away_1 (fighter must be in-zone for credit)
 	var target = null
 	for f in _mobs_in("away_1"):
-		if str(f["classId"]) == "rally_cone": target = f; break
+		if str(f["classId"]) == "netvine_skink": target = f; break
 	var tokens0 := int(srv._session[2].get("tokens", 0))
 	var xp0 := int(srv._session[2].get("xp", 0))
 	srv._worlds["away_1"]["events"].append({"type": "kill", "victim": target["id"], "killer": vet["fid"]})
@@ -118,7 +118,7 @@ func _run() -> void:
 	# ---- 6. bounty pool: the away rows exist + match ----
 	ok(srv.BOUNTY_DAILY.has("d_roadgame") and srv.BOUNTY_DAILY.has("d_gauntlet"), "bounty: away daily rows exist")
 	ok(Quests.kill_matches({"objective": {"type": "kill", "match": srv.BOUNTY_DAILY["d_roadgame"]["match"], "count": 1}},
-		{"tier": "minion", "map": "away_1", "class": "rally_cone", "level": 9}), "bounty: d_roadgame matches an away_1 kill")
+		{"tier": "minion", "map": "away_1", "class": "netvine_skink", "level": 9}), "bounty: d_roadgame matches an away_1 kill")
 
 	# ---- 7. XP-band numeric pass (plan §hardening 3) — real formulas, computed not asserted. The FULL
 	# chain (7 quests + required kills) is measured against the 8→16 band it spans: ratio > 1 means a
@@ -183,7 +183,7 @@ func _run() -> void:
 	var lane = null
 	for row in World.MOBS["away_2"]:
 		if str(row["class"]) == "field_medic": medic = row
-		if str(row["class"]) == "away_blocker" and float(row["y"]) > 500.0: lane = row
+		if str(row["class"]) == "scrapmask_forager" and float(row["y"]) > 500.0: lane = row
 	var md := Vector2(float(medic["x"]) - float(lane["x"]), float(medic["y"]) - float(lane["y"])).length()
 	ok(md < 300.0, "geometry: the medic is INSIDE its lane's joint-pull radius (%.0f < 300)" % md)
 	# the away_1 elite guard keeps the shipped grammar: ≥200 from the forward pad, >320 from the back-drop

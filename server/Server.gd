@@ -3451,7 +3451,7 @@ func _gate_locked_msg(gate: String) -> String:
 		"boss_ready":
 			return "The Head Coach Arena is sealed — reach level %d and gear score %d to enter." % [BOSS_GATE_LEVEL, BOSS_GATE_IP]
 		"away_gate":
-			return "The Away Games start at level %d — finish your Glitchyard training first." % AWAY_GATE_LEVEL
+			return "The Wildlife Expanse opens at level %d — finish your Glitchyard training first." % AWAY_GATE_LEVEL
 		"finals_gate":
 			return "The Finals are sealed — reach level %d and gear score %d to enter." % [FINALS_GATE_LEVEL, FINALS_GATE_IP]
 	return ""
@@ -4382,8 +4382,8 @@ const BOUNTY_DAILY := {
 	"d_circuit":  {"name": "Circuit Duty",   "kind": "circuit", "min_tier": 1,                                "count": 3,  "desc": "Clear the Camp Circuit 3 times.",           "rewards": {"credits": 600, "pages": 60}},
 	# Phase 8 (the Away Circuit): direction into the new band — server-only rows, re-aimable with zero client
 	# re-export. min_level hides them from characters the away_gate would refuse anyway (view-filter only).
-	"d_roadgame": {"name": "Road Patrol",    "kind": "kill",    "match": {"map": "away_1"},                   "count": 15, "min_level": 8, "desc": "Defeat 15 on the Rival Practice Field.",     "rewards": {"credits": 650, "tokens": 25}},
-	"d_gauntlet": {"name": "Gauntlet Runner","kind": "kill",    "match": {"map": "away_2", "tier": "elite"},  "count": 4,  "min_level": 8, "desc": "Defeat 4 Visitors' Gauntlet elites.",        "rewards": {"tokens": 30, "pages": 30}},
+	"d_roadgame": {"name": "Road Patrol",    "kind": "kill",    "match": {"map": "away_1"},                   "count": 15, "min_level": 8, "desc": "Defeat 15 on the Overgrown Practice Field.",     "rewards": {"credits": 650, "tokens": 25}},
+	"d_gauntlet": {"name": "Gauntlet Runner","kind": "kill",    "match": {"map": "away_2", "tier": "elite"},  "count": 4,  "min_level": 8, "desc": "Defeat 4 Overrun Gauntlet elites.",        "rewards": {"tokens": 30, "pages": 30}},
 	# Phase 8 S3 (the Finals district) — view-filtered below finals_gate's level
 	"d_quarter":  {"name": "Quarter Patrol", "kind": "kill",    "match": {"map": "finals_1"},                 "count": 15, "min_level": 17, "min_ip": 800, "desc": "Defeat 15 in the Contenders' Quarter.",     "rewards": {"credits": 900, "pages": 30}},
 	"d_gallery":  {"name": "Gallery Runs",   "kind": "kill",    "match": {"map": "finals_2", "class": "grand_gallery"}, "count": 2, "min_level": 17, "min_ip": 800, "desc": "Break the Grand Gallery twice.",  "rewards": {"tokens": 40, "pages": 45}},
