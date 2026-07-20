@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.8.3 — 2026-07-20
+
+- 64 full-color ability icons on all 8 class hotbars (client-only); rolls up the Quest Giver/Journal live-refresh fix
+
+_(rolls up commits since the previous tag; base 35c51a1)_
+
 ## v1.8.2 — 2026-07-17
 
 - Hybrid-Cutout SVG UI icon system (client-only): icons replace emoji / two-letter status chips / currency glyphs across HUD, windows, buttons, toasts, and world markers
