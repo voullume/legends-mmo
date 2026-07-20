@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.9.1 — 2026-07-20
+
+- Emerald Warfrog elite anchors the Overrun Gauntlet (Wildlife Expanse W4) — update your client to see the new elite
+
+_(rolls up commits since the previous tag; base 7783b2b)_
+
 ## v1.9.0 — 2026-07-20
 
 - Wildlife Expanse: the away zones' camps are now wild creatures (netvine skink, tacklehorn grazer, scrapmask forager, rallywing magpie) with new attack mechanics; zones re-themed. Update your client — old clients show placeholder capsules for the new creatures.
