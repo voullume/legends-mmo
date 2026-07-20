@@ -138,6 +138,29 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   dissolve in-game — check live in W2 before judging). Consider pass-3 death anims for
   warfrog/howler before W4/W5 if the owner wants real collapses.
 
+## W2 COMPLETE (2026-07-20) — commit `ac66b35`, shipped dark in v1.8.4
+
+- netvine_skink def (GameData), RIGGED_MOBS + ANIM_OVERRIDE (Client), F1 "Spawn Skink" button
+  (NetClient). Zero World.MOBS rows — dark. Mob-def golden rebased 26→27 (prior 26 proven
+  byte-identical: hash-minus-skink == 578105494). bal_identity signature unchanged vs main
+  (sig_w 158545831 / sig_d 343688940) — player sim provably untouched.
+- Commit scope: ONLY the skink asset set; the other 6 mobs' W1 staging stays untracked until
+  their phases (splinterback pass-1 still on hold; magpie approved 2026-07-20).
+- `tools/test_wildlife_skink.gd` (16 checks): abilities cast, Net Snare slow lands, terminal
+  death, deterministic replay. Full regression sweep green.
+- Live local-server validation: admin F1 spawn in away_1 → aggro → melee dmg landed ("15"
+  floaters, HP dip) → killed, credits paid; Lv 3 · MINION target frame + minimap + plates all
+  correct; two clients agree on the same skink (snapshot sync); late-join clean; interest
+  radius (450) confirmed excluding far mobs; settings.cfg byte-identical after (35a5fdc3).
+- Adversarial review (3 lenses + skeptics): 0 blockers; the 1 confirmed minor (F1 button vs
+  un-redeployed server silently falls back to tackle_brute) resolved by shipping droplet+client
+  together in v1.8.4.
+- **W3 notes**: skink orbits/strafes in melee (AI hysteresis) — reads lively, keep; verify
+  facing under movement in W3 zone testing (frozen-home skink faced its target correctly; add
+  `face` correction only if away-zone locomotion moonwalks). smoke_rigged hardening: print
+  mesh min-Y and assert ≈0 for wildlife rigs. h:1.7 chosen for readability (0.927m rig ×1.83)
+  — owner eyeball during W3.
+
 ## Open items / holds
 
 - Magpie pass-2 owner review (blocks its W3 inclusion only).
