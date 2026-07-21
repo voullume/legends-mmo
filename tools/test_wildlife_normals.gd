@@ -48,11 +48,13 @@ func _init() -> void:
 		ok(not wbad, "warfrog/%s: no expansion-only fields" % ab["key"])
 	# W5 boss: howler (rival_coach numeric-parity teaching boss; Signature Howl = drill summon shape)
 	var hw: Dictionary = GameData.CLASSES.get("arrowbound_howler", {})
-	ok(not hw.is_empty() and bool(hw.get("phased", false)) and bool(hw.get("rig", false)) and float(hw.get("coreShield", 0.0)) == 0.4, "howler: phased rigged boss with coreShield 0.40")
-	ok(float(hw.get("hpMult", 0.0)) == 0.6 and float(hw.get("dmgScale", 0.0)) == 0.6, "howler: rival_coach numeric parity (hpMult/dmgScale 0.6)")
+	ok(not hw.is_empty() and bool(hw.get("phased", false)) and bool(hw.get("rig", false)) and not hw.has("coreShield") and not hw.has("coreCount"), "howler: phased rigged PACK boss — no core mechanics (owner redesign)")
+	ok(float(hw.get("hpMult", 0.0)) == 0.7 and float(hw.get("dmgScale", 0.0)) == 0.6, "howler: pack-boss pool (hpMult 0.7 compensates the removed shield window)")
 	ok(str((hw.get("threshSummon", {}) as Dictionary).get("mobType", "")) == "netvine_skink", "howler: phase waves summon skinks")
 	var sh: Dictionary = hw["abilities"][0]
-	ok(sh["type"] == "summon" and str(sh["mobType"]) == "netvine_skink" and sh.has("count") and sh.has("cd") and int(sh.get("phase", -1)) >= 1, "howler: Signature Howl is the proven summon shape, phase-gated")
+	ok(sh["type"] == "summon" and str(sh["mobType"]) == "rallywing_magpie" and int(sh.get("phase", -1)) == 2, "howler: Pack Call summons the shield-bird at P2 (summon priority slot)")
+	var sh2: Dictionary = hw["abilities"][1]
+	ok(sh2["type"] == "summon" and str(sh2["mobType"]) == "netvine_skink" and int(sh2.get("phase", -1)) >= 1, "howler: Signature Howl is the proven summon shape, phase-gated")
 	var hw_ult := false
 	for ab in hw["abilities"]:
 		if str(ab["type"]) == "campreset": hw_ult = true

@@ -265,7 +265,7 @@ const QUESTS := {
 
 	"rival_down": {
 		"name": "Fell the Howler",
-		"desc": "The Arrowbound Howler — the beast that drove the rival squad from their own sideline — waits behind the power cores. Take it down — then gear up on that sideline until you hit gear score 800, and report to the Head Coach Arena for the real thing.",
+		"desc": "The Arrowbound Howler leads its pack on the old sideline — break the pack, watch for its shield-bird, and fell the alpha. Then gear up on that sideline until you hit gear score 800, and report to the Head Coach Arena for the real thing.",
 		"min_level": 15, "prereq": "away3_elites",
 		"objective": {"type": "kill", "match": {"map": "away_boss", "tier": "boss"}, "count": 1},
 		"rewards": {"xp": 1600, "credits": 1000, "dye": "rival_crimson"},

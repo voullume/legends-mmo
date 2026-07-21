@@ -244,13 +244,17 @@ func _run() -> void:
 	for f in _mobs_in("away_boss"):
 		if str(f["classId"]) == "arrowbound_howler": boss = f
 		if str(f["classId"]) == "rival_core": cores += 1
-	ok(boss != null and cores == 3, "away_boss: the Arrowbound Howler + exactly 3 slow-respawn rival cores (W5)")
+	ok(boss != null and cores == 0, "away_boss: the Howler alone — NO cores (the pack-boss redesign; cores are Boss1's)")
 	ok(str(boss.get("mobTier", "")) == "boss" and int(boss.get("mobLevel", 0)) == 16, "arrowbound_howler: tier boss, level 16")
 
 	# ---- 12. the TEACHING SUBSET pin: phased + summon + hazard + cores, but NO camp-reset ult ----
 	var rdef: Dictionary = GameData.CLASSES["arrowbound_howler"]
-	ok(bool(rdef.get("phased", false)) and rdef.has("threshSummon") and float(rdef.get("coreShield", 0.0)) > 0.0,
-		"arrowbound_howler: phased + threshSummon + coreShield (the teaching primitives)")
+	ok(bool(rdef.get("phased", false)) and rdef.has("threshSummon") and not rdef.has("coreShield") and not rdef.has("coreCount"),
+		"arrowbound_howler: phased + threshSummon, NO core mechanics (the pack-boss identity)")
+	var has_packcall := false
+	for pab in rdef["abilities"]:
+		if str(pab["type"]) == "summon" and str(pab.get("mobType", "")) == "rallywing_magpie": has_packcall = true
+	ok(has_packcall, "arrowbound_howler: the Pack Call shield-bird summon exists (the core-replacement mechanic)")
 	var has_ult := false
 	var has_zone := false
 	for ab in rdef["abilities"]:
@@ -259,8 +263,7 @@ func _run() -> void:
 	ok(not has_ult, "arrowbound_howler: NO campreset ult — one primitive tier below the raid (the plan's escalation)")
 	ok(has_zone, "arrowbound_howler: carries the hazard-zone lesson")
 	ok(not rdef.has("respawnS"), "arrowbound_howler: keeps the 30-min boss cadence (the rival_coach review lesson)")
-	ok(float(GameData.CLASSES["rival_core"].get("respawnS", 0.0)) >= 30.0 and float(GameData.CLASSES["rival_core"].get("respawnS", 0.0)) <= 90.0,
-		"rival_core: the CORES carry the slow respawn (solo can earn the shield-down window; GY raid cores untouched)")
+	ok(not GameData.CLASSES["power_core"].get("mob", false) == false, "power_core: the GY raid keeps ITS cores (Boss1 mechanic untouched)")
 	ok(not GameData.CLASSES["power_core"].has("respawnS"), "power_core: the GY raid cores keep their shipped 6-s cadence")
 	ok(str(rdef.get("plate", "")) == "ARROWBOUND HOWLER" and (rdef.get("phases", []) as Array).size() == 4,
 		"arrowbound_howler: carries its own boss-chrome plate + 4 phase names (client reads per-def)")
@@ -269,8 +272,10 @@ func _run() -> void:
 	var hc = null
 	for f in srv._worlds["glitchyard_boss"]["fighters"]:
 		if str(f["classId"]) == "head_coach": hc = f
-	ok(float(boss["maxHP"]) <= float(hc["maxHP"]) * 1.15,
-		"parity: rival pool ≤ 1.15× the Head Coach's (%.0f vs %.0f)" % [float(boss["maxHP"]), float(hc["maxHP"])])
+	# Pack-boss redesign (owner 2026-07-21): the Howler traded the 40% core-shield windows for a flat
+	# pool — the bound moves 1.15→1.25× (no ult keeps it strictly the easier boss; guard vs inflation).
+	ok(float(boss["maxHP"]) <= float(hc["maxHP"]) * 1.25,
+		"parity: the Howler's flat pool ≤ 1.25× the Head Coach's (%.0f vs %.0f)" % [float(boss["maxHP"]), float(hc["maxHP"])])
 	ok(float(boss["dmgMult"]) <= float(hc["dmgMult"]) * 1.05,
 		"parity: rival damage ≤ 1.05× the Head Coach's (%.2f vs %.2f)" % [float(boss["dmgMult"]), float(hc["dmgMult"])])
 

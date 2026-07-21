@@ -420,6 +420,8 @@ const CLASSES := {
 	# (the review's arithmetic: a solo needs ~8s/core; the first is back before the third dies). This variant
 	# carries a per-def respawnS 45 so a solo rotation (~24-28s for 3 cores) EARNS a real ~17-20s shield-down
 	# burst window — the teaching loop the plate ("DESTROY THE CORES") promises. GY raid cores untouched.
+	# NOTE (2026-07-21): the pack-boss redesign removed the Howler's cores — this def is DORMANT
+	# (golden-fingerprinted, admin-spawnable) like rally_cone/rival_coach; re-seat it if ever wanted.
 	"rival_core": {
 		"name": "Rival Power Core", "sport": "", "mob": true, "model": "power_core", "anim": "core", "h": 2.0,
 		"lane": 1, "color": "#FF6B4A", "recolor": true, "stationary": true, "isCore": true, "respawnS": 45.0,
@@ -623,22 +625,24 @@ const CLASSES := {
 	# W4 elite: replaces the away_2 sled anchor (the medic stays — the healer-camp lesson is the
 	# medic's, not the anchor's). Ground Slam mirrors pancakeslam/shockwave; Croak Wave mirrors
 	# ladderlock's pure-slow zone (no dmg — the controller identity). kbImmune like the old anchor.
-	# W5 BOSS (owner decision locked 2026-07-20): the Arrowbound Howler takes the Rival Coach's
-	# sideline. BODY-NUMERIC PARITY with rival_coach on purpose — stats/hpMult/dmgScale/coreShield/
-	# coreCount byte-identical, so the arena keeps its "one tier below the raid" promise. The KIT is
-	# re-seated (hotter P1: zone+pounce+summon), deliberately — the body, not the kit, carries parity.
-	# Teaching subset preserved (stab_away pin 12): phased + threshSummon + coreShield + hazard zone,
-	# NO campreset ult, no respawnS (30-min cadence; the rival_cores keep the 45s shield-down window).
-	# Signature Howl = the FIRST rigged phased boss's summon — the wilds answer the call (skinks).
+	# THE PACK BOSS (owner redesign 2026-07-21): the Howler's fight is DELIBERATELY unlike the Head
+	# Coach's — NO cores, NO core-shield (those are Boss1's signature). The mechanic is THE PACK:
+	# phase waves + the Signature Howl call skinks, and from P2 the Pack Call summons a rallywing
+	# magpie whose Rally Screech SHIELDS the alpha and pack — the zone's kill-the-support-first
+	# lesson at boss stakes (SUMMON_CAP 3 bounds the whole pack; adds are isAdd = no loot). Blood
+	# Frenzy (P2 ms-surge selfbuff, the stolenbase shape) makes Frenzy a kiting phase. hpMult
+	# 0.6→0.7 compensates the lost 40% shield window (~40k flat vs the rival's 34k-behind-cores,
+	# within the re-pinned ≤1.25× Head Coach pool bound; no ult keeps it the easier boss; tunable). Still no campreset ult + 30-min cadence. All shapes mob-proven; no new rng.
 	"arrowbound_howler": {
 		"name": "The Arrowbound Howler", "sport": "", "mob": true, "rig": true, "model": "arrowbound_howler", "h": 3.4,
-		"lane": 0, "color": "#7A4FC9", "phased": true, "coreCount": 3, "kbImmune": true,
-		"coreShield": 0.40, "hpMult": 0.6, "dmgScale": 0.6,
+		"lane": 0, "color": "#7A4FC9", "phased": true, "kbImmune": true,
+		"hpMult": 0.7, "dmgScale": 0.6,
 		"plate": "ARROWBOUND HOWLER", "phases": ["PROWL", "HUNT", "FRENZY", "LAST STAND"],
 		"threshSummon": {"mobType": "netvine_skink", "count": 2},   # each phase entry: the wilds answer
 		"stats": {"PWR": 54, "PRE": 32, "SPD": 26, "END": 82, "INS": 28, "CLU": 24},
 		"abilities": [
-			# the signature — listed first (_ab_order tries specials in source order once phase-unlocked)
+			# the pack call — listed first so the shield-bird takes summon priority once P2 unlocks
+			{"key": "packcall", "name": "Pack Call", "type": "summon", "mobType": "rallywing_magpie", "count": 1, "cd": 24.0, "phase": 2},
 			{"key": "sighowl", "name": "Signature Howl", "type": "summon", "mobType": "netvine_skink", "count": 2, "cd": 18.0, "phase": 1},
 			# P0 Prowl
 			{"key": "bite", "name": "Arrowbound Bite", "type": "melee", "basic": true, "dmg": 40, "cd": 1.4, "range": 70, "phase": 0},
@@ -646,7 +650,8 @@ const CLASSES := {
 			# P1 Hunt — the hazard lesson stays
 			{"key": "huntground", "name": "Hunting Ground", "type": "zone", "cd": 12.0, "radius": 120, "dur": 5.0, "dmg": 8.0, "slow": {"amt": 0.35, "dur": 0.6}, "phase": 1},
 			{"key": "pounce", "name": "Pounce", "type": "dashAttack", "dmg": 74, "cd": 8.0, "dist": 200, "cast": 0.5, "knockback": 90, "wallStun": 1.2, "phase": 1},
-			# P2 Frenzy
+			# P2 Frenzy — the alpha speeds up; kite it
+			{"key": "bloodfrenzy", "name": "Blood Frenzy", "type": "selfbuff", "cd": 14.0, "buff": {"ms": 1.30, "dur": 4.0}, "phase": 2},
 			{"key": "frenzysweep", "name": "Frenzy Sweep", "type": "meleeAoe", "dmg": 54, "cd": 10.0, "radius": 150, "cast": 0.7, "knockback": 55, "phase": 2},
 			# P3 Last Stand
 			{"key": "deathhowl", "name": "Death Howl", "type": "meleeAoe", "dmg": 20, "cd": 8.0, "radius": 130, "stun": 0.9, "cast": 0.4, "phase": 3},

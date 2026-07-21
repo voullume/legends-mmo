@@ -285,6 +285,19 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   body × elite scaling) — the lesson reads, the elite dies faster; tune with the map pass.
 - Zero def changes → mob golden untouched; identity unchanged (10th consecutive ship).
 
+## PACK-BOSS REDESIGN (2026-07-21, v1.11.2) — owner: no cores; distinct boss-2 mechanics
+
+- The Howler's cores + core-shield REMOVED (they're Boss1's signature; rival_core def dormant).
+  The fight's identity is THE PACK: phase waves + Signature Howl (skinks), and from P2 **Pack
+  Call** — a rallywing magpie whose Rally Screech shields the alpha and pack (the zone's
+  kill-the-support-first lesson at boss stakes; SUMMON_CAP 3 bounds everything) — plus **Blood
+  Frenzy** (P2 ms-surge; kite it). hpMult 0.6→0.7 (~40k flat, replacing the DR windows); the
+  parity pin re-bounded ≤1.25× the Head Coach pool (no ult keeps it the easier boss).
+- **Feel-pass flag (important)**: one live shield-bird heals-by-shield ~4.8k/9s on the boss —
+  a solo undergeared player might deadlock in P2 until they learn to kill the bird instantly.
+  Intended teeth, but if playtest shows a wall, the fix is a "packbird" variant def with a
+  smaller shieldPct (new def = golden move).
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.

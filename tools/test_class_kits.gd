@@ -15,13 +15,14 @@ const Abilities = preload("res://shared/Abilities.gd")
 const AI = preload("res://shared/AI.gd")
 const Rng = preload("res://shared/Rng.gd")
 
-# Fingerprint of every mob:true CLASSES entry. Baseline moved 2026-07-20 (W5): +arrowbound_howler
-# (W5: hash minus howler == 4042352292 (W4b); W4b: minus splinterback == 2727547741 (W4))
+# Fingerprint of every mob:true CLASSES entry. Baseline moved 2026-07-21 (pack-boss redesign: the
+# howler def dropped its core mechanics for the Pack Call design; everything-minus-howler still
+# hashes to 4042352292 (the W4b pre-howler golden) — the other 32 defs proven untouched).
 # (W3 added the 3 normals, W2 netvine_skink). Each rebase proved the prior set byte-identical
 # first (W4: hash minus warfrog == 2466136904 (W3); W3 minus the 3 == 4135971324 (W2); W2 minus
 # skink == 578105494 (pre-expansion)).
 const MOB_GOLDEN_COUNT := 33
-const MOB_GOLDEN_HASH := 1655876103
+const MOB_GOLDEN_HASH := 2705891441
 
 const DT := 1.0 / 30.0
 

@@ -362,10 +362,9 @@ const MOBS := {
 	AWAY_BOSS: [  # Rival Sideline — the teaching boss: 3 SLOW-respawn cores shield it (0.40 DR), NO ult.
 		# rival_core (respawnS 45, lvl 10) — a solo rotation can genuinely earn the shield-down window;
 		# the GY raid's 6-s power_core cadence would keep the boolean shield permanently up on a soloist.
-		{"class": "arrowbound_howler", "level": 16, "tier": "boss", "x": 620.0, "y": 410.0},   # W5: the Howler took the sideline (numeric parity with the rival)
-		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 450.0, "y": 300.0},
-		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 790.0, "y": 300.0},
-		{"class": "rival_core",  "level": 10, "tier": "minion", "x": 620.0, "y": 560.0},
+		# Pack-boss redesign (owner 2026-07-21): NO cores — the Howler's mechanic is its pack
+		# (Signature Howl / phase waves / the P2 shield-bird Pack Call). Cores stay Boss1's thing.
+		{"class": "arrowbound_howler", "level": 16, "tier": "boss", "x": 620.0, "y": 410.0},
 	],
 	FINALS1: [  # Contenders' Quarter — the capstone band's on-ramp; the instance elites make their open-world debut
 		{"class": "pop_dummy",       "level": 19, "tier": "minion", "x": 520.0,  "y": 360.0},
