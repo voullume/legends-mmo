@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.1 — 2026-07-21
+
+- The wilds claim the last of the away fields — every creature in the Wildlife Expanse is now true wildlife (the Old Bull, the Elder Rallywing, and a Warfrog door guard take the last three elite posts)
+
+_(rolls up commits since the previous tag; base 9c4b10e)_
+
 ## v1.11.0 — 2026-07-21
 
 - The Wildlife Expanse Base Camp opens — a second home in the wilds: tier-2 shop, forge, new quest line, and the wilds' own colors. Update your client to visit.
