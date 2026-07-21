@@ -273,6 +273,11 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   (2026-07-21): data/decals/basecamp.json, the ranger-station layout (treeline, pad landmarks
   incl. quest_board+bounty_terminal, campfire circle, south fences, Fen's table nook; 40 collision
   circles, keep-clears + walk lines checker-verified, engine-parity proven). Ground was A1 (v1.11.5).
+  ~~Props~~ DONE — art-pass **A3** (2026-07-21): client-only WILD_PROP_SWAP render remap
+  (barrier→log_stack, rack→stone_largeB, bag→rock_tallC) w/ long-axis alignment + depth-squash to
+  the collision band (cover honesty); World.OBSTACLES byte-identical. Remaining seam (owner call):
+  away decal set-dressing still rival-era (away_2.json places a literal "rack" decal @250,380 —
+  NOTE: decal edits are server-affecting via collision_from_decals, not client-only).
 
 ## PURE-WILDLIFE PASS (2026-07-21, v1.11.1) — owner direction: only imported mobs in zone 2
 

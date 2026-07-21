@@ -51,8 +51,8 @@ hub** (`basecamp`: tier-2 shop ilvl 17 / rolls capped at 13, forge, quest giver 
 `docs/wildlife-expanse-zone2-plan.md`. `bal_identity` stayed byte-identical across all 12 ships.
 
 ## ▶ Now — the owner's map flesh-out / art pass
-Next focus is **owner-directed**: zone ground/props re-skins (ground DONE in art-pass A1 — wildlife
-ground set live, client-only; sports-prop remap = A3), ~~Base Camp decor~~ (DONE in A2 —
+Next focus is **owner-directed**: zone ground/props re-skins (ground DONE in art-pass A1;
+~~sports-prop remap~~ DONE in A3 — client-only WILD_PROP_SWAP), ~~Base Camp decor~~ (DONE in A2 —
 data/decals/basecamp.json, ships server+client), elite model differentiation,
 death-anim pass-3 (warfrog/howler), and
 the playtest feel-pass items listed in the plan doc. **Standing vetoes:** P7a sockets+gems is

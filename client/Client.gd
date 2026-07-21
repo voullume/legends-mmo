@@ -1898,9 +1898,22 @@ func _render_decals() -> void:
 				_decal_root.add_child(pi)
 
 # Draw the zone's cover obstacles (sent in the snapshot) as themed padded training barriers — navy pads
-# with a yellow safety stripe. They double as the gameplay cover (collision/LOS/projectile-block live in
-# the sim) and the zone's visual identity. Rebuilt only when the obstacle set changes (per zone), like portals.
+# with a yellow safety stripe (away biome: wilds-reclaimed nature via WILD_PROP_SWAP below). They double as
+# the gameplay cover (collision/LOS/projectile-block live in the sim) and the zone's visual identity.
+# Rebuilt only when the obstacle set changes (per zone), like portals.
 const OBSTACLE_PAD := 14.0                            # the sim blocks fighters at obstacle r + this (AI.separation) — fill the prop to here so there's no gap
+
+# Wildlife Expanse art pass A3 (owner-approved): in the away biome the cover props render as
+# wilds-reclaimed nature — fallen timber walls, a stone ridge, standing stones. RENDER-TIME swap
+# only: World.OBSTACLES rows and the server's collision circles are byte-identical (the sim never
+# sees the prop kind), so cover/LOS behavior cannot change. GY/finals/home keep their sports props.
+# COVER HONESTY (review-driven): the nature models are fatter than the sports props whose PROP_DIM
+# aspect the collision band was built from (log_stack d/l 0.598 vs barrier 0.361; stone_largeB
+# 0.755 vs rack 0.340) — rendered raw, a visually-solid rim up to ~1.5 world units would eat
+# quills/shots that LOOK blocked. So the render squashes the swap model's DEPTH axis down to the
+# original kind's PROP_DIM ratio: the wild prop hugs the collision band flush, exactly like the
+# prop it replaced. rock_tallC (0.957 vs bag 1.0) is already inside its band — never widened.
+const WILD_PROP_SWAP := {"barrier": "log_stack", "rack": "stone_largeB", "bag": "rock_tallC"}
 
 # Lazily load a prop GLB + its AABB (footprint + height + ground offset), cached.
 # GLB search folders for a prop/decal id, first hit wins: the Meshy cover props, then the free Kenney
@@ -1919,7 +1932,7 @@ func _prop_entry(id: String) -> Dictionary:
 			break
 	if path == "":
 		push_warning("[prop] no GLB found for id '%s' under %s" % [id, str(PROP_DIRS)])
-	var e := {"scene": null, "min_y": 0.0, "foot": 1.0, "h": 1.0}
+	var e := {"scene": null, "min_y": 0.0, "foot": 1.0, "h": 1.0, "depth": 1.0, "zlong": false}
 	if path != "" and ResourceLoader.exists(path):
 		e["scene"] = load(path)
 		var inst = e["scene"].instantiate()
@@ -1929,7 +1942,8 @@ func _prop_entry(id: String) -> Dictionary:
 		var a: AABB = acc["aabb"]
 		e["min_y"] = a.position.y
 		e["foot"] = maxf(maxf(a.size.x, a.size.z), 0.001)
-		e["h"] = maxf(a.size.y, 0.001)
+		e["depth"] = maxf(minf(a.size.x, a.size.z), 0.001)
+		e["zlong"] = a.size.z > a.size.x           # kit models vary: some lie long along Z, not X
 	_prop_cache[id] = e
 	return e
 
@@ -1937,8 +1951,11 @@ func _render_obstacles() -> void:
 	# the cover-panel entries ({x,y,prop,len,yaw}) come from World by map (client-side, like decals), or the
 	# debug override in the --practice sandbox. The prop is scaled to `len` (uniform → depth/height follow)
 	# and oriented along `yaw` to line up with the collision-circle row the server generated from the same data.
-	var obs: Array = _state["obstacles"] if _state.has("obstacles") else World.obstacles_for(str(_state.get("map", "")))
-	var sig := JSON.stringify(obs)
+	var mapn := str(_state.get("map", ""))
+	var obs: Array = _state["obstacles"] if _state.has("obstacles") else World.obstacles_for(mapn)
+	# the map name is part of the signature: two maps with byte-identical rows still need a rebuild
+	# across a switch, because the away biome renders them through WILD_PROP_SWAP (A3)
+	var sig := mapn + "|" + JSON.stringify(obs)
 	if sig == _obstacles_sig:
 		return
 	_obstacles_sig = sig
@@ -1949,16 +1966,30 @@ func _render_obstacles() -> void:
 		return
 	_obstacle_root = Node3D.new()
 	_world_root.add_child(_obstacle_root)
+	var wild := mapn.begins_with("away")               # A3: the away biome re-skins its cover props
 	for o in obs:
 		var pos := Vector3((float(o["x"]) - _aw() / 2.0) * SCALE, 0.0, (float(o["y"]) - _ah() / 2.0) * SCALE)
-		var e := _prop_entry(str(o.get("prop", "barrier")))
+		var pid := str(o.get("prop", "barrier"))
+		var squash := 1.0                              # depth-axis fit (A3 wild swaps only; 1.0 = natural)
+		if wild and WILD_PROP_SWAP.has(pid):
+			var dimo: Dictionary = World.PROP_DIM.get(pid, World.PROP_DIM["barrier"])
+			var band := float(dimo["depth"]) / float(dimo["long"])   # the ratio the collision circles assume
+			pid = WILD_PROP_SWAP[pid]
+			var pe := _prop_entry(pid)
+			var da: float = float(pe["depth"]) / float(pe["foot"])
+			if da > band:                              # fatter than the band → squash flush; never widen
+				squash = band / da
+		var e := _prop_entry(pid)
 		if e["scene"] == null:
 			continue
 		var inst = e["scene"].instantiate()
-		var sc: float = float(o.get("len", 80.0)) * SCALE / float(e["foot"])   # uniform: footprint long axis → len, full natural height
-		inst.scale = Vector3(sc, sc, sc)
+		var sc: float = float(o.get("len", 80.0)) * SCALE / float(e["foot"])   # footprint long axis → len, full natural height
+		# the model's long axis may be X or Z (kit models differ); scale the DEPTH axis by squash and
+		# rotate Z-long models 90° so the long axis always lies along the panel row (collision band).
+		var zlong: bool = e["zlong"]
+		inst.scale = Vector3(sc * squash, sc, sc) if zlong else Vector3(sc, sc, sc * squash)
 		inst.position = pos + Vector3(0.0, -float(e["min_y"]) * sc, 0.0)   # ground (feet at y=0)
-		inst.rotation.y = -float(o.get("yaw", 0.0))        # align the prop's long axis with the panel direction
+		inst.rotation.y = -float(o.get("yaw", 0.0)) + (PI / 2.0 if zlong else 0.0)
 		_obstacle_root.add_child(inst)
 
 # Draw hazard zones (damaging/slow ground areas, sent in the snapshot) as translucent emissive discs so

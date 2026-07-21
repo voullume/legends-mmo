@@ -26,7 +26,8 @@ func _init() -> void:
 		"bounty_terminal","leaderboard_kiosk","zone_terminal","boundary_pylon","player_tunnel_gate",
 		"arena_service_door","equipment_transport_crate","straight_cover_barrier","spectator_safety_rail",
 		"championship_arena_wall","glitchyard_wall","cable_spool_cart","coolant_pump_station",
-		"industrial_ventilation_unit","maintenance_tool_cart","scrap_sports_equipment_pile"]:
+		"industrial_ventilation_unit","maintenance_tool_cart","scrap_sports_equipment_pile",
+		"log_stack","stone_largeB","rock_tallC"]:   # A3: Client.WILD_PROP_SWAP render targets (code-referenced)
 		ids[id] = "baseline"
 	var dd := DirAccess.open("res://data/decals")
 	if dd != null:
