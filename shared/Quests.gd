@@ -221,6 +221,48 @@ const QUESTS := {
 	# CAPSTONE — beat the Rival Coach. Completion text routes the player at the existing Head Coach raid
 	# gate (L16 + gear 800): the away chain "graduates" into the shipped raid. Repeat kills also pay Pages
 	# via the server's RIVAL_PAGES hook; this quest is the once-only dye + credits.
+	# --- W7: the Base Camp side chain (WILD_ORDER — same governance as AWAY_ORDER: append-only, never
+	# gated on in aggregate). Accepted/turned in at ANY quest giver (Home or the Base Camp's). Matchers
+	# target the wildlife BY CLASS — the roster-swap-proof pattern the map matchers can't give us here.
+	"wild1_stake": {
+		"name": "Stake the Camp",
+		"desc": "The Base Camp needs breathing room. Cull 10 of the pack prowling the Reclaimed Stadium.",
+		"min_level": 13, "prereq": "",
+		"objective": {"type": "kill", "match": {"map": "away_3"}, "count": 10},
+		"rewards": {"xp": 900, "credits": 500, "tokens": 25},
+	},
+	"wild2_grazers": {
+		"name": "Thin the Herd",
+		"desc": "Tacklehorn Grazers trample every trail we cut. Put down 6 — mind the charge, bait it into walls.",
+		"min_level": 13, "prereq": "wild1_stake",
+		"objective": {"type": "kill", "match": {"class": "tacklehorn_grazer"}, "count": 6},
+		"rewards": {"xp": 1000, "credits": 550, "pages": 20},
+	},
+	"wild3_rallywings": {
+		"name": "Ground the Rallywings",
+		"desc": "Their shrieking shield-birds keep the packs standing. Ground 4 Rallywing Magpies — kill the support FIRST.",
+		"min_level": 14, "prereq": "wild2_grazers",
+		"objective": {"type": "kill", "match": {"class": "rallywing_magpie"}, "count": 4},
+		"rewards": {"xp": 1100, "credits": 600, "tokens": 30},
+	},
+	# the epic carries EXPLICIT ilvl + item_power (the away3/S2 rule — the legacy shape would normalize
+	# it to ~IP 27); bonus_amt follows _make_item's epic budget at ilvl 22: 8×(3+0.4·22) = 94.
+	"wild4_splinter": {
+		"name": "Pull the Quills",
+		"desc": "The Splinterback's quills shred our tarps from across the field. Bring it down.",
+		"min_level": 15, "prereq": "wild3_rallywings",
+		"objective": {"type": "kill", "match": {"class": "splinterback_elite"}, "count": 1},
+		"rewards": {"xp": 1300, "credits": 700, "tokens": 35,
+			"item": {"name": "Wildwarden's Jacket", "rarity": "epic", "slot": "chest", "bonus_stat": "END", "bonus_amt": 94, "ilvl": 22, "item_power": 116}},
+	},
+	"wild5_alpha": {
+		"name": "The Alpha's Challenge",
+		"desc": "The camp will never be safe while the Arrowbound Howler holds the sideline. Fell the alpha and wear the wilds' colors.",
+		"min_level": 15, "prereq": "wild4_splinter",
+		"objective": {"type": "kill", "match": {"map": "away_boss", "tier": "boss"}, "count": 1},
+		"rewards": {"xp": 1600, "credits": 900, "dye": "wildveil"},
+	},
+
 	"rival_down": {
 		"name": "Fell the Howler",
 		"desc": "The Arrowbound Howler — the beast that drove the rival squad from their own sideline — waits behind the power cores. Take it down — then gear up on that sideline until you hit gear score 800, and report to the Head Coach Arena for the real thing.",
@@ -281,6 +323,10 @@ const MIDGAME_ORDER := ["mid1_proving", "mid2_circuit", "mid3_command", "mid4_de
 const AWAY_ORDER := ["away1_roadgame", "away1_blocker", "away2_gauntlet", "away2_medics",
 	"away3_stadium", "away3_elites", "rival_down"]
 
+# W7: the Base Camp chain — SAME GOVERNANCE as AWAY_ORDER (append-only; NOTHING may ever gate on
+# WILD_ORDER completion — gate on individual quest ids if ever needed).
+const WILD_ORDER := ["wild1_stake", "wild2_grazers", "wild3_rallywings", "wild4_splinter", "wild5_alpha"]
+
 # Phase 8 S3: the Finals chain — same governance rule as AWAY_ORDER (grows per slice, append-only;
 # NOTHING may ever gate on FINALS_ORDER completion — gate on individual quest ids if ever needed).
 const FINALS_ORDER := ["finals1_contenders", "finals1_machines", "finals2_gate", "finals2_gallery"]
@@ -288,11 +334,11 @@ const FINALS_ORDER := ["finals1_contenders", "finals1_machines", "finals2_gate",
 static func order() -> Array:
 	return ORDER
 
-# every quest in display order (original chain, the Away Circuit, the Finals, then the mid-level spine) —
-# for the CLIENT log/tracker/giver only. The server keeps using ORDER for the gate and
-# get_quest()/kill_matches() for progress.
+# every quest in display order (original chain, the Away Circuit, its Base Camp side chain, the Finals,
+# then the mid-level spine) — for the CLIENT log/tracker/giver only. The server keeps using ORDER for
+# the gate and get_quest()/kill_matches() for progress.
 static func display_order() -> Array:
-	return ORDER + AWAY_ORDER + FINALS_ORDER + MIDGAME_ORDER
+	return ORDER + AWAY_ORDER + WILD_ORDER + FINALS_ORDER + MIDGAME_ORDER
 
 static func get_quest(qid: String) -> Variant:
 	return QUESTS.get(qid, null)

@@ -1946,7 +1946,7 @@ func _render_questlog() -> void:
 			else:
 				var reason: String = ("needs lvl %d" % minl) if lvl < minl else ("requires: %s" % _esc(_prereq_name(prereq)))
 				locked.append("[color=%s]%s  (%s)[/color]" % [faint, nm, reason])
-	_quest_rows.add_child(_qg_info("[color=%s]Accept & turn in quests at the [color=%s]Quest Giver[/color] in the Home Base (press E near it).[/color]" % [dim, Palette.hex(Palette.ACCENT)]))
+	_quest_rows.add_child(_qg_info("[color=%s]Accept & turn in quests at a [color=%s]Quest Giver[/color] — Home Base or the Wilds Base Camp (press E near it).[/color]" % [dim, Palette.hex(Palette.ACCENT)]))
 	var teaser := _secret_teaser()
 	if teaser != "":
 		_quest_rows.add_child(_qg_info(teaser))
@@ -2187,12 +2187,16 @@ func _bounty_countdown(period_end: int) -> String:
 		return "%dd %dh" % [d, h]
 	return "%dh %dm" % [h, m]
 
-# home-only pads (shop/forge/questgiver/practice/build_shop/locker_portal) ride the change-detected snapshot
-# META cache. Gate every read on the per-tick `map` — not the mere presence of the cached key — so a META held
-# across a zone exit (if that one packet drops) can't leave a phantom pad pillar + interact prompt in the new
-# zone. Returns null off-home, which each render/proximity fn already treats as "tear the pad down".
+# Service pads (shop/forge/questgiver/practice/build_shop/locker_portal) ride the change-detected snapshot
+# META cache. Gate every read on the per-tick `map`'s SERVICE_PADS registry entry (W7: Home + Base Camp) —
+# not the mere presence of the cached key — so a META held across a zone exit (if that one packet drops)
+# can't leave a phantom pad pillar + interact prompt in the new zone. Returns null when the current zone
+# doesn't field the service, which each render/proximity fn already treats as "tear the pad down".
 func _home_pad(key: String):
-	return _state.get(key) if str(_state.get("map", "")) == World.HOME else null
+	var map := str(_state.get("map", ""))
+	if key == "locker_portal":                     # the Locker portal prompt stays a Home-only affordance
+		return _state.get(key) if map == World.HOME else null
+	return _state.get(key) if (World.SERVICE_PADS.get(map, {}) as Dictionary).has(key) else null
 
 # the blue quest-giver marker in the home base + the "press E" proximity prompt (mirrors the shop pad)
 func _render_questgiver_pad() -> void:
@@ -3551,7 +3555,8 @@ func _render_shop_buy() -> void:
 		_shop_buy_status.text = "BUY    %d credits" % _my_credits()
 	for ch in _shop_buy_grid.get_children(): ch.queue_free()
 	for ch in _shop_roll_row.get_children(): ch.queue_free()
-	var cat: Array = _shop_info.get("catalog", [])
+	var t2: bool = str(_state.get("map", "")) == World.BASECAMP
+	var cat: Array = (_shop_info.get("t2", {}) as Dictionary).get("catalog", []) if t2 else _shop_info.get("catalog", [])
 	if cat.is_empty():
 		_shop_buy_grid.add_child(_hint_tile("catalog unavailable"))
 	for e in cat:
@@ -3566,7 +3571,7 @@ func _render_shop_buy() -> void:
 		_shop_buy_grid.add_child(_grid_tile(Color.html(RARITY_COLORS.get(rr, "#cfd6df")), header, e, _sell_items, null,
 			func() -> void:
 				if net != null and _connected: net.shop_buy.rpc_id(1, slot, rr)))
-	var roll: Dictionary = _shop_info.get("roll", {})
+	var roll: Dictionary = (_shop_info.get("t2", {}) as Dictionary).get("roll", {}) if str(_state.get("map", "")) == World.BASECAMP else _shop_info.get("roll", {})
 	for rar in ["common", "uncommon", "rare", "epic"]:
 		if roll.has(rar):
 			var rprice: int = int(roll[rar])
@@ -6480,6 +6485,7 @@ func _update_hud() -> void:
 func _zone_name(map: String) -> String:
 	match map:
 		"home": return "Home Base"
+		"basecamp": return "Wildlife Expanse · Base Camp"
 		"glitchyard_1": return "Glitchyard · Rookie Intake"
 		"glitchyard_2": return "Glitchyard · Agility Grid"
 		"glitchyard_3": return "Glitchyard · Impact Lanes"

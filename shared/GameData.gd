@@ -856,6 +856,10 @@ const RECIPES := [
 	{"id": "forge_rare",   "name": "Forge Rare Gear",     "scrap": 40,  "rarity": "rare",     "ilvl": 18},
 	{"id": "forge_epic",   "name": "Forge Epic Gear",     "scrap": 120, "rarity": "epic",     "ilvl": 26},
 	{"id": "forge_unique", "name": "Forge a Unique",      "scrap": 400, "rarity": "epic",     "ilvl": 30, "unique": true},
+	# W7: the Base Camp's forge-tier rungs — recipes are knowledge (usable at any forge); the higher
+	# scrap costs meter them. ilvl 30 epic lands ~IP 200 — under the finals drop ceiling (ilvl ≤37).
+	{"id": "forge_rare2",  "name": "Wildforge Rare Gear", "scrap": 60,  "rarity": "rare",     "ilvl": 24},
+	{"id": "forge_epic2",  "name": "Wildforge Epic Gear", "scrap": 200, "rarity": "epic",     "ilvl": 30},
 ]
 
 # --- Uniques & procs (P6). A proc is PURE DATA (a fixed effect enum), never a script — so the sim stays
@@ -914,6 +918,8 @@ const DYE_CATALOG := {
 	# Phase 8 S2: quest-exclusive — granted by beating the Rival Coach (rival_down), never buyable (same
 	# champion-dye pattern: out of DYE_IDS so no shop/vendor lists it)
 	"rival_crimson": {"name": "Rival Crimson", "color": "#c43c2e", "buyable": false},
+	# W7: quest-exclusive — granted by the Base Camp chain's capstone (wild5_alpha), never buyable
+	"wildveil": {"name": "Wildveil Green", "color": "#3fa66a", "buyable": false},
 }
 const DYE_IDS := ["crimson", "azure", "emerald", "violet", "coral", "ivory", "gold", "obsidian"]
 

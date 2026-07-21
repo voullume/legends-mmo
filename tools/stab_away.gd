@@ -98,7 +98,7 @@ func _run() -> void:
 	# ---- 5. quests: prereq-free accept at 8+, progress + tokens through the REAL kill-award path ----
 	var q = Quests.get_quest("away1_roadgame")
 	ok(q != null and str(q["prereq"]) == "" and int(q["min_level"]) == 8, "quest: away1_roadgame is prereq-FREE at min_level 8 (the desert fix)")
-	ok(Quests.display_order().size() == Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.FINALS_ORDER.size() + Quests.MIDGAME_ORDER.size(),
+	ok(Quests.display_order().size() == Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.WILD_ORDER.size() + Quests.FINALS_ORDER.size() + Quests.MIDGAME_ORDER.size(),
 		"quest: AWAY_ORDER wired into display_order (and NOT into the secret-gate ORDER)")
 	ok(Quests.ORDER.size() == 9, "quest: the secret-boss gate list is untouched (9)")
 	await srv._do_quest_accept(2, "away1_roadgame")
@@ -433,7 +433,7 @@ func _run() -> void:
 
 	# ---- 20. the finals quest chain ----
 	ok(Quests.FINALS_ORDER.size() == 4 and Quests.display_order().size() ==
-		Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.FINALS_ORDER.size() + Quests.MIDGAME_ORDER.size(),
+		Quests.ORDER.size() + Quests.AWAY_ORDER.size() + Quests.WILD_ORDER.size() + Quests.FINALS_ORDER.size() + Quests.MIDGAME_ORDER.size(),
 		"quest: FINALS_ORDER wired into display_order; secret-gate ORDER untouched")
 	var fq = Quests.get_quest("finals1_contenders")
 	ok(str(fq["prereq"]) == "" and int(fq["min_level"]) == 17,

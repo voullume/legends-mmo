@@ -246,6 +246,32 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   skips re-validation for ALL gates on an inventory blip — tightening that is a separate,
   owner-approvable hardening.
 
+## W7 COMPLETE (2026-07-21) — THE WORKSTREAM IS DONE: the Base Camp hub is live
+
+- New `basecamp` safe zone (1200×640, turf theme via id-prefix design) off away_3's south edge +
+  a wild_gated HOME shortcut (moved off the pad walk-line — review find). World.SERVICE_PADS
+  per-map registry replaces the map==HOME guards for shop/forge/questgiver; vendor, build shop,
+  master-key craft, camp pad, locker portal stay HOME-only BY DESIGN. Client `_home_pad` is
+  registry-driven (locker prompt stays home).
+- **Tier-2 shop**: catalog ilvl 17 (clean, IP ~95), T2 prices ~2.2×; rolls carry affixes so the
+  T2 gamble is CAPPED at ilvl 13 (IP ~106 — review caught ilvl-17 rolls at IP 127 beating the
+  biome's own quest epics). Server prices by the buyer's LIVE map; dual catalog rides the auth
+  push; Home tier untouched. Review verdicts: gold does NOT buy past the IP-800 gates
+  (rejected finding — quantified), forge_epic2 does not undercut them.
+- **WILD_ORDER** 5-quest chain (class-matchers on the wildlife; "kill the support first" magpie
+  teaching quest; capstone re-fells the Howler for the wildveil dye — catalog-only, never
+  buyable). Quest giver #2 + bounty claims co-located at the camp pad; d_wilds daily (650cr
+  after review retune). Wildforge recipes rare2@24/epic2@30 usable at any forge.
+- 2 residents (Warden Brook patrols the biome; Naturalist Fen keeps camp). stab_basecamp suite:
+  32 checks (T2 buy/roll charged+ilvl-verified through the real paths, guard sweep both
+  directions, governance, grandfather resume, in-bounds residents, dye governance).
+- Identity unchanged (9th consecutive ship). Zero-input live capture: banner, three service
+  pillars, Home pad, minimap — all up.
+- **Owner notes**: (a) wild5_alpha + rival_down share the away-boss matcher — one Howler kill
+  can complete both capstones (both once-only, distinct dyes; deliberate-ish, flag if you want
+  a prereq chain instead); (b) basecamp has NO decor/props yet — pairs with the open rival-clay
+  ground re-skin as the art pass.
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.

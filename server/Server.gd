@@ -89,6 +89,11 @@ const RESIDENTS := [
 	{"id": "scout",   "name": "Scout",   "class": "pitcher",    "persona": "wanderer", "home": "away_1",          "level": 11, "tier": "mid",  "polite": true,  "route": ["away_1", "away_2"]},
 	{"id": "roadie",  "name": "Roadie",  "class": "batter",     "persona": "grinder",  "home": "away_3",          "level": 15, "tier": "high", "polite": true},
 	{"id": "champ",   "name": "Champ",   "class": "quarterback","persona": "fighter",  "home": "finals_1",        "level": 21, "tier": "high", "polite": true,  "route": ["finals_1", "finals_2"]},
+	# W7: the Base Camp pair — a patrolling warden (routes the biome) + a tethered camp naturalist.
+	# Spawn offsets grow with the GLOBAL index (these are #10/#11 → up to +520 east of BASECAMP_SPAWN
+	# (400,540) = x≤920, inside the 1200-wide map and clear of every pad — the scout-flagged trap).
+	{"id": "warden",  "name": "Warden Brook", "class": "linebacker", "persona": "fighter", "home": "basecamp", "level": 15, "tier": "mid", "polite": true, "route": ["basecamp", "away_1", "away_2", "away_3"]},
+	{"id": "fen",     "name": "Naturalist Fen", "class": "setter",   "persona": "support", "home": "basecamp", "level": 14, "tier": "mid", "polite": true},
 ]
 const ROUTE_DWELL_MS := 75000         # a routing resident spends this long in each zone before moving on
 const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.3, "dmg": 1.1}, "high": {"hp": 1.8, "dmg": 1.25}}   # difficulty-pass v1: bots are helpers, not carries (was mid 1.6/1.25, high 2.6/1.55) — tunable
@@ -146,6 +151,15 @@ var _loot_roll_ctr := 0
 var _loot_roll_next := {}                         # pid -> earliest next loot_roll ms (anti-spam, like the other RPCs)
 const AFFIX_COUNT_BY_RARITY := {"common": 0, "uncommon": 1, "rare": 2, "epic": 3, "legendary": 4, "mythic": 4}
 const SHOP_ILVL := 8                         # the shop catalog/roll's fixed item level (a reliable baseline)
+# W7: the Base Camp's tier-2 shop — same rarities, higher item level, ~2.2× prices (the shop stays
+# the reliable BASELINE; drops keep the ceiling — ilvl 17 sits under the away-chain quest epics @20).
+const SHOP_ILVL_T2 := 17
+const SHOP_ROLL_ILVL_T2 := 13    # rolls carry AFFIXES — at ilvl 13 the T2 epic gamble lands IP ~106,
+                                 # UNDER every quest epic (away 108 / wild 116 / finals 125): the review
+                                 # caught an ilvl-17 roll (IP 127) beating the biome's own capstones.
+                                 # The roll stays the premium product (clean catalog = IP ~95).
+const BUY_PRICE_T2 := {"common": 90, "uncommon": 240, "rare": 620, "epic": 1450}
+const ROLL_PRICE_T2 := {"common": 110, "uncommon": 290, "rare": 700, "epic": 1600}
 # economy (Credits): buy from a fixed catalog, gamble a random roll, or sell inventory back
 const BUY_PRICE := {"common": 40, "uncommon": 110, "rare": 280, "epic": 650}     # shop sells common..epic only
 const ROLL_PRICE := {"common": 50, "uncommon": 130, "rare": 320, "epic": 720}
@@ -2034,7 +2048,8 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 	_last_aseq[pid] = 0
 	_intent_age[pid] = 0
 	net.assign_fighter.rpc_id(pid, fid)
-	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE})
+	net.recv_shop_info.rpc_id(pid, {"catalog": _catalog(), "roll": ROLL_PRICE, "sell": SELL_PRICE,
+			"t2": {"catalog": _catalog(SHOP_ILVL_T2, BUY_PRICE_T2), "roll": ROLL_PRICE_T2}})   # W7: the Base Camp tier rides the same one-shot push
 	net.recv_vendor_info.rpc_id(pid, {"catalog": _token_catalog()})   # the Practice Vendor (Rookie Camp set)
 	net.recv_build_info.rpc_id(pid, {"catalog": _build_catalog(), "unlock_cost": LOCKER_UNLOCK_COST,
 		"owned_cap": BUILD_OWNED_CAP, "model_cap": BUILD_PER_MODEL_CAP})   # Builder Mode: Build Shop catalog + caps (P3)
@@ -2547,15 +2562,29 @@ func _make_item(slot: String, rarity: String, ilvl: int, primary_stat: String = 
 # the fixed shop catalog: one CLEAN (affix-free) item per slot × shop-rarity, built deterministically so
 # it stays stable across calls + the recv_shop_info push. Drops/rolls carry the affixes; the shop is the
 # reliable baseline.
-func _catalog() -> Array:
+# W7: is the player standing in a zone that fields this service? (World.SERVICE_PADS is the registry;
+# HOME keeps everything, the Base Camp fields the hub subset.) Map-level check like the old HOME guard.
+func _svc_zone(pid: int, key: String) -> bool:
+	return (World.SERVICE_PADS.get(str(_session.get(pid, {}).get("map", "")), {}) as Dictionary).has(key)
+
+func _shop_t2(pid: int) -> bool:
+	return str(_session.get(pid, {}).get("map", "")) == World.BASECAMP
+
+func _catalog_for(pid: int) -> Array:
+	return _catalog(SHOP_ILVL_T2, BUY_PRICE_T2) if _shop_t2(pid) else _catalog()
+
+func _roll_price_for(pid: int) -> Dictionary:
+	return ROLL_PRICE_T2 if _shop_t2(pid) else ROLL_PRICE
+
+func _catalog(ilvl: int = SHOP_ILVL, buy: Dictionary = BUY_PRICE) -> Array:
 	var out := []
 	for slot in LOOT_SLOTS:
 		var bases: Array = LOOT_SLOTS[slot]
 		var stat: String = str(SHOP_SLOT_STAT.get(slot, "PWR"))
 		for i in SHOP_RARITIES.size():
 			var rar: String = SHOP_RARITIES[i]
-			var item := _make_item(slot, rar, SHOP_ILVL, stat, false, str(bases[i % bases.size()]))
-			item["price"] = int(BUY_PRICE[rar])
+			var item := _make_item(slot, rar, ilvl, stat, false, str(bases[i % bases.size()]))
+			item["price"] = int(buy[rar])
 			out.append(item)
 	return out
 
@@ -2743,10 +2772,10 @@ func shop_sell_many(pid: int, item_ids: Array) -> void:
 	_sellmany_busy.erase(pid)
 
 func _do_shop_buy(pid: int, slot: String, rarity: String) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
-		return                                                # the shop only exists in the home base
+	if not _session.has(pid) or not _svc_zone(pid, "shop"):
+		return                                                # shops exist only in service zones (Home / Base Camp)
 	var entry = null
-	for e in _catalog():
+	for e in _catalog_for(pid):
 		if e["slot"] == slot and e["rarity"] == rarity:
 			entry = e
 			break
@@ -2760,23 +2789,24 @@ func _do_shop_buy(pid: int, slot: String, rarity: String) -> void:
 		await _give_and_charge(pid, item, int(entry["price"]))
 
 func _do_shop_roll(pid: int, rarity: String) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not ROLL_PRICE.has(rarity):
+	if not _session.has(pid) or not _svc_zone(pid, "shop") or not _roll_price_for(pid).has(rarity):
 		return
-	if int(_session[pid]["credits"]) < int(ROLL_PRICE[rarity]):
+	var rp := _roll_price_for(pid)
+	if int(_session[pid]["credits"]) < int(rp[rarity]):
 		return
 	var slots: Array = LOOT_SLOTS.keys()
 	var slot: String = slots[_loot_rng.next_int(slots.size())]
-	var rolled := _make_item(slot, rarity, SHOP_ILVL)         # rolls carry affixes
+	var rolled := _make_item(slot, rarity, SHOP_ROLL_ILVL_T2 if _shop_t2(pid) else SHOP_ILVL)   # rolls carry affixes — T2 rolls at the capped gamble ilvl (see the const note)
 	if _atomic_econ:
-		await _give_and_charge_atomic(pid, rolled, int(ROLL_PRICE[rarity]), 0)
+		await _give_and_charge_atomic(pid, rolled, int(rp[rarity]), 0)
 	elif _legacy_econ_allowed():
-		await _give_and_charge(pid, rolled, int(ROLL_PRICE[rarity]))
+		await _give_and_charge(pid, rolled, int(rp[rarity]))
 
 # bulk sell: ONE locked, serialized loop of atomic per-row deletes, crediting each row the instant it's
 # removed, then ONE save + push. Dupe-safe by construction — see the per-row note below and the §2 contract.
 func _do_shop_sell_many(pid: int, item_ids: Array) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
-		return                                                # the shop only exists in the home base
+	if not _session.has(pid) or not _svc_zone(pid, "shop"):
+		return                                                # shops exist only in service zones (Home / Base Camp)
 	if typeof(item_ids) != TYPE_ARRAY or item_ids.size() > 200:
 		return                                                # bound the work — a legit client sends ≤ 50 ids
 	var s = _session[pid]
@@ -2862,7 +2892,7 @@ func salvage_many(pid: int, item_ids: Array) -> void:
 	_salvage_busy.erase(pid)
 
 func _do_salvage_many(pid: int, item_ids: Array) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+	if not _session.has(pid) or not _svc_zone(pid, "forge"):
 		return                                                # the forge lives in the home base
 	if typeof(item_ids) != TYPE_ARRAY or item_ids.size() > 200:
 		return
@@ -2916,7 +2946,7 @@ func forge_upgrade(pid: int, item_id: String) -> void:
 	_forge_busy.erase(pid)
 
 func _do_forge_upgrade(pid: int, item_id: String) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not _is_uuid(item_id):
+	if not _session.has(pid) or not _svc_zone(pid, "forge") or not _is_uuid(item_id):
 		return
 	var s = _session[pid]
 	var inv = await supa.get_inventory_as(s["access"])
@@ -2990,7 +3020,7 @@ func forge_reforge(pid: int, item_id: String) -> void:
 	_forge_busy.erase(pid)
 
 func _do_forge_reforge(pid: int, item_id: String) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME or not _is_uuid(item_id):
+	if not _session.has(pid) or not _svc_zone(pid, "forge") or not _is_uuid(item_id):
 		return
 	var s = _session[pid]
 	var inv = await supa.get_inventory_as(s["access"])
@@ -3068,7 +3098,7 @@ func craft(pid: int, recipe_id: String) -> void:
 	_craft_busy.erase(pid)
 
 func _do_craft(pid: int, recipe_id: String) -> void:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+	if not _session.has(pid) or not _svc_zone(pid, "forge"):
 		return                                                # crafting happens at the home forge
 	var recipe = null
 	for r in GameData.RECIPES:
@@ -4232,15 +4262,20 @@ func _quest_lock(pid: int) -> bool:
 	return true
 
 # quests are accepted / turned in only at the quest giver in the home base (an NPC interaction),
-# re-validated server-side: in HOME and within QUESTGIVER_RADIUS of the giver. (Reward RECOVERY on
+# re-validated server-side: in a SERVICE_PADS zone (Home / Base Camp — W7) and within QUESTGIVER_RADIUS of the giver. (Reward RECOVERY on
 # reconnect goes through _grant_quest_rewards directly and is NOT gated by this.)
 func _at_questgiver(pid: int) -> bool:
-	if not _session.has(pid) or str(_session[pid]["map"]) != World.HOME:
+	# W7: a giver exists wherever the SERVICE_PADS registry says one does (Home + the Base Camp);
+	# same distance contract as always, against THAT map's pad. Bounties co-locate (same guard).
+	if not _session.has(pid):
+		return false
+	var gp = World.service_pad(str(_session[pid]["map"]), "questgiver")
+	if gp == null:
 		return false
 	var f = _find(_session[pid]["fid"])
 	if f == null:
 		return false
-	return Vector2(f["x"] - World.QUESTGIVER_POS.x, f["y"] - World.QUESTGIVER_POS.y).length() <= World.QUESTGIVER_RADIUS
+	return Vector2(f["x"] - (gp as Vector2).x, f["y"] - (gp as Vector2).y).length() <= World.QUESTGIVER_RADIUS
 
 func quest_action(pid: int, action: String, qid: String) -> void:
 	if not _quest_lock(pid):
@@ -4394,6 +4429,7 @@ const BOUNTY_DAILY := {
 	# re-export. min_level hides them from characters too fresh for the wilds anyway (view-filter only).
 	"d_roadgame": {"name": "Road Patrol",    "kind": "kill",    "match": {"map": "away_1"},                   "count": 15, "min_level": 8, "desc": "Defeat 15 on the Overgrown Practice Field.",     "rewards": {"credits": 650, "tokens": 25}},
 	"d_gauntlet": {"name": "Gauntlet Runner","kind": "kill",    "match": {"map": "away_2", "tier": "elite"},  "count": 4,  "min_level": 8, "desc": "Defeat 4 Overrun Gauntlet elites.",        "rewards": {"tokens": 30, "pages": 30}},
+	"d_wilds":    {"name": "Camp Perimeter", "kind": "kill",    "match": {"map": "away_3"},                   "count": 10, "min_level": 13, "desc": "Cull 10 on the Reclaimed Stadium floor.",    "rewards": {"credits": 650, "pages": 25}},
 	# Phase 8 S3 (the Finals district) — view-filtered below finals_gate's level
 	"d_quarter":  {"name": "Quarter Patrol", "kind": "kill",    "match": {"map": "finals_1"},                 "count": 15, "min_level": 17, "min_ip": 800, "desc": "Defeat 15 in the Contenders' Quarter.",     "rewards": {"credits": 900, "pages": 30}},
 	"d_gallery":  {"name": "Gallery Runs",   "kind": "kill",    "match": {"map": "finals_2", "class": "grand_gallery"}, "count": 2, "min_level": 17, "min_ip": 800, "desc": "Break the Grand Gallery twice.",  "rewards": {"tokens": 40, "pages": 45}},
@@ -4795,13 +4831,13 @@ func _broadcast() -> void:
 			meta["drillWave"] = int((_instances[str(s["map"])] as Dictionary).get("wave", 0))   # Two-Minute Drill HUD counter
 		if _template(str(s["map"])) == World.LOCKER:  # Builder Mode: the owner's placed build items → server decals (client _render_decals prefers these)
 			meta["decals"] = (_instances.get(str(s["map"]), {}) as Dictionary).get("decals", [])
-		if str(s["map"]) == World.HOME:           # the shop / forge pads + quest giver only exist in the home base
-			meta["shop"] = {"x": World.SHOP_POS.x, "y": World.SHOP_POS.y}
-			meta["forge"] = {"x": World.FORGE_POS.x, "y": World.FORGE_POS.y}
-			meta["questgiver"] = {"x": World.QUESTGIVER_POS.x, "y": World.QUESTGIVER_POS.y}
-			meta["practice"] = {"x": World.PRACTICE_POS.x, "y": World.PRACTICE_POS.y}   # the Practice Vendor (reward loop)
-			meta["build_shop"] = {"x": World.BUILD_SHOP_POS.x, "y": World.BUILD_SHOP_POS.y}   # Builder Mode: buy furniture (P3)
-			meta["bounties"] = _bounty_meta(pid)      # gameplay-length P6b: the day's active bounties (rendered in the Quest Giver panel)
+		# W7: service pads ship from the per-map registry (Home = everything; Base Camp = the hub subset).
+		var svc: Dictionary = World.SERVICE_PADS.get(_template(str(s["map"])), {})
+		for skey in svc:
+			meta[skey] = {"x": (svc[skey] as Vector2).x, "y": (svc[skey] as Vector2).y}
+		if svc.has("questgiver"):
+			meta["bounties"] = _bounty_meta(pid)      # bounties render in ANY Quest Giver panel (claims share the giver guard)
+		if str(s["map"]) == World.HOME:
 			for lp in World.PORTALS.get(World.HOME, []):   # the Locker Room portal position → client's "Purchase (10,000)" prompt when not yet unlocked
 				if str(lp.get("instance", "")) == World.LOCKER:
 					meta["locker_portal"] = {"x": lp["x"], "y": lp["y"]}

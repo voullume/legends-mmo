@@ -24,6 +24,7 @@ const ARENA := "arena"                     # dedicated open-PvP space (free-for-
 # HOME shortcut, both behind wild_gate (gy5_command complete; pre-W6 characters grandfathered).
 const AWAY1 := "away_1"                     # Overgrown Practice Field — lvl 9-10 wildlife + the tackle_brute elite (W4 swaps elites)
 const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the warfrog anchor (W4)
+const BASECAMP := "basecamp"                # W7: the Wildlife Expanse Base Camp — the biome's safe hub (tier-2 shop, forge, giver #2)
 const AWAY3 := "away_3"                     # Reclaimed Stadium   — lvl 15-16 wildlife, the drill_sergeant guards the boss door (S2)
 const AWAY_BOSS := "away_boss"                 # Howler's Sideline — THE ARROWBOUND HOWLER (teaching boss: cores, no ult) (W5)
 const FINALS1 := "finals_1"                 # Contenders' Quarter — lvl 19-21, behind finals_gate (L17 + IP800) (S3)
@@ -54,6 +55,7 @@ const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you
 const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Wildlife Expanse portal drops you here (west, clear of camps)
 const AWAY2_SPAWN := Vector2(200, 500)
 const AWAY3_SPAWN := Vector2(220, 550)
+const BASECAMP_SPAWN := Vector2(400, 540)    # safe-map fixed login spawn (south-center; residents offset east of it)
 const AWAYB_SPAWN := Vector2(140, 410)       # boss room: arrive far WEST, well clear of the central Rival Coach
 const FINALS1_SPAWN := Vector2(200, 520)
 const FINALS2_SPAWN := Vector2(200, 550)
@@ -94,6 +96,9 @@ const MAPS := {
 	DRILL: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.0,   "regen_delay": 0.0, "aggro": true,  "pvp": false, "spawn": DRILL_SPAWN},
 	# Locker Room (Builder Mode): a small SAFE private room — no mobs, no aggro, strong regen. Decorated by its owner.
 	LOCKER: {"type": "safe", "w": 700, "h": 460, "regen": 0.12, "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": LOCKER_SPAWN},
+	# W7: the Base Camp — 1200 wide so the global resident spawn offsets (up to +520 east of spawn)
+	# stay in-bounds (the scout-flagged trap). NOT away-prefixed: the id picks the turf/green theme.
+	BASECAMP: {"type": "safe", "w": 1200, "h": 640, "regen": 0.12, "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": BASECAMP_SPAWN},
 }
 
 const DUMMY_POS := Vector2(1240, 790)         # the training dummy (home only)
@@ -109,6 +114,19 @@ const PRACTICE_POS := Vector2(560, 790)      # the Practice Vendor (home base on
 const PRACTICE_RADIUS := 80.0
 const BUILD_SHOP_POS := Vector2(1240, 600)    # Builder Mode: the Build Shop pad (home base only) — buy furniture/props (right column, above the Locker portal)
 const BUILD_SHOP_RADIUS := 80.0
+
+# W7: the per-map SERVICE registry — which service pads exist in which zone, and where. HOME keeps
+# everything; the Base Camp fields the biome hub subset (tier-2 shop, forge, quest giver #2 —
+# bounties co-locate with any questgiver). Guards + META + client pads all read THIS, not map==HOME.
+# HOME-ONLY by design (not listed for basecamp): practice vendor, build shop, master-key craft,
+# camp-instance pad, locker portal — the hub subset is deliberate, not an omission.
+const SERVICE_PADS := {
+	HOME: {"shop": SHOP_POS, "forge": FORGE_POS, "questgiver": QUESTGIVER_POS,
+		"practice": PRACTICE_POS, "build_shop": BUILD_SHOP_POS},
+	BASECAMP: {"shop": Vector2(700.0, 220.0), "forge": Vector2(300.0, 220.0), "questgiver": Vector2(500.0, 160.0)},
+}
+static func service_pad(map: String, key: String):
+	return (SERVICE_PADS.get(map, {}) as Dictionary).get(key, null)
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
 # Zone graph:  Home ↔ Arena,  Home → Glitchyard 1 ↔ 2 ↔ 3 ↔ 4 ↔ 5  (a linear chain; you arrive west, the
@@ -126,6 +144,10 @@ const PORTALS := {
 		# W6: the Wildlife Expanse SHORTCUT — visible-but-locked until gy5_command is done (wild_gate; the server
 		# explains the requirement on approach, same UX as boss_ready).
 		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "wild_gate", "label": "▶ Wildlife Expanse"},
+		# W7: the Base Camp shortcut (same gate — the hub is earned with the biome, then a hop away)
+		# 80 north of the pad row so the straight walk between the wilds gate (300,200) and GY1 (600,200)
+		# can't clip its 42-radius (review find — 150-gap on the walk line was the tightest in the game)
+		{"x": 450.0,  "y": 120.0, "to": BASECAMP, "tx": 400.0, "ty": 450.0, "gate": "wild_gate", "label": "▶ Base Camp"},
 		# Phase 8 S3: the Finals — visible-but-locked until L17 + gear 800 (deliberately keyed on level+IP,
 		# NOT the Head Coach kill, so a stalled raid never hard-blocks the capstone branch).
 		{"x": 1480.0, "y": 200.0, "to": FINALS1, "tx": 200.0, "ty": 520.0, "gate": "finals_gate", "label": "▶ The Finals"},
@@ -204,11 +226,20 @@ const PORTALS := {
 		{"x": 120.0,  "y": 550.0,  "to": AWAY2, "tx": 200.0,  "ty": 560.0, "label": "◀ Overrun Gauntlet"},
 		# the boss door — walk-up (difficulty is the gate; wild_gate rides for restore re-validation only)
 		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "wild_gate", "label": "▶ Howler's Sideline"},
+		# W7: the Base Camp hangs off the stadium's south edge — pad 354 from both south camps (skink
+		# @520,720 / splinterback @1000,720, > AGGRO 320); carries wild_gate (S1 rule — basecamp is in-biome)
+		{"x": 760.0,  "y": 980.0,  "to": BASECAMP, "tx": 400.0, "ty": 450.0, "gate": "wild_gate", "label": "▶ Base Camp"},
 	],
 	AWAY_BOSS: [
 		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of
 		# the rack cover panel @1300,550 (the review caught the drop landing inside its collision band)
 		{"x": 80.0,   "y": 410.0,  "to": AWAY3, "tx": 1350.0, "ty": 550.0, "label": "◀ Reclaimed Stadium"},
+	],
+	BASECAMP: [
+		# W7: back to the stadium — drops 60 south of the stadium's Base Camp pad (clear of the TP ring)
+		# and 400 from both south camps; the Home pad mirrors home's own west-edge convention.
+		{"x": 1080.0, "y": 540.0, "to": AWAY3, "tx": 760.0, "ty": 1040.0, "label": "◀ Reclaimed Stadium"},
+		{"x": 120.0,  "y": 540.0, "to": HOME,  "tx": 900.0, "ty": 780.0, "label": "◀ Home Base"},
 	],
 	# Phase 8 S3 — the Finals district. finals_2's FORWARD pad (→ the Commissioner's arena) is withheld
 	# until S4 ships the destination (no dangling pads). Deeper pads carry finals_gate (the S1 restore rule).
