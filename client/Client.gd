@@ -608,20 +608,34 @@ func _mat(col) -> StandardMaterial3D:
 
 # ---- ground/field texturing (client-only, no shared/ change) ------------------------------------------
 # The visible playfield (`_field`) gets a tiled albedo texture so maps read less flat. The texture + tint are
-# themed off the CURRENT map name (not size — ARENA and DRILL share 1200x800): the glitchyard/camp/drill combat
-# zones read as worn scrapyard concrete, everything else (home, the arena pitch, the locker) as mown turf. UVs
+# themed off the CURRENT map name (not size — ARENA and DRILL share 1200x800): glitchyard/camp/drill = worn
+# scrapyard concrete, away zones = herd-trampled range (boss arena = den earth), basecamp = cleared camp
+# ground, finals = court hardwood, everything else (home, the arena pitch, the locker) = mown turf. UVs
 # are scaled so one texture repeat ≈ `tile` world-units on any map size, keeping the tiling square on resize.
 const GROUND_TEX_DIR := "res://models/meshy/props/ground/"
 
 func _make_field_material(map: String) -> StandardMaterial3D:
 	var scrap := map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL
-	var away := map.begins_with("away")                   # Phase 8: the Away Circuit reads as raked rival clay
 	var finals := map.begins_with("finals")               # Phase 8 S3: the Finals read as polished court hardwood
-	var tile := 7.0 if (scrap or away) else (6.0 if finals else 5.0)   # world-units per texture repeat
+	# Wildlife Expanse art pass: the away biome reads as herd-trampled range, the Howler's arena as
+	# packed claw-marked den earth, and Base Camp as cleared settlement ground. AWAY_BOSS must be
+	# checked BEFORE the away* prefix; "basecamp" matches no prefix (deliberate id, World.gd:100).
+	# The new textures bake their palette in, so their tints stay near-white (vs the strong turf tint).
+	var tex := "turf_albedo.png"
+	var tint := Color(0.74, 0.88, 0.66)
+	var tile := 5.0                                       # world-units per texture repeat
+	if map == World.AWAY_BOSS:
+		tex = "howler_den_albedo.png"; tint = Color(0.94, 0.90, 0.84); tile = 7.0
+	elif map.begins_with("away"):
+		tex = "wildrange_albedo.png"; tint = Color(0.94, 0.92, 0.82); tile = 7.0
+	elif map == World.BASECAMP:
+		tex = "basecamp_albedo.png"; tint = Color(0.95, 0.90, 0.82); tile = 6.0
+	elif finals:
+		tex = "court_albedo.png"; tint = Color(0.94, 0.86, 0.70); tile = 6.0
+	elif scrap:
+		tex = "scrapyard_albedo.png"; tint = Color(0.74, 0.74, 0.72); tile = 7.0
 	var fm := StandardMaterial3D.new()
-	var tex := "court_albedo.png" if finals else ("rival_clay_albedo.png" if away else ("scrapyard_albedo.png" if scrap else "turf_albedo.png"))
 	fm.albedo_texture = load(GROUND_TEX_DIR + tex)
-	var tint := Color(0.94, 0.86, 0.70) if finals else (Color(0.86, 0.78, 0.72) if away else (Color(0.74, 0.74, 0.72) if scrap else Color(0.74, 0.88, 0.66)))
 	fm.albedo_color = tint                                # keep each zone's colour identity (finals lean gold)
 	fm.uv1_scale = Vector3(_aw() * SCALE / tile, _ah() * SCALE / tile, 1.0)
 	fm.roughness = 0.96 if not finals else 0.6            # lacquered court sheen
@@ -643,12 +657,16 @@ func _apply_field_theme() -> void:
 # Per-biome palette: [horizon, apron(ground), hills, fog/bg]. Keeps each family's identity at the edges
 # instead of the one-green-apron-in-a-void look that read as a floating slab.
 func _depth_palette(map: String) -> Array:
-	if map.begins_with("away"):
-		return [Color(0.12, 0.075, 0.055), Color(0.17, 0.11, 0.08), Color(0.30, 0.17, 0.11), Color(0.09, 0.065, 0.055)]
+	if map == World.AWAY_BOSS:                            # the Howler's den: darker clawed-earth range
+		return [Color(0.095, 0.075, 0.055), Color(0.14, 0.11, 0.082), Color(0.24, 0.19, 0.13), Color(0.075, 0.06, 0.05)]
+	if map.begins_with("away"):                           # trampled range: dry olive-tan hills
+		return [Color(0.10, 0.09, 0.05), Color(0.15, 0.13, 0.075), Color(0.26, 0.23, 0.12), Color(0.08, 0.075, 0.05)]
 	if map.begins_with("finals"):
 		return [Color(0.055, 0.055, 0.085), Color(0.10, 0.10, 0.13), Color(0.11, 0.11, 0.17), Color(0.05, 0.055, 0.09)]
 	if map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL:
 		return [Color(0.085, 0.08, 0.075), Color(0.13, 0.125, 0.115), Color(0.19, 0.18, 0.16), Color(0.075, 0.075, 0.085)]
+	# default green family — deliberately kept for BASECAMP too: earth floor inside green hills reads
+	# as "a clearing in the wilds", and the safe-zone horizon stays in HOME's visual language.
 	return [Color(0.07, 0.10, 0.07), Color(0.10, 0.13, 0.10), Color(0.16, 0.24, 0.13), Color(0.06, 0.085, 0.075)]
 
 func _theme_depth(map: String) -> void:

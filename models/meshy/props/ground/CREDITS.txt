@@ -3,6 +3,11 @@ Ground / field textures
 
 turf_albedo.png       — mown-pitch turf (home, arena, locker, safe zones)
 scrapyard_albedo.png  — worn industrial concrete (glitchyard / camp / drill combat zones)
+rival_clay_albedo.png — raked ballpark clay (retired from live maps by the Wildlife art pass; kept for reference)
+court_albedo.png      — polished court hardwood (finals districts)
+wildrange_albedo.png  — herd-trampled range w/ game trails (away_1/2/3 — Wildlife Expanse)
+howler_den_albedo.png — packed claw-marked den earth (away_boss, the Howler's Sideline)
+basecamp_albedo.png   — cleared campsite ground (basecamp hub)
 
 Source: SELF-GENERATED (no third-party / CC0 asset — no attribution required).
   Generated procedurally by tools/gen_ground_textures.py (pure Python + Pillow).
@@ -12,4 +17,5 @@ Source: SELF-GENERATED (no third-party / CC0 asset — no attribution required).
   To regenerate or retune the palette:  python3 tools/gen_ground_textures.py
 
 Wired in client/Client.gd via _make_field_material()/_apply_field_theme() (client-only render;
-no shared/ change). uv1_scale tiles one repeat every ~5 (turf) / ~7 (scrapyard) world-units.
+no shared/ change). uv1_scale tiles one repeat every ~5 (turf) / ~6 (court, basecamp) /
+~7 (scrapyard, wildrange, howler_den) world-units.

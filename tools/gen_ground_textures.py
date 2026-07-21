@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Generate seamless, tileable ground albedo textures (turf + scrapyard concrete) for the field plane.
+"""Generate seamless, tileable ground albedo textures for the field plane.
 Self-authored (no external/CC0 asset) → no license/approval concern. Tileable by construction:
  - low-frequency variation = sum of INTEGER-frequency sinusoids (periodic over the tile, so edges match)
  - fine grain = a hash of (px,py) ONLY (repeats identically when the tile repeats → no seam)
-Output: models/meshy/props/ground/{turf,scrapyard}_albedo.png  (per owner: keep textures in the props folder)
+Output: models/meshy/props/ground/*_albedo.png  (per owner: keep textures in the props folder)
+Two generations of build fn: build() = the original four (turf/scrapyard/rival_clay/court — byte-stable,
+do not touch); build_wild() = the Wildlife-Expanse art pass set (adds per-channel speckle + a tileable
+multi-octave patch mask for organic trails/worn patches — INTEGER mask freqs only, same seam rule).
 """
 import math, os
 from PIL import Image
@@ -77,3 +80,73 @@ build(
     octs=[(1,0,1.1,0.5),(0,1,0.3,0.5),(2,1,2.2,0.3),(1,3,0.9,0.24),(4,2,1.6,0.14),
           (3,5,0.5,0.10),(6,7,1.8,0.07),(10,9,2.4,0.05)],
     dark=(146,100,58), light=(206,160,104), stripe_amp=0.085, stripe_freq=10.0, grain=0.22, tint_jitter=6.0)
+
+# ---- Wildlife Expanse art pass (owner-approved palettes, 2026-07-21) --------------------------------
+# build_wild extends the same construction with (a) jitter = PER-CHANNEL speckle amplitudes and
+# (b) patch = (dark2, light2, mask_octs, thresh, band): a second palette blended in where a tileable
+# multi-octave mask exceeds thresh — smoothstepped over `band` with hash-roughened edges, so trails/
+# worn patches read organic instead of as a dot lattice. Mask freqs MUST be integers (seam rule).
+
+def build_wild(path, octs, dark, light, stripe_amp=0.0, stripe_freq=4.0, grain=0.28,
+               jitter=(0.0, 0.0, 0.0), patch=None):
+    amp_sum = sum(o[3] for o in octs)
+    img = Image.new("RGB", (N, N))
+    px = img.load()
+    for j in range(N):
+        y = j / N
+        for i in range(N):
+            x = i / N
+            s = (smooth(x, y, octs) / amp_sum) * 0.5 + 0.5
+            g = phash(i, j)
+            v = (1.0 - grain) * s + grain * g
+            if stripe_amp:
+                v += stripe_amp * math.sin(2.0 * math.pi * stripe_freq * y)
+            v = min(1.0, max(0.0, v))
+            d, l = dark, light
+            if patch:
+                d2, l2, mask_octs, thresh, band = patch
+                masum = sum(o[3] for o in mask_octs)
+                m = (smooth(x, y, mask_octs) / masum) * 0.5 + 0.5
+                m += (phash(i + 31, j + 57) - 0.5) * 0.10   # roughen the patch edge
+                t = min(1.0, max(0.0, (m - thresh) / band))
+                w = t * t * (3.0 - 2.0 * t)                 # smoothstep
+                if w > 0.0:
+                    d = tuple(int(d[k] + (d2[k] - d[k]) * w) for k in range(3))
+                    l = tuple(int(l[k] + (l2[k] - l[k]) * w) for k in range(3))
+            r = d[0] + (l[0] - d[0]) * v
+            gg = d[1] + (l[1] - d[1]) * v
+            b = d[2] + (l[2] - d[2]) * v
+            if any(jitter):
+                t = (phash(i + 7, j + 13) - 0.5) * 2.0
+                r += t * jitter[0]; gg += t * jitter[1]; b += t * jitter[2]
+            px[i, j] = (min(255, max(0, int(r))), min(255, max(0, int(gg))), min(255, max(0, int(b))))
+    img.save(path)
+    print("wrote", path, img.size)
+
+# Trampled Range (away_1/2/3): dry herd-trampled savanna — tan-green with meandering green game
+# trails (low-freq stripes + patch mask) and a dust speckle. Fits the grazer/Old Bull herds; the tan
+# base keeps the green wildlife mobs and loot beams high-contrast.
+build_wild(
+    os.path.join(OUT, "wildrange_albedo.png"),
+    octs=[(1,0,1.9,0.5),(0,1,0.6,0.5),(2,1,1.2,0.32),(1,2,0.2,0.32),(3,3,2.2,0.2),
+          (4,2,0.8,0.15),(2,5,1.7,0.11),(6,5,0.3,0.08),(8,7,2.6,0.06)],
+    dark=(86,76,40), light=(156,144,88), stripe_amp=0.05, stripe_freq=3.0, grain=0.32,
+    jitter=(12.0,8.0,2.0), patch=((52,62,26),(112,124,54),
+        [(1,1,0.9,0.5),(2,1,2.0,0.4),(1,3,0.4,0.3),(3,2,1.3,0.25),(5,4,2.4,0.15)],0.62,0.14))
+
+# Howler's Den (away_boss): packed pale dirt with claw drag-lines (the stripe pass reads as drag
+# marks, not mowing) + a bone-fleck speckle. Bright enough that telegraphs/hazard zones stay crisp.
+build_wild(
+    os.path.join(OUT, "howler_den_albedo.png"),
+    octs=[(1,0,1.6,0.5),(0,1,0.4,0.5),(2,1,2.7,0.3),(1,2,1.2,0.3),(3,2,0.6,0.2),
+          (2,4,1.9,0.15),(5,4,2.3,0.1),(7,6,0.9,0.07)],
+    dark=(66,50,36), light=(138,114,84), stripe_amp=0.06, stripe_freq=7.0, grain=0.33,
+    jitter=(10.0,10.0,8.0))
+
+# Base Camp (basecamp): packed warm campsite earth — a deliberate clearing in the wilds; maximum
+# contrast with the range outside, and the service pads pop against it.
+build_wild(
+    os.path.join(OUT, "basecamp_albedo.png"),
+    octs=[(1,0,2.0,0.5),(0,1,1.3,0.5),(2,1,0.7,0.32),(1,2,1.8,0.32),(3,2,2.4,0.2),
+          (2,4,1.0,0.15),(5,4,0.4,0.1),(7,5,1.7,0.07),(9,8,2.2,0.05)],
+    dark=(96,76,50), light=(166,138,98), grain=0.32, jitter=(10.0,6.0,2.0))

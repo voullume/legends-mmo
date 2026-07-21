@@ -58,7 +58,8 @@ func _init() -> void:
 		if inst == null:
 			print("  ✗ instantiate() NULL: %s (%s)" % [id, ids[id]]); fails += 1; continue
 		inst.free()
-	for t in ["turf_albedo.png","scrapyard_albedo.png","rival_clay_albedo.png","court_albedo.png"]:
+	for t in ["turf_albedo.png","scrapyard_albedo.png","rival_clay_albedo.png","court_albedo.png",
+		"wildrange_albedo.png","howler_den_albedo.png","basecamp_albedo.png"]:
 		var tp := "res://models/meshy/props/ground/%s" % t
 		var tex = load(tp)
 		if tex == null:

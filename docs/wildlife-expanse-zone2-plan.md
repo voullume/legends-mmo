@@ -316,9 +316,11 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.
 - Splinterback pass-1 confirm-or-redo (blocks its W4 inclusion only).
-- **Away-zone terrain/props re-skin** (new, from W3 review): the zones still render rival-clay
-  ground + sports props under Wildlife Expanse banners. Needs an owner-directed art/decor pass —
-  candidate W3b (client-only ground texture swap is cheap; props are a bigger call).
+- **Away-zone terrain/props re-skin** (new, from W3 review): ~~ground~~ DONE — art-pass **A1**
+  (2026-07-21) shipped the wildlife ground set client-only (away_1/2/3 = wildrange trampled-tan,
+  away_boss = howler_den packed earth, basecamp = cleared camp earth; Client.gd
+  _make_field_material/_depth_palette + gen_ground_textures.py build_wild). **Props remain** —
+  art-pass A3 (owner-picked: client-only kind→model wild remap; World.OBSTACLES untouched).
 - W5 detail decisions: howler respawn (600s legacy vs 1800s boss default), retire rival_coach def
   fully or keep dormant.
 - W7 detail decisions: bounty claim location, resident personas/lines for the new setting,
