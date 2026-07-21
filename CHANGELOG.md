@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.2 — 2026-07-21
+
+- The Arrowbound Howler fights like an alpha now — no power cores: it calls its pack, and from half health a shield-bird answers. Kill the support first.
+
+_(rolls up commits since the previous tag; base f48b5d0)_
+
 ## v1.11.1 — 2026-07-21
 
 - The wilds claim the last of the away fields — every creature in the Wildlife Expanse is now true wildlife (the Old Bull, the Elder Rallywing, and a Warfrog door guard take the last three elite posts)
