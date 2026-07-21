@@ -340,7 +340,7 @@ const MOBS := {
 		{"class": "tacklehorn_grazer", "level": 10, "tier": "minion", "x": 960.0,  "y": 620.0},
 		# the elite guard sits 200 from the forward pad (the shipped-grammar minimum — jukeable, not a
 		# mandatory hit) and 340 from away_2's back-drop @1080 (> AGGRO 320).
-		{"class": "tackle_brute", "level": 10, "tier": "elite",  "x": 1420.0, "y": 475.0},   # the "Lot Marshal" (nameplate: Tackle Bag Brute)
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 1420.0, "y": 475.0},   # the Old Bull — pure-wildlife roster (owner 2026-07-21); elite tier carries the chip + 2.2×/1.6× scaling
 	],
 	AWAY2: [  # Overrun Gauntlet — first healer-camp lesson: the medic sits IN its lane camp's pull
 		# (260 from the blocker < AGGRO 320, the CAMP-instance joint-pull convention) so the lesson always
@@ -349,7 +349,7 @@ const MOBS := {
 		{"class": "tacklehorn_grazer", "level": 12, "tier": "minion", "x": 520.0,  "y": 650.0},
 		{"class": "rallywing_magpie",  "level": 13, "tier": "minion", "x": 980.0,  "y": 350.0},
 		{"class": "scrapmask_forager", "level": 12, "tier": "minion", "x": 980.0,  "y": 650.0},
-		{"class": "field_medic",     "level": 12, "tier": "elite",  "x": 1240.0, "y": 650.0},
+		{"class": "rallywing_magpie", "level": 12, "tier": "elite", "x": 1240.0, "y": 650.0},   # the Elder Rallywing — the healer-camp lesson becomes the SHIELD-camp lesson (kill the support first)
 		{"class": "emerald_warfrog", "level": 13, "tier": "elite",  "x": 1580.0, "y": 420.0},   # W4: the warfrog takes the east-anchor slot (≥200 from the fwd pad — jukeable, the shipped grammar)
 	],
 	AWAY3: [  # Reclaimed Stadium — the chain's last field zone; the drill_sergeant guards the boss door
@@ -357,7 +357,7 @@ const MOBS := {
 		{"class": "netvine_skink",     "level": 15, "tier": "minion", "x": 520.0,  "y": 720.0},
 		{"class": "scrapmask_forager", "level": 15, "tier": "minion", "x": 1000.0, "y": 380.0},
 		{"class": "splinterback_elite", "level": 15, "tier": "elite", "x": 1000.0, "y": 720.0},   # W4b: the quill-back takes the ranged-elite seat
-		{"class": "drill_sergeant", "level": 16, "tier": "elite",  "x": 1700.0, "y": 550.0},   # the boss-door guard (220 from the pad — jukeable)
+		{"class": "emerald_warfrog", "level": 16, "tier": "elite", "x": 1700.0, "y": 550.0},   # the hulking door guard (220 from the pad — jukeable)
 	],
 	AWAY_BOSS: [  # Rival Sideline — the teaching boss: 3 SLOW-respawn cores shield it (0.40 DR), NO ult.
 		# rival_core (respawnS 45, lvl 10) — a solo rotation can genuinely earn the shield-down window;

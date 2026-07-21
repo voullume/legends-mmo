@@ -43,12 +43,12 @@ func _run() -> void:
 	ok(m2.size() == 6, "away_2: 6 spawns (got %d)" % m2.size())
 	var c1 := {}
 	for f in m1: c1[str(f["classId"])] = c1.get(str(f["classId"]), 0) + 1
-	ok(int(c1.get("netvine_skink", 0)) == 2 and int(c1.get("tacklehorn_grazer", 0)) == 2
-		and int(c1.get("tackle_brute", 0)) == 1, "away_1 roster (W3): 2×netvine_skink + 2×tacklehorn_grazer + tackle_brute")
+	ok(int(c1.get("netvine_skink", 0)) == 2 and int(c1.get("tacklehorn_grazer", 0)) == 3
+		and int(c1.get("tackle_brute", 0)) == 0, "away_1 roster (pure wildlife): 2×skink + 2×grazer + the Old Bull elite")
 	var elites2 := 0
 	for f in m2:
 		if str(f.get("mobTier", "")) == "elite": elites2 += 1
-	ok(elites2 == 2, "away_2: exactly 2 elites (medic + warfrog, W4)")
+	ok(elites2 == 2, "away_2: exactly 2 elites (Elder Rallywing + warfrog — pure wildlife)")
 	for f in m1 + m2:
 		ok(GameData.CLASSES.has(str(f["classId"])), "def exists: %s" % f["classId"])
 		if not GameData.CLASSES.has(str(f["classId"])): break
@@ -198,7 +198,7 @@ func _run() -> void:
 	var medic = null
 	var lane = null
 	for row in World.MOBS["away_2"]:
-		if str(row["class"]) == "field_medic": medic = row
+		if str(row["class"]) == "rallywing_magpie" and str(row["tier"]) == "elite": medic = row
 		if str(row["class"]) == "scrapmask_forager" and float(row["y"]) > 500.0: lane = row
 	var md := Vector2(float(medic["x"]) - float(lane["x"]), float(medic["y"]) - float(lane["y"])).length()
 	ok(md < 300.0, "geometry: the medic is INSIDE its lane's joint-pull radius (%.0f < 300)" % md)

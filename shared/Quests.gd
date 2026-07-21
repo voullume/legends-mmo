@@ -179,8 +179,8 @@ const QUESTS := {
 		"rewards": {"xp": 420, "credits": 260, "tokens": 20},
 	},
 	"away1_blocker": {
-		"name": "The Lot Marshal",
-		"desc": "The rival squad fled the wilds, but their enforcer — a Tackle Bag Brute — still runs the east lot. Put it down.",
+		"name": "The Old Bull",
+		"desc": "An old bull grazer has claimed the east lot — twice the size of the herd and twice as mean. Put it down.",
 		"min_level": 9, "prereq": "away1_roadgame",
 		"objective": {"type": "kill", "match": {"map": "away_1", "tier": "elite"}, "count": 1},
 		"rewards": {"xp": 520, "credits": 320, "tokens": 25},
@@ -194,7 +194,7 @@ const QUESTS := {
 	},
 	"away2_medics": {
 		"name": "Cut the Support",
-		"desc": "The rival stragglers' Field Medic keeps the Gauntlet's line standing — and a massive Emerald Warfrog has claimed the east anchor. Bring down 2 elites.",
+		"desc": "An Elder Rallywing shields the Gauntlet's packs from above while the massive Emerald Warfrog anchors the east. Bring down 2 elites — the support first.",
 		"min_level": 11, "prereq": "away2_gauntlet",
 		"objective": {"type": "kill", "match": {"map": "away_2", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 800, "credits": 500, "tokens": 35},
@@ -212,7 +212,7 @@ const QUESTS := {
 	},
 	"away3_elites": {
 		"name": "Clear the Door",
-		"desc": "A quill-backed Splinterback prowls the floor and the rivals' Drill Sergeant still guards the sideline door. Bring down 2 of the Stadium's elites.",
+		"desc": "A quill-backed Splinterback prowls the floor and a hulking Warfrog guards the sideline door. Bring down 2 of the Stadium's elites.",
 		"min_level": 14, "prereq": "away3_stadium",
 		"objective": {"type": "kill", "match": {"map": "away_3", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 1200, "credits": 700, "tokens": 35,
