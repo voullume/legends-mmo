@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.3 — 2026-07-21
+
+- The alpha learns to parry — from 40% health the Howler bristles: the next hit comes back amplified. Watch the RF chip, poke the stance off, then burst. Good luck.
+
+_(rolls up commits since the previous tag; base 7556810)_
+
 ## v1.11.2 — 2026-07-21
 
 - The Arrowbound Howler fights like an alpha now — no power cores: it calls its pack, and from half health a shield-bird answers. Kill the support first.
