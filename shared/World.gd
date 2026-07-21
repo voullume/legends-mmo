@@ -20,7 +20,8 @@ const GY_SECRET := "glitchyard_secret"      # the SECRET boss arena (Head Coach 
                                             # only revealed once you've completed EVERY quest (incl. beating Boss1)
 const ARENA := "arena"                     # dedicated open-PvP space (free-for-all: all players fight)
 # THE AWAY CIRCUIT (gameplay-length Phase 8, plan: docs/phase8-away-circuit-plan.md) — the second biome:
-# an "away games" chain for the 9-16 band, branched off HOME's north edge behind the away_gate (lvl 8).
+# the Wildlife Expanse chain for the 9-16 band — entered THROUGH the Glitchyard (GY5 far gate) or the
+# HOME shortcut, both behind wild_gate (gy5_command complete; pre-W6 characters grandfathered).
 const AWAY1 := "away_1"                     # Overgrown Practice Field — lvl 9-10 wildlife + the tackle_brute elite (W4 swaps elites)
 const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the warfrog anchor (W4)
 const AWAY3 := "away_3"                     # Reclaimed Stadium   — lvl 15-16 wildlife, the drill_sergeant guards the boss door (S2)
@@ -122,9 +123,9 @@ const PORTALS := {
 		{"x": 900.0,  "y": 200.0, "instance": CAMP, "label": "▶ Camp Circuit"},
 		# walk-on instance entry (`auto`) → drop straight into a fresh Two-Minute Drill (no tier selection)
 		{"x": 1180.0, "y": 200.0, "instance": DRILL, "auto": true, "label": "▶ Two-Minute Drill"},
-		# Phase 8: the Away Circuit (second biome) — visible-but-locked until level 8 (away_gate; the server
+		# W6: the Wildlife Expanse SHORTCUT — visible-but-locked until gy5_command is done (wild_gate; the server
 		# explains the requirement on approach, same UX as boss_ready).
-		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "away_gate", "label": "▶ Wildlife Expanse"},
+		{"x": 300.0,  "y": 200.0, "to": AWAY1, "tx": 200.0,  "ty": 475.0, "gate": "wild_gate", "label": "▶ Wildlife Expanse"},
 		# Phase 8 S3: the Finals — visible-but-locked until L17 + gear 800 (deliberately keyed on level+IP,
 		# NOT the Head Coach kill, so a stalled raid never hard-blocks the capstone branch).
 		{"x": 1480.0, "y": 200.0, "to": FINALS1, "tx": 200.0, "ty": 520.0, "gate": "finals_gate", "label": "▶ The Finals"},
@@ -157,6 +158,11 @@ const PORTALS := {
 		{"x": 120.0,  "y": 550.0,  "to": GY4,     "tx": 600.0,  "ty": 520.0, "label": "◀ Target Court"},
 		# the reserved east pad → the Head Coach arena (placed clear of the drill camp @1620,550, > AGGRO 320)
 		{"x": 1900.0, "y": 350.0,  "to": GY_BOSS, "tx": 140.0,  "ty": 410.0, "gate": "boss_ready", "label": "▶ Head Coach Arena"},
+		# W6: the PHYSICAL road into zone 2 — the Wildlife Expanse opens past the Command Tower. Placed
+		# in the SE corner: 344 from the drill camp (@1620,550 — > AGGRO 320), mirrored under the boss pad.
+		# Arrival (240,860) sits on away_1's empty south edge: 369 from the nearest skink camp, clear of
+		# every pad (nearest 120 — the return pad; > PORTAL_RADIUS 42). Carries wild_gate like every pad into the biome (the S1 rule).
+		{"x": 1900.0, "y": 750.0,  "to": AWAY1, "tx": 240.0,  "ty": 860.0, "gate": "wild_gate", "label": "▶ Wildlife Expanse"},
 	],
 	GY_BOSS: [
 		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). The boss is central, far from
@@ -177,25 +183,27 @@ const PORTALS := {
 	# destination (plan §hardening: no dangling pads).
 	AWAY1: [
 		{"x": 120.0,  "y": 475.0,  "to": HOME,  "tx": 900.0,  "ty": 780.0, "label": "◀ Home Base"},
-		# the interior pad ALSO carries away_gate: gate_for_map() derives a zone's login re-validation gate
+		# W6: the road back — drops beside GY5's Wildlife pad (191 apart, > PORTAL_RADIUS; 358 from the drill camp)
+		{"x": 120.0,  "y": 860.0,  "to": GY5,   "tx": 1760.0, "ty": 880.0, "label": "◀ Command Tower"},
+		# the interior pad ALSO carries wild_gate: gate_for_map() derives a zone's login re-validation gate
 		# from its inbound pads, so without this a tampered last_map="away_2" restore would skip the level-8
 		# check entirely (adversarial-review find). Zero UX cost — anyone standing here already passed it.
 		# S2 rule: every deeper away/finals pad carries its chain's gate for the same reason.
-		{"x": 1620.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "away_gate", "label": "▶ Overrun Gauntlet"},
+		{"x": 1620.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "wild_gate", "label": "▶ Overrun Gauntlet"},
 	],
 	AWAY2: [
 		# back-drop lands mid away_1 (1080,475), WEST of its tackle_brute elite @1500 (> AGGRO_RANGE 320) —
 		# same convention as the GY3→GY2 drop (TP grace blocks re-port, not aggro).
 		{"x": 120.0,  "y": 500.0,  "to": AWAY1, "tx": 1080.0, "ty": 475.0, "label": "◀ Overgrown Practice Field"},
 		# S2: the withheld forward pad ships now that its destination exists (carries the chain gate — S1 rule)
-		{"x": 1770.0, "y": 500.0,  "to": AWAY3, "tx": 220.0,  "ty": 550.0, "gate": "away_gate", "label": "▶ Reclaimed Stadium"},
+		{"x": 1770.0, "y": 500.0,  "to": AWAY3, "tx": 220.0,  "ty": 550.0, "gate": "wild_gate", "label": "▶ Reclaimed Stadium"},
 	],
 	AWAY3: [
 		# back-drop lands at away_2's spawn corridor (200,560) — the only spot in its denser mid that clears
 		# every camp by > AGGRO 320 (the lane pairs sit at y 350/650).
 		{"x": 120.0,  "y": 550.0,  "to": AWAY2, "tx": 200.0,  "ty": 560.0, "label": "◀ Overrun Gauntlet"},
-		# the boss door — walk-up (difficulty is the gate; away_gate rides for restore re-validation only)
-		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "away_gate", "label": "▶ Howler's Sideline"},
+		# the boss door — walk-up (difficulty is the gate; wild_gate rides for restore re-validation only)
+		{"x": 1920.0, "y": 550.0,  "to": AWAY_BOSS, "tx": 140.0, "ty": 410.0, "gate": "wild_gate", "label": "▶ Howler's Sideline"},
 	],
 	AWAY_BOSS: [
 		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of

@@ -1,8 +1,8 @@
 extends "res://tools/stab/stab_base.gd"
 ## Phase 8 S1 — THE AWAY CIRCUIT (away_1/away_2) invariants, against the REAL server (headless, no net):
 ##   • both zones auto-boot as static worlds with exactly the planned camps (classes/tiers/levels);
-##   • the HOME "▶ Wildlife Expanse" pad (W3 re-theme) is VISIBLE-but-locked below level 8, refuses the teleport,
-##     and explains itself via the generalized gate prompt; a level-8 character walks straight through;
+##   • the HOME "▶ Wildlife Expanse" pad is VISIBLE-but-locked without gy5_command (wild_gate, W6), refuses
+##     the teleport and explains itself; completing the Command Tower quest (or pre-W6 grandfathering) opens it;
 ##   • portal round-trips: HOME → away_1 → away_2 → back → back → HOME (real _check_portals walk);
 ##   • NO dangling pads: every away portal's destination world exists (S2's away_3 pad is withheld);
 ##   • quests: away1_roadgame accepts at level 8 with NO prereq (the desert un-gating fix), progresses on
@@ -60,17 +60,21 @@ func _run() -> void:
 	for p in pads:
 		if str(p["label"]) == "▶ Wildlife Expanse": seen_away = true
 	ok(seen_away, "gate: the Wildlife Expanse pad is VISIBLE while locked (not a hidden gate)")
-	ok(not srv._portal_unlocked(1, "away_gate"), "gate: level 1 is locked out")
+	ok(not srv._portal_unlocked(1, "wild_gate"), "gate: a fresh character without gy5_command is locked out")
 	_walk(1, 300.0, 200.0)                                                # stand on the pad
 	ok(str(srv._session[1]["map"]) == "home", "gate: locked walk-on does NOT teleport")
 	var prompts: Array = fnet.calls("recv_chat", 1)
 	var explained := false
 	for c in prompts:
-		if str(c["args"][1]).contains("Wildlife Expanse") and str(c["args"][1]).contains("level 8"): explained = true
+		if str(c["args"][1]).contains("Command Tower"): explained = true
 	ok(explained, "gate: the sealed pad explains itself (generalized prompt)")
 
 	var vet: Dictionary = await login("Traveler", 2, {"level": 9})
-	ok(srv._portal_unlocked(2, "away_gate"), "gate: level 9 unlocks away_gate")
+	ok(not srv._portal_unlocked(2, "wild_gate"), "gate: level alone no longer opens the wilds (W6)")
+	srv._session[2]["quests"]["gy5_command"] = {"completed": true, "progress": 2, "rewarded": true}
+	ok(srv._portal_unlocked(2, "wild_gate"), "gate: gy5_command completion opens wild_gate")
+	var oldtimer: Dictionary = await login("Veteran99", 9, {"level": 12, "created_at": "2026-01-01T00:00:00Z"})
+	ok(srv._portal_unlocked(9, "wild_gate"), "gate: a pre-W6 character is grandfathered past wild_gate (no quest)")
 
 	# ---- 3. real portal walk: HOME → away_1 → away_2 → away_1 → HOME ----
 	_walk(2, 300.0, 200.0)
@@ -156,14 +160,14 @@ func _run() -> void:
 	ok(is_equal_approx(srv._con_mult(9, 9), 1.0) and is_equal_approx(srv._con_mult(30, 9), srv.XP_CON_FLOOR),
 		"xp: con grace full at-level, floor when trivial")
 
-	# ---- 8. away_gate never gates on AWAY_ORDER completion (the governance rule, executable form) ----
-	ok(srv._portal_unlocked(2, "away_gate"), "governance: away_gate is level-only — no quest-list coupling")
+	# ---- 8. wild_gate couples to gy5_command (Glitchyard ORDER member) — NEVER to AWAY_ORDER (governance) ----
+	ok(srv._portal_unlocked(2, "wild_gate"), "governance: wild_gate needs NO away-quest — zero AWAY_ORDER coupling")
 
 	# ---- 9. LOGIN RESTORE re-validation (adversarial-review find): a tampered client-writable last_map
 	# into EITHER away zone must relocate a sub-8 character HOME — this is the surface the walk-on gate
 	# never touches. gate_for_map derives it from inbound pads, so the interior pad must carry the gate too.
-	ok(World.gate_for_map("away_1") == "away_gate", "restore: away_1 derives its login gate from the HOME pad")
-	ok(World.gate_for_map("away_2") == "away_gate", "restore: away_2 derives its login gate from the interior pad (the bypass fix)")
+	ok(World.gate_for_map("away_1") == "wild_gate", "restore: away_1 derives its login gate from its inbound pads")
+	ok(World.gate_for_map("away_2") == "wild_gate", "restore: away_2 derives its login gate from the interior pad (the bypass fix)")
 	var t1: Dictionary = await login("Tamper8a", 7, {"level": 1, "last_map": "away_1"})
 	ok(str(srv._session[7]["map"]) == "home", "restore: sub-8 tampered last_map=away_1 lands at HOME")
 	srv.drop_peer(7)
@@ -172,8 +176,20 @@ func _run() -> void:
 	ok(str(srv._session[8]["map"]) == "home", "restore: sub-8 tampered last_map=away_2 lands at HOME (no interior bypass)")
 	srv.drop_peer(8)
 	await settle()
-	var legit: Dictionary = await login("Legit", 11, {"level": 9, "last_map": "away_2"})
-	ok(str(srv._session[11]["map"]) == "away_2", "restore: a LEGIT level-9 character still resumes inside away_2")
+	# W6: the legit resume population is either grandfathered (pre-W6 chars who entered under L8) or quest-passed
+	var legit: Dictionary = await login("Legit", 11, {"level": 9, "last_map": "away_2", "created_at": "2026-01-01T00:00:00Z"})
+	ok(str(srv._session[11]["map"]) == "away_2", "restore: a grandfathered pre-W6 character still resumes inside away_2")
+	# ...and the POST-epoch quest-passer path through the REAL login restore (review coverage gap): the
+	# quest row lives in the (fake) DB so _load_quests feeds the gate before re-validation.
+	var qacct: Dictionary = supa.add_character("QuestDone", "striker", {"level": 9, "last_map": "away_2", "created_at": "2099-01-01T00:00:00Z"})
+	supa.quests[str(qacct["char_id"]) + "|gy5_command"] = {"quest_id": "gy5_command", "progress": 2, "completed": true, "rewarded": true}
+	srv.connect_peer(19)
+	await srv.authenticate(19, qacct["token"], Protocol.hello())
+	await settle()
+	ok(str(srv._session[19]["map"]) == "away_2", "restore: a post-epoch gy5_command-completer resumes inside away_2 (quest branch, real login path)")
+	# ...and the grandfather keeps the OLD level floor: a pre-epoch level-1 char is still locked (review fix)
+	var lowold: Dictionary = await login("OldRook", 18, {"level": 1, "created_at": "2026-01-01T00:00:00Z"})
+	ok(not srv._portal_unlocked(18, "wild_gate"), "gate: grandfathering keeps the old L8 floor — pre-W6 level-1 stays out")
 	srv.drop_peer(11)
 	await settle()
 
@@ -262,10 +278,10 @@ func _run() -> void:
 	for mp in ["away_2", "away_3"]:
 		var fwd_gated := false
 		for p in World.PORTALS.get(mp, []):
-			if p.has("to") and str(p["to"]).begins_with("away") and str(p.get("gate", "")) == "away_gate":
+			if p.has("to") and str(p["to"]).begins_with("away") and str(p.get("gate", "")) == "wild_gate":
 				fwd_gated = true
-		ok(fwd_gated, "S1 rule: %s's forward pad carries away_gate" % mp)
-	ok(World.gate_for_map("away_3") == "away_gate" and World.gate_for_map("away_boss") == "away_gate",
+		ok(fwd_gated, "S1 rule: %s's forward pad carries wild_gate" % mp)
+	ok(World.gate_for_map("away_3") == "wild_gate" and World.gate_for_map("away_boss") == "wild_gate",
 		"restore: away_3 + away_boss derive the login gate from their inbound pads")
 	var dangling2 := 0
 	for mp in ["away_1", "away_2", "away_3", "away_boss"]:
@@ -279,6 +295,7 @@ func _run() -> void:
 
 	# ---- 14. the walk: away_2 → away_3 → away_boss and back (real portal path, level 9 passes the gate) ----
 	var vet2: Dictionary = await login("Traveler2", 13, {"level": 16})
+	srv._session[13]["quests"]["gy5_command"] = {"completed": true, "progress": 2, "rewarded": true}   # W6: the walker passed the Tower
 	_walk(13, 300.0, 200.0)                                   # HOME → away_1
 	_walk(13, 1620.0, 475.0)                                  # → away_2
 	_walk(13, 1770.0, 500.0)                                  # → away_3 (the pad withheld in S1, live now)

@@ -100,7 +100,7 @@ const RESIDENT_ULT_LOCK := 1.0e9                 # sentinel cooldown that never 
 # --- difficulty-pass v1: gate the first boss (Head Coach Arena) on real progression so a fresh char + bots can't cheese it ---
 const BOSS_GATE_LEVEL := 16                       # must be at least this level to enter GY_BOSS (tunable)
 const BOSS_GATE_IP := 800                         # AND at least this aggregate equipped item-power / gear score (tunable; ~top of the fresh-quester band, just below a full-rare set)
-const AWAY_GATE_LEVEL := 8                        # Phase 8: the Away Circuit opens once the Yard's on-ramp is outgrown (visible-but-locked, like boss_ready)
+const WILD_GATE_EPOCH := "2026-07-21T06:00:00"    # W6: characters created before this entered under the old L8 away_gate — grandfathered past wild_gate (the ABILITY_GATE_EPOCH pattern)
 const FINALS_GATE_LEVEL := 17                     # Phase 8 S3: the Finals district — level AND gear, deliberately NOT the raid kill
 const FINALS_GATE_IP := 800                       # (same bar as boss_ready: the away chain's graduation gear IS the Finals ticket)
 const HIDDEN_GATES := ["secret_key", "all_quests"]   # gated portals HIDDEN in the snapshot; boss_ready stays VISIBLE-but-locked (a known goal, not a surprise)
@@ -2024,6 +2024,7 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 		"max_intensity": 1, "pages": 0, "has_key": false, "cos_owned": [], "cos_dye": "",
 		"locker_unlocked": bool(ch.get("locker_unlocked", false)),
 		"ability_ungated": GameData.ability_grandfathered(ch.get("created_at", "")),   # gameplay-length P2: pre-gating chars keep the full kit
+		"wild_ungated": str(ch.get("created_at", "")).substr(0, 19) < WILD_GATE_EPOCH,   # W6: pre-W6 chars pass wild_gate (missing created_at → lenient, matching ability_grandfathered)
 		"rested_xp": 0,   # gameplay-length P1(d): offline rested pool, accrued just below at login
 		"talents": {}, "talent_spent": 0,   # gameplay-length P4: talent allocation (loaded from the progression table below)
 		"overtime_xp": 0, "paragon_perks": {}, "paragon_spent": 0, "gear_bag_bonus": 0, "pending_audible": {},   # gameplay-length P5: paragon + Audible state (loaded below)
@@ -2079,7 +2080,7 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 			var gate := World.gate_for_map(str(gpf["map"]))
 			# gear_unknown: the inventory fetch failed transiently → item_power is 0-by-accident, not 0-by-fact.
 			# Skip ONLY the relocate (never bounce a geared player on a DB blip); pad USE still re-checks live.
-			if gate != "" and not _portal_unlocked(pid, gate) and not bool(_session[pid].get("gear_unknown", false)):
+			if gate != "" and not _portal_unlocked(pid, gate) and not bool(_session[pid].get("gear_unknown", false)) and not bool(_session[pid].get("quests_unknown", false)):
 				_relocate(gpf, _session[pid], World.HOME, World.HOME_SPAWN)
 	if _session.has(pid):                             # admin powers, gated on the service-role admins table
 		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
@@ -3436,8 +3437,13 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 		"boss_ready":                            # difficulty-pass v1: the first boss needs real progression — level AND gear score
 			var s = _session.get(pid, {})
 			return int(s.get("level", 1)) >= BOSS_GATE_LEVEL and int(s.get("item_power", 0)) >= BOSS_GATE_IP
-		"away_gate":                             # Phase 8: the Away Circuit — level only (the biome IS the gear path)
-			return int(_session.get(pid, {}).get("level", 1)) >= AWAY_GATE_LEVEL
+		"wild_gate":                             # W6: the Wildlife Expanse — through the Glitchyard (gy5_command). Pre-W6 chars
+			# are grandfathered UNDER THE OLD CONTRACT (level >= 8, the deleted away_gate floor) — review
+			# caught that a bare created_at pass would let a pre-epoch level-1 char walk/taxi into L9-16 zones.
+			var ws = _session.get(pid, {})
+			if bool(ws.get("wild_ungated", false)) and int(ws.get("level", 1)) >= 8:
+				return true
+			return bool(((ws.get("quests", {}) as Dictionary).get("gy5_command", {}) as Dictionary).get("completed", false))
 		"finals_gate":                           # Phase 8 S3: the Finals — level + gear, NEVER the raid kill (a stalled raid must not block the capstone)
 			var fs = _session.get(pid, {})
 			return int(fs.get("level", 1)) >= FINALS_GATE_LEVEL and int(fs.get("item_power", 0)) >= FINALS_GATE_IP
@@ -3450,8 +3456,8 @@ func _gate_locked_msg(gate: String) -> String:
 	match gate:
 		"boss_ready":
 			return "The Head Coach Arena is sealed — reach level %d and gear score %d to enter." % [BOSS_GATE_LEVEL, BOSS_GATE_IP]
-		"away_gate":
-			return "The Wildlife Expanse opens at level %d — finish your Glitchyard training first." % AWAY_GATE_LEVEL
+		"wild_gate":
+			return "The wilds open past the Command Tower — complete the 'Command Tower' quest to enter."
 		"finals_gate":
 			return "The Finals are sealed — reach level %d and gear score %d to enter." % [FINALS_GATE_LEVEL, FINALS_GATE_IP]
 	return ""
@@ -4168,6 +4174,10 @@ func _load_quests(pid: int) -> void:
 		for row in r["items"]:
 			q[str(row["quest_id"])] = {"progress": int(row.get("progress", 0)),
 				"completed": bool(row.get("completed", false)), "rewarded": bool(row.get("rewarded", false))}
+	else:
+		# W6: a transient quest-fetch failure must not wrongfully relocate a legit wild_gate passer at
+		# login (the gear_unknown contract, mirrored) — pad walk-ups still re-check the live state.
+		_session[pid]["quests_unknown"] = true
 	_session[pid]["quests"] = q
 	if net != null:
 		net.recv_quest_state.rpc_id(pid, q.duplicate(true))
@@ -4381,7 +4391,7 @@ const BOUNTY_DAILY := {
 	"d_gy5elite": {"name": "Command Cull",   "kind": "kill",    "match": {"map": "glitchyard_5", "tier": "elite"}, "count": 5, "desc": "Defeat 5 Command Tower elites (GY5).",  "rewards": {"tokens": 30, "pages": 35}},
 	"d_circuit":  {"name": "Circuit Duty",   "kind": "circuit", "min_tier": 1,                                "count": 3,  "desc": "Clear the Camp Circuit 3 times.",           "rewards": {"credits": 600, "pages": 60}},
 	# Phase 8 (the Away Circuit): direction into the new band — server-only rows, re-aimable with zero client
-	# re-export. min_level hides them from characters the away_gate would refuse anyway (view-filter only).
+	# re-export. min_level hides them from characters too fresh for the wilds anyway (view-filter only).
 	"d_roadgame": {"name": "Road Patrol",    "kind": "kill",    "match": {"map": "away_1"},                   "count": 15, "min_level": 8, "desc": "Defeat 15 on the Overgrown Practice Field.",     "rewards": {"credits": 650, "tokens": 25}},
 	"d_gauntlet": {"name": "Gauntlet Runner","kind": "kill",    "match": {"map": "away_2", "tier": "elite"},  "count": 4,  "min_level": 8, "desc": "Defeat 4 Overrun Gauntlet elites.",        "rewards": {"tokens": 30, "pages": 30}},
 	# Phase 8 S3 (the Finals district) — view-filtered below finals_gate's level

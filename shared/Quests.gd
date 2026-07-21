@@ -173,7 +173,7 @@ const QUESTS := {
 	# IP800 numeric pass (explicit ilvl, not the legacy shape that _grant_quest_item normalizes to ~IP 27).
 	"away1_roadgame": {
 		"name": "Road Game",
-		"desc": "The away fields have gone wild. Take the Wildlife Expanse gate (north side of Home) and put down 12 of the creatures overrunning the old practice field.",
+		"desc": "The away fields have gone wild. Beat the Command Tower, then take the wilds gate past it (or the Home shortcut, north side) and put down 12 of the creatures overrunning the old practice field.",
 		"min_level": 8, "prereq": "",
 		"objective": {"type": "kill", "match": {"map": "away_1"}, "count": 12},
 		"rewards": {"xp": 420, "credits": 260, "tokens": 20},

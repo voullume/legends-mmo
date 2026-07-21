@@ -230,6 +230,22 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   working as designed); per-phase emissive is procedural-boss-only (rigged boss skips it,
   cosmetic); boss_time stays head_coach-only (deliberate).
 
+## W6 COMPLETE (2026-07-21) — the land connects: zone 2 is entered THROUGH zone 1
+
+- Physical GY5→away_1 portal (SE corner past the Command Tower, geometry review-verified vs
+  camps/pads/bounds) + return pad. away_gate (L8) → **wild_gate**: gy5_command completed, OR
+  pre-W6 grandfather (WILD_GATE_EPOCH 2026-07-21T06:00Z) **kept at the old L8 floor** (review
+  caught the bare-created_at version letting level-1 legacy chars taxi into L9-16 zones).
+  All 6 inbound biome pads carry the gate (S1 rule); login-restore re-validation intact, with a
+  new quests_unknown blip-guard mirroring gear_unknown (a quest-fetch failure no longer bounces
+  legit players home). stab_away 149 (post-epoch quest-passer real-login-path coverage added).
+- Deploy-before-epoch ordering satisfied (shipped ~01:00 UTC, epoch 06:00 UTC).
+- **Owner notes**: (a) completion requires the HOME turn-in — a player who beats the Tower's
+  elites must round-trip home before the far gate opens (message says so; cheap via the Home
+  pads) — flag if you'd rather gate on kill-progress; (b) pre-existing, unchanged: gear_unknown
+  skips re-validation for ALL gates on an inventory blip — tightening that is a separate,
+  owner-approvable hardening.
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.
