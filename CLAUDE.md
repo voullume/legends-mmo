@@ -32,27 +32,36 @@ The items the old "Next up" listed as unbuilt have **all landed and deployed**: 
 (5-zone leveling chain → Head Coach raid → gated secret boss Head Coach PRIME), the **endgame program**
 (instanced Camp Circuit + Intensity ladder + Playbook-Pages/Master-Key attunement + **level cap 30** +
 3-category leaderboards + Two-Minute Drill), the **7-phase item system** (10 slots, 6 rarities, sets,
-uniques+procs, salvage/forge/reforge/craft — only sockets+gems P4d deferred), **AI residents** (6
+uniques+procs, salvage/forge/reforge/craft — only sockets+gems P4d deferred), **AI residents** (11
 server-side companion "players"), **Builder Mode / Locker Rooms**, the **UI overhaul + DPS/HPS meter**,
-and the **combat-feel** pass. *(The live world is now 9 zones + instance templates, superseding the
-two-world layout in the Phase-1–5 summary above.)*
+the **combat-feel** pass, the **gameplay-length program** (XP economy, level-gated kits, talents,
+Paragon, Bounty Board, Difficulty Pass v1 — `docs/gameplay-length-handoff.md`), **Phase 8 "The Away
+Circuit"** (away_1-3 + boss + the Finals district; S4 slot owner-reserved for a special boss), the
+**64 full-color ability icons** (v1.8.3), and the **Wildlife Expanse workstream** (below). *(The live
+world is now **16 zones** + instance templates.)*
 
-## ▶ Now building — expand gameplay length
-Work-stream: **make the game last longer to play** (`docs/gameplay-length-handoff.md`; core flaw from the
-2026-07-09 audit — the build was *finished at level 1*). **Phases 1–7 (+3a/3b, 7b/7c/7d) and Difficulty
-Pass v1 SHIPPED 2026-07-09..07-11** (`0d88148`..`f2fea90`, `ec4250f`): XP economy, level-gated kits,
-Camp-Circuit v2 + roster remix, talent trees, Paragon/Audibles, Bounty Board, procs/boss-scaling/seasons.
-**Remaining: Phase 8 (second biome, XL).** P7a sockets+gems is **owner-deferred — do not build it**
-("too many different stats until the rest of the game is further fleshed out"). Tackle one phase per chat.
-*Side gate (closed):* jump/verticality shipped as the cosmetic + networked hop (Phases 0+0.5, protocol v2);
-the owner **closed the Phase-1 gate 2026-07-13** — true verticality is not a pillar, Phases 2–4 are not
-authorized. Sole re-open path: the *named-moment test* at Phase-8 planning + the `hops/min` health-log
-counter. See `docs/jump-verticality-phase1-decision.md`.
+## 🐾 The Wildlife Expanse (2026-07-20..21, v1.8.4→v1.11.3) — COMPLETE
+The away biome is the owner's **Wildlife Expanse**: all 7 owner-built creatures live (skink / grazer /
+forager / magpie normals, warfrog + splinterback elites, the **Arrowbound Howler** pack-boss — shield-bird
+Pack Call + Bristling Arrows parry-cycle puzzle, NO cores by design), **pure-wildlife roster** (legacy
+elites retired to their GY/finals homes; rival_coach/rival_core/rally_cone defs dormant), **wild_gate**
+(zone 2 entered through gy5_command; pre-W6 chars grandfathered at the old L8 floor), and the **Base Camp
+hub** (`basecamp`: tier-2 shop ilvl 17 / rolls capped at 13, forge, quest giver #2 + WILD chain,
+`World.SERVICE_PADS` registry replaced the HOME service hardcodes). Spec + open items:
+`docs/wildlife-expanse-zone2-plan.md`. `bal_identity` stayed byte-identical across all 12 ships.
+
+## ▶ Now — the owner's map flesh-out / art pass
+Next focus is **owner-directed**: zone ground/props re-skins (away zones still render rival clay under
+wildlife banners), Base Camp decor, elite model differentiation, death-anim pass-3 (warfrog/howler), and
+the playtest feel-pass items listed in the plan doc. **Standing vetoes:** P7a sockets+gems is
+**owner-deferred — do not build it**; the jump/verticality gate stays **closed** (cosmetic hop only —
+`docs/jump-verticality-phase1-decision.md`). Tackle one phase per chat.
 
 ## Layout
 - `shared/` — the **deterministic combat engine** (GameData, Sim, AI, Abilities, Combat, Geom, Rng)
-  + `World.gd` (two-world layout: maps, spawns, portals, mob camps, shop pad). `GameData.gd` =
-  content source of truth (8 classes, abilities, stats, venues, **`FORMAT_MODS`**).
+  + `World.gd` (the 16-zone world: MAPS/PORTALS/MOBS/OBSTACLES + `SERVICE_PADS` per-map service
+  registry + gates). `GameData.gd` = content source of truth (8 classes + 33 mob defs, abilities,
+  stats, venues, **`FORMAT_MODS`**, recipes, dyes).
 - `server/Server.gd` — the authoritative zone server (worlds, tick, snapshots, auth, persistence,
   loot, equip, parties, shop, admin).
 - `client/` — `Client.gd` (base render / local sandbox), `NetClient.gd` (the networked client: HUD,
@@ -60,7 +69,8 @@ counter. See `docs/jump-verticality-phase1-decision.md`.
   `Supabase.gd` (REST auth + DB).
 - `Main.gd` — boots the server with `--server`, else the client (`--online <ip>` connects).
 - `supabase/migrations/` — schema (characters, inventory, admins; RLS). `deploy/setup.sh` — VPS deploy.
-- `models/meshy/` — 4 rigged+animated characters (+ `clips/`, `props/`). `models/kits/` — CC0 props.
+- `models/meshy/` — 4 rigged characters (+ `clips/`, `props/`) and `mobs/rigged/` (the 7 wildlife
+  quadruped rigs + per-role clip `.res`; metadata in Client.gd `RIGGED_MOBS`). `models/kits/` — CC0 props.
 
 ## Operational (this environment)
 - **Supabase project**: `reaiolskmzorymnrbtab` (connected via MCP). Anon key embedded in `Supabase.gd`
@@ -79,6 +89,10 @@ counter. See `docs/jump-verticality-phase1-decision.md`.
 - Client: open `project.godot`, F5. Server: `godot --headless -- --server` (needs `SUPABASE_SERVICE_KEY`).
 - Headless test: `godot --headless --path . --script res://x.gd` (extend `SceneTree`; `preload(...)`
   shared scripts). Import assets: `godot --headless --import --path .`. Check `grep -c 'SCRIPT ERROR'`.
+- **Key suites** (all headless `--script`): `stab_away` (away biome + gates), `stab_basecamp` (hub
+  services), `test_wildlife_normals` (wildlife defs/rosters/boss mechanics), `test_class_kits`
+  (player kits + the **mob-def golden hash** — see conventions), `bal_identity` (player-sim
+  byte-identity — run it for EVERY shared/ change and compare signatures).
 - **Balance harness** — build the match state with `GameData.create_fighter(cls, team, 0, rng, 5)`
   (force `team_size=5` to match live `ZONE_TEAM_SIZE`) and loop `Sim.sim_tick` to a winner; run a
   round-robin across seeds/maps to measure win rates, then tune `FORMAT_MODS[5]`.
@@ -98,5 +112,13 @@ counter. See `docs/jump-verticality-phase1-decision.md`.
   (front T-pose) → rig → animate; props = text-to-3D. **Report the credit balance after any Meshy op.**
 - **Optimize GLBs** with `~/.npm-global/bin/gltf-transform` (resize 1024 + simplify). **Never Draco**
   (Godot 4.6 can't import it). Don't delete Godot-extracted `*_texture_0.png` (tracked deps).
+- **Mob-def golden hash** (`test_class_kits.gd`): every mob def is fingerprinted. Adding/changing a
+  def means REBASING the golden — always prove the untouched subset first (hash-minus-the-change must
+  equal the prior golden) and record the chain in the const comment. Mobs tune via World.MOBS
+  level/tier + per-def hpMult/dmgScale — **never** FORMAT_MODS entries.
+- **Releases**: every deploy goes through `deploy/release.sh [patch|minor|major]` (tag + client
+  publish — VERIFY `gh release view` after; the publish step can fail silently), then wait for CI
+  before the droplet redeploy (it pulls `:latest` — check the image age). Shared changes ship server
+  + client together.
 - After each substantial feature: compile-check, a headless/connect test, then an **adversarial review**
   (Workflow) before considering it done. For **sourced/CC0 assets**, surface for approval first.

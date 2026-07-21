@@ -204,7 +204,7 @@ const QUESTS := {
 	# toward the Head Coach gate (bonus_amt matches _make_item's epic budget at ilvl 20: 8×(3+0.4·20)=88).
 	"away3_stadium": {
 		"name": "Silence the Stadium",
-		"desc": "The wilds have reclaimed the stadium floor. Clear it — take down 18 of the pack before the sideline door.",
+		"desc": "The wilds have reclaimed the stadium floor. Clear it — take down 18 of the pack before the sideline door. Somewhere out there lies a past challenger's badge: the wilds keep what they take.",
 		"min_level": 13, "prereq": "away2_medics",
 		"objective": {"type": "kill", "match": {"map": "away_3"}, "count": 18},
 		"rewards": {"xp": 1000, "credits": 600, "tokens": 30,
@@ -212,7 +212,7 @@ const QUESTS := {
 	},
 	"away3_elites": {
 		"name": "Clear the Door",
-		"desc": "A quill-backed Splinterback prowls the floor and a hulking Warfrog guards the sideline door. Bring down 2 of the Stadium's elites.",
+		"desc": "A quill-backed Splinterback prowls the floor and a hulking Warfrog guards the sideline door. Bring down 2 of the Stadium's elites — one of them still carries a fallen challenger's glove.",
 		"min_level": 14, "prereq": "away3_stadium",
 		"objective": {"type": "kill", "match": {"map": "away_3", "tier": "elite"}, "count": 2},
 		"rewards": {"xp": 1200, "credits": 700, "tokens": 35,
