@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.7 — 2026-07-21
+
+- Away cover props go wild (art pass A3): timber walls, stone ridges, standing stones — client-only render swap, collision byte-identical
+
+_(rolls up commits since the previous tag; base aef5c59)_
+
 ## v1.11.6 — 2026-07-21
 
 - Base Camp decor (art pass A2): ranger-station layout — treeline, pad landmarks, campfire circle, fences, Fen's nook; ships server+client
