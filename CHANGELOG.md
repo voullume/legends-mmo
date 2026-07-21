@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.10.1 — 2026-07-21
+
+- The wilds open past the Command Tower — beat the Glitchyard chain to enter the Wildlife Expanse (existing characters grandfathered). New two-way road between Command Tower and the Expanse.
+
+_(rolls up commits since the previous tag; base f4354ba)_
+
 ## v1.10.0 — 2026-07-20
 
 - The Arrowbound Howler claims the sideline — the Wildlife Expanse roster is complete (all 7 wild creatures live). Update your client to face the new boss.
