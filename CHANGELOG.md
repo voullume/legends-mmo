@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.8 — 2026-07-21
+
+- Elite differentiation (art pass A4): the 3 away elites get client-only tint + scale-up — Old Bull umber, Elder Rallywing silvered, door-guard warfrog obsidian-emerald
+
+_(rolls up commits since the previous tag; base 0b0be82)_
+
 ## v1.11.7 — 2026-07-21
 
 - Away cover props go wild (art pass A3): timber walls, stone ridges, standing stones — client-only render swap, collision byte-identical
