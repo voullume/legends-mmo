@@ -255,6 +255,11 @@ func _run() -> void:
 	for pab in rdef["abilities"]:
 		if str(pab["type"]) == "summon" and str(pab.get("mobType", "")) == "rallywing_magpie": has_packcall = true
 	ok(has_packcall, "arrowbound_howler: the Pack Call shield-bird summon exists (the core-replacement mechanic)")
+	var bristles := 0
+	for bab in rdef["abilities"]:
+		if str(bab["type"]) == "selfbuff" and bool((bab.get("buff", {}) as Dictionary).get("reflect", false)): bristles += 1
+	ok(bristles == 2 and float(rdef.get("reflectMult", 0.0)) == 1.5,
+		"arrowbound_howler: the bristle parry cycle (P2+P3) with reflectMult — the rhythm-puzzle mechanic")
 	var has_ult := false
 	var has_zone := false
 	for ab in rdef["abilities"]:

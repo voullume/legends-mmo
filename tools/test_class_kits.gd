@@ -22,7 +22,7 @@ const Rng = preload("res://shared/Rng.gd")
 # first (W4: hash minus warfrog == 2466136904 (W3); W3 minus the 3 == 4135971324 (W2); W2 minus
 # skink == 578105494 (pre-expansion)).
 const MOB_GOLDEN_COUNT := 33
-const MOB_GOLDEN_HASH := 2705891441
+const MOB_GOLDEN_HASH := 3342577212
 
 const DT := 1.0 / 30.0
 

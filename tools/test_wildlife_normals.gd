@@ -56,9 +56,27 @@ func _init() -> void:
 	var sh2: Dictionary = hw["abilities"][1]
 	ok(sh2["type"] == "summon" and str(sh2["mobType"]) == "netvine_skink" and int(sh2.get("phase", -1)) >= 1, "howler: Signature Howl is the proven summon shape, phase-gated")
 	var hw_ult := false
+	var hw_reflects := 0
 	for ab in hw["abilities"]:
 		if str(ab["type"]) == "campreset": hw_ult = true
+		if str(ab["type"]) == "selfbuff" and bool((ab.get("buff", {}) as Dictionary).get("reflect", false)): hw_reflects += 1
 	ok(not hw_ult, "howler: NO campreset ult (teaching-boss promise preserved)")
+	ok(hw_reflects == 2 and float(hw.get("reflectMult", 0.0)) > 1.0, "howler: Bristling Arrows + Quilled Fury reflect stances, reflectMult present (the GameData:231 rule)")
+	# behavioral: force P2 and observe the bristle cycle + the RF state on the boss fighter
+	var bstate = Sim.create_match(["arrowbound_howler"], ["striker", "batter"], 21, "stadium")
+	var bf: Variant = null
+	for f in bstate["fighters"]:
+		if str(f["classId"]) == "arrowbound_howler": bf = f
+	bf["hp"] = float(bf["maxHP"]) * 0.30             # P2 band (phases: 100-70/70-40/40-15/15-0)
+	var bristled := false
+	var rf_seen := false
+	for i in 30 * 30:
+		Sim.sim_tick(bstate, 1.0 / 30.0)
+		if float(bf["cds"].get("bristle", 0.0)) > 0.0: bristled = true
+		if float((bf.get("buffs", {}) as Dictionary).get("reflect", 0.0)) > 0.0: rf_seen = true
+		if (bristled and rf_seen) or not bool(bf["alive"]): break
+	ok(bristled, "howler: Bristling Arrows cast at P2")
+	ok(rf_seen, "howler: the reflect stance state is live on the fighter (the RF chip's source)")
 	# W4b elite: splinterback (Quill Barrage = ball_machine scatter spread shape)
 	var sb: Dictionary = GameData.CLASSES.get("splinterback_elite", {})
 	ok(not sb.is_empty() and bool(sb.get("mob", false)) and bool(sb.get("rig", false)) and bool(sb.get("kbImmune", false)), "splinterback: def exists, mob+rig+kbImmune")

@@ -92,7 +92,8 @@ const ANIM_OVERRIDE := {"goalkeeper": {"distribution": "throw"},
 	"emerald_warfrog": {"groundslam": "attack_ground_slam", "croakwave": "attack_croak"},  # dedicated elite clips
 	"splinterback_elite": {"quillbarrage": "attack_quill_barrage"},   # dedicated elite clip
 	"arrowbound_howler": {"sighowl": "attack_howl", "deathhowl": "attack_howl", "pounce": "attack_pounce",
-		"finishpounce": "attack_pounce", "huntground": "attack"}}   # boss clips (zone = ground-scratch marking read)
+		"finishpounce": "attack_pounce", "huntground": "attack", "packcall": "attack_howl",
+		"bristle": "hit", "quilledfury": "hit"}}   # boss clips (zone = scratch; bristle/fury = the shudder read)
 const HIT_SPEED := 3.0          # play the 1.67s hit clip ~3x → a quick ~0.55s flinch, not a long lurch
 const HIT_FLINCH_CD := 1.2      # min seconds between flinches, so a flurry of hits isn't constant flinching
 # Action clips are authored 2.7–4.3s — far longer than abilities actually fire. Play each one to ~a

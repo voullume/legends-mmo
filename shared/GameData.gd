@@ -636,7 +636,7 @@ const CLASSES := {
 	"arrowbound_howler": {
 		"name": "The Arrowbound Howler", "sport": "", "mob": true, "rig": true, "model": "arrowbound_howler", "h": 3.4,
 		"lane": 0, "color": "#7A4FC9", "phased": true, "kbImmune": true,
-		"hpMult": 0.7, "dmgScale": 0.6,
+		"hpMult": 0.7, "dmgScale": 0.6, "reflectMult": 1.5,   # Bristling Arrows: the next hit comes back ×1.5 (the goalkeeper/calibration-spin primitive)
 		"plate": "ARROWBOUND HOWLER", "phases": ["PROWL", "HUNT", "FRENZY", "LAST STAND"],
 		"threshSummon": {"mobType": "netvine_skink", "count": 2},   # each phase entry: the wilds answer
 		"stats": {"PWR": 54, "PRE": 32, "SPD": 26, "END": 82, "INS": 28, "CLU": 24},
@@ -650,10 +650,15 @@ const CLASSES := {
 			# P1 Hunt — the hazard lesson stays
 			{"key": "huntground", "name": "Hunting Ground", "type": "zone", "cd": 12.0, "radius": 120, "dur": 5.0, "dmg": 8.0, "slow": {"amt": 0.35, "dur": 0.6}, "phase": 1},
 			{"key": "pounce", "name": "Pounce", "type": "dashAttack", "dmg": 74, "cd": 8.0, "dist": 200, "cast": 0.5, "knockback": 90, "wallStun": 1.2, "phase": 1},
-			# P2 Frenzy — the alpha speeds up; kite it
+			# P2 Frenzy — the alpha speeds up AND learns to parry: Bristling Arrows reflects the NEXT
+			# hit ×1.5 (RF chip + the shudder anim are the tells; a cheap poke defuses it — dumping a
+			# burst ability into the bristle is the first-timer's lesson). Layered with the shield-bird,
+			# real damage lands only in bird-dead + bristle-down windows — the rhythm puzzle.
 			{"key": "bloodfrenzy", "name": "Blood Frenzy", "type": "selfbuff", "cd": 14.0, "buff": {"ms": 1.30, "dur": 4.0}, "phase": 2},
+			{"key": "bristle", "name": "Bristling Arrows", "type": "selfbuff", "cd": 11.0, "buff": {"reflect": true, "dur": 2.0}, "phase": 2},
 			{"key": "frenzysweep", "name": "Frenzy Sweep", "type": "meleeAoe", "dmg": 54, "cd": 10.0, "radius": 150, "cast": 0.7, "knockback": 55, "phase": 2},
-			# P3 Last Stand
+			# P3 Last Stand — the parry cycle tightens: the dance is stun-dodge + poke + burst-window
+			{"key": "quilledfury", "name": "Quilled Fury", "type": "selfbuff", "cd": 8.0, "buff": {"reflect": true, "dur": 1.5}, "phase": 3},
 			{"key": "deathhowl", "name": "Death Howl", "type": "meleeAoe", "dmg": 20, "cd": 8.0, "radius": 130, "stun": 0.9, "cast": 0.4, "phase": 3},
 			{"key": "finishpounce", "name": "Killing Pounce", "type": "meleeAoe", "dmg": 70, "cd": 9.0, "radius": 110, "cast": 0.55, "knockback": 45, "phase": 3},
 		],

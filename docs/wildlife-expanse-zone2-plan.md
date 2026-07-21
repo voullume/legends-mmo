@@ -298,6 +298,20 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   Intended teeth, but if playtest shows a wall, the fix is a "packbird" variant def with a
   smaller shieldPct (new def = golden move).
 
+## BRISTLE DEEPENING (2026-07-21, v1.11.3) — owner: a learn-it-the-hard-way boss puzzle
+
+- **Bristling Arrows** (P2, cd 11, 2.0s) + **Quilled Fury** (P3, cd 8, 1.5s): reflect stances —
+  the NEXT hit comes back ×1.5 (reflectMult; the goalkeeper/calibration-spin primitive). The
+  first-timer dumps a burst into the bristle and eats it; the strategy is poke-to-defuse (or
+  wait), then burst — layered with the shield-bird, real damage lands only in bird-dead +
+  bristle-down windows. Tells are fair: the RF status chip (existing StatusIcons "rf" w/
+  tooltip) + the shudder anim; the cycle is deterministic and learnable. Not impossible: one
+  poke consumes the stance; DOT/proc damage never reflects (engine rule).
+- Phase bands note (learned in test): P2 = 40-15% HP, P1 = 70-40 — the bird (P2) + bristle (P2)
+  both arrive at 40%, making the last 40% the puzzle. Golden rebased (32-def subset proven).
+- **Feel-pass**: reflected big hits at ×1.5 can be lethal to glass classes — intended drama;
+  confirm vs the healer-less solo experience alongside the shield-bird flag above.
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.
