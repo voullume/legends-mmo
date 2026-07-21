@@ -1536,6 +1536,26 @@ func _tick_plate_demo() -> void:
 	else:
 		lp["st"] = st
 
+# Wildlife Expanse art pass A4 (owner-approved): the three away-biome elites get a client-only
+# look — a dye-channel tint + a scale-up — so they read apart from their minion twins (previously
+# only the plate chip + level differed). Keyed on snapshot fields (classId/mobTier/mobLevel —
+# always shipped for mobs): NO GameData def change, no golden rebase, no server contact. minLevel
+# splits the two warfrog elites: the L16 door guard gets the look, the L13 away_2 anchor stays
+# baseline so the species' normal read survives.
+const ELITE_LOOKS := {
+	"tacklehorn_grazer": {"tint": "#6B4A26", "scale": 1.15},                   # the Old Bull — weathered umber
+	"rallywing_magpie":  {"tint": "#C9D4DC", "scale": 1.10},                   # the Elder Rallywing — silvered
+	"emerald_warfrog":   {"tint": "#173F30", "scale": 1.12, "minLevel": 16},   # the door guard — obsidian emerald
+}
+
+func _elite_look(f: Dictionary) -> Dictionary:
+	if str(f.get("mobTier", "")) != "elite":
+		return {}
+	var look: Dictionary = ELITE_LOOKS.get(str(f.get("classId", "")), {})
+	if not look.is_empty() and int(f.get("mobLevel", 0)) >= int(look.get("minLevel", 0)):
+		return look
+	return {}
+
 func _spawn(f: Dictionary) -> void:
 	var holder := Node3D.new()
 	_world_root.add_child(holder)
@@ -1562,6 +1582,12 @@ func _spawn(f: Dictionary) -> void:
 	var kit := _make_character(f)
 	var model = kit["model"]
 	var msc: float = kit["scale"]
+	# A4 elite look: the scale multiplier folds into msc BEFORE model.scale AND the "mscale"
+	# capture below — the struck-body recoil restores to mscale, so a post-hoc scale-up would
+	# snap back to base size on the elite's first hit. (The three wildlife rigs have foot_y 0,
+	# so kit["yoff"] — computed pre-multiply — is unaffected.)
+	var elook := _elite_look(f)
+	msc *= float(elook.get("scale", 1.0))
 	model.scale = Vector3(msc, msc, msc)
 	model.position.y = CHAR_Y + float(kit.get("yoff", 0.0))   # rigged mobs carry a grounding offset
 	holder.add_child(model)
@@ -1592,7 +1618,8 @@ func _spawn(f: Dictionary) -> void:
 	var is_mob_plate: bool = bool(udef.get("mob", false)) or bool(f.get("dummy", false)) or bool(f.get("isCore", false))
 	# lift the nameplate/scoreboard clear above tall mobs (e.g. the 4.6-tall boss) instead of overlapping them;
 	# players sit higher (PLAYER_UI_Y) so their name + level + bar clear the character's head
-	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) + 0.8) if is_mob_plate else PLAYER_UI_Y
+	# the plate rides the def height × the A4 elite scale-up (else a scaled-up elite clips its plate)
+	ui.position.y = maxf(UI_Y, float(udef.get("h", 0.0)) * float(elook.get("scale", 1.0)) + 0.8) if is_mob_plate else PLAYER_UI_Y
 	holder.add_child(ui)
 	ui.add_child(_quad(BAR_W + 0.08, BAR_H + 0.08, Color(0, 0, 0, 0.6)))
 	var fill := _quad(BAR_W, BAR_H, Color(0.3, 0.85, 0.4))
@@ -1704,6 +1731,9 @@ func _spawn(f: Dictionary) -> void:
 	if _rcdef.get("recolor", false):                        # remix variant via the DYE channel, so the hit-flash restore
 		_nodes[f["id"]]["dye_applied"] = str(_rcdef.get("color", ""))   # re-applies it (not a one-shot overlay the flash wipes)
 		_apply_dye(model, str(_rcdef.get("color", "")))
+	elif elook.has("tint"):                                 # A4: the elite look rides the same dye channel (flash-safe)
+		_nodes[f["id"]]["dye_applied"] = str(elook["tint"])
+		_apply_dye(model, str(elook["tint"]))
 
 # ============================================================ main loop
 func _process(delta: float) -> void:
@@ -2627,6 +2657,10 @@ func _update_ui(n: Dictionary, f: Dictionary) -> void:
 		var _rc: Dictionary = GameData.CLASSES.get(str(f.get("classId", "")), {})   # tint, not "" — this sync used to
 		if _rc.get("recolor", false):             # WIPE the spawn-primed recolor on frame 1 (mobs never ship a
 			dye = str(_rc.get("color", ""))       # snapshot dye), leaving every remix mob untinted
+		else:
+			var _el := _elite_look(f)             # A4: the elite-look tint is part of the same baseline — without
+			if _el.has("tint"):                   # this, the frame-1 sync (or a hit-flash restore) would wipe it
+				dye = str(_el["tint"])
 	if dye != str(n.get("dye_applied", "")):
 		n["dye_applied"] = dye
 		if not _flashing.has(f["id"]):            # mid-flash: don't stomp the overlay — the flash's

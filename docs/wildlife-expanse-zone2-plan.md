@@ -323,6 +323,12 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.
 - Splinterback pass-1 confirm-or-redo (blocks its W4 inclusion only).
+- **Elite model differentiation** (from the pure-wildlife pass): ~~the 3 away elites shared their
+  minion models~~ DONE — art-pass **A4** (2026-07-21): client-only ELITE_LOOKS (Old Bull umber
+  +1.15×, Elder Rallywing silvered +1.10×, L16 door-guard warfrog obsidian-emerald +1.12×; L13
+  away_2 warfrog anchor stays baseline via minLevel gate). Dye-channel tint + scale-into-msc; no
+  GameData change (golden untouched), no bal_identity move, client-only ship. **THE ART PASS
+  (A1–A4) IS COMPLETE.**
 - **Away-zone terrain/props re-skin** (new, from W3 review): ~~ground~~ DONE — art-pass **A1**
   (2026-07-21) shipped the wildlife ground set client-only (away_1/2/3 = wildrange trampled-tan,
   away_boss = howler_den packed earth, basecamp = cleared camp earth; Client.gd
