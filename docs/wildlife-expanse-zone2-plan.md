@@ -272,6 +272,19 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   a prereq chain instead); (b) basecamp has NO decor/props yet — pairs with the open rival-clay
   ground re-skin as the art pass.
 
+## PURE-WILDLIFE PASS (2026-07-21, v1.11.1) — owner direction: only imported mobs in zone 2
+
+- The last three legacy elites swapped at their exact positions/tiers (placement tuning deferred
+  to the map flesh-out per the owner): tackle_brute → **the Old Bull** (grazer elite, away_1);
+  field_medic → **the Elder Rallywing** (magpie elite, away_2 — the shield-camp lesson, support
+  first); drill_sergeant → **Warfrog door guard** (away_3). Legacy defs keep GY/finals homes.
+- **The rival power cores STAY** around the Howler — boss mechanic (destructible objectives),
+  not creatures. If the owner wants them re-skinned to something wild (nests? quill mounds?),
+  that's an art-pass item alongside the ground/decor work.
+- Feel-pass note: the Elder Rallywing is squishier than the medic it replaced (support-stat
+  body × elite scaling) — the lesson reads, the elite dies faster; tune with the map pass.
+- Zero def changes → mob golden untouched; identity unchanged (10th consecutive ship).
+
 ## Open items / holds
 
 - ~~Magpie pass-2 owner review~~ — approved 2026-07-20, shipped in W3.
