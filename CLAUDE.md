@@ -52,7 +52,8 @@ hub** (`basecamp`: tier-2 shop ilvl 17 / rolls capped at 13, forge, quest giver 
 
 ## ▶ Now — the owner's map flesh-out / art pass
 Next focus is **owner-directed**: zone ground/props re-skins (ground DONE in art-pass A1 — wildlife
-ground set live, client-only; sports-prop remap = A3), Base Camp decor, elite model differentiation,
+ground set live, client-only; sports-prop remap = A3), ~~Base Camp decor~~ (DONE in A2 —
+data/decals/basecamp.json, ships server+client), elite model differentiation,
 death-anim pass-3 (warfrog/howler), and
 the playtest feel-pass items listed in the plan doc. **Standing vetoes:** P7a sockets+gems is
 **owner-deferred — do not build it**; the jump/verticality gate stays **closed** (cosmetic hop only —

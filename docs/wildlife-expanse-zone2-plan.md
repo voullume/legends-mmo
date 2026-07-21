@@ -269,8 +269,10 @@ Staged (all UNCOMMITTED by design — inert until W2 wires them; reproducible vi
   pillars, Home pad, minimap — all up.
 - **Owner notes**: (a) wild5_alpha + rival_down share the away-boss matcher — one Howler kill
   can complete both capstones (both once-only, distinct dyes; deliberate-ish, flag if you want
-  a prereq chain instead); (b) basecamp has NO decor/props yet — pairs with the open rival-clay
-  ground re-skin as the art pass.
+  a prereq chain instead); (b) ~~basecamp has NO decor/props yet~~ — DONE in art-pass **A2**
+  (2026-07-21): data/decals/basecamp.json, the ranger-station layout (treeline, pad landmarks
+  incl. quest_board+bounty_terminal, campfire circle, south fences, Fen's table nook; 40 collision
+  circles, keep-clears + walk lines checker-verified, engine-parity proven). Ground was A1 (v1.11.5).
 
 ## PURE-WILDLIFE PASS (2026-07-21, v1.11.1) — owner direction: only imported mobs in zone 2
 
