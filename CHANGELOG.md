@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.0 — 2026-07-21
+
+- The Wildlife Expanse Base Camp opens — a second home in the wilds: tier-2 shop, forge, new quest line, and the wilds' own colors. Update your client to visit.
+
+_(rolls up commits since the previous tag; base 5b8ee18)_
+
 ## v1.10.1 — 2026-07-21
 
 - The wilds open past the Command Tower — beat the Glitchyard chain to enter the Wildlife Expanse (existing characters grandfathered). New two-way road between Command Tower and the Expanse.
