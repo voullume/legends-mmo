@@ -22,6 +22,8 @@ const STAT_NAMES := {"PWR": "Power", "PRE": "Precision", "SPD": "Speed", "END": 
 const PAPERDOLL_SLOTS := [["head", "Head", 0], ["chest", "Chest", 0], ["legs", "Legs", 0], ["hands", "Hands", 0],
 	["feet", "Feet", 0], ["main_hand", "Main Hand", 0], ["off_hand", "Off Hand", 0], ["neck", "Neck", 0],
 	["ring", "Ring 1", 0], ["ring", "Ring 2", 1], ["trinket", "Trinket", 0]]
+const INV_TILE_PX := 66            # icon-only bag tile edge; 6 fit the 456px gear scroll (6·66 + 5·6 = 426)
+const INV_GEAR_COLS := 6
 # P4 forge — these MUST mirror the server (Server.gd RARITIES mult, SALVAGE_YIELD, upgrade cost formula, MAX_UPGRADE)
 const RARITY_MULT := {"common": 1, "uncommon": 2, "rare": 4, "epic": 8, "legendary": 14, "mythic": 20}
 const SALVAGE_YIELD := {"common": 1, "uncommon": 2, "rare": 5, "epic": 12, "legendary": 30, "mythic": 75}
@@ -1333,9 +1335,9 @@ func _render_inv_tiles() -> void:
 	var best := IconWidget.icon_button("power_action", "Equip Best", Palette.ACCENT, _equip_best)
 	best.disabled = _equip_best_busy
 	_inv_controls.add_child(best)
-	# gear tiles carry 46px item art → two 222px columns in the 456px scroll; the build tab keeps
-	# its three compact 144px text tiles (equipment-icon handoff §6 Phase B)
-	_inv_grid.columns = 3 if _inv_sort_mode == "build" else 2
+	# gear tiles are icon-only squares → a dense 6-wide grid in the 456px scroll (name/stats on hover);
+	# the build tab keeps its three wider text tiles (furniture reads by name, not a silhouette)
+	_inv_grid.columns = 3 if _inv_sort_mode == "build" else INV_GEAR_COLS
 	if _inv_sort_mode == "build":                      # Builder Mode: furniture/props ONLY (gear tabs exclude these)
 		var bview := []
 		for it in _inv_items:
@@ -1617,39 +1619,41 @@ func _is_upgrade(it: Dictionary) -> bool:
 # one item tile: a rarity-bordered button. Left-click equips/unequips, hover shows the compare tooltip,
 # right-click opens the context menu. Full stats live in the tooltip (tiles stay compact).
 func _inv_tile(it: Dictionary) -> Button:
+	# ICON-ONLY square tile (MMO bag grid): just the item art in a rarity-bordered cell — no name text,
+	# so many more items fit per page. The full name + rarity + slot + stats + upgrade compare all live
+	# in the hover tooltip. Equipped/Upgrade ride a bottom-left badge, Locked a top-right badge, so a
+	# state mark never covers the painting.
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(222, 64)
-	b.clip_text = true
-	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.custom_minimum_size = Vector2(INV_TILE_PX, INV_TILE_PX)
 	var col := _item_color(it)
-	# item art rides the native Button.icon (left of the name) — the full-color painting, or the
-	# neutral slot line-art for named quest/unique pieces without bespoke art. Equipped/Upgrade are
-	# now INDEPENDENT bottom-left badges and Locked stays top-right, so state never replaces art.
-	var art_col := _item_icon_color(it)          # WHITE for a painting; rarity tint on the neutral fallback
-	b.icon = _item_icon(it)
-	b.expand_icon = false
-	b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	b.add_theme_constant_override("icon_max_width", 46)
-	_set_item_icon_color(b, art_col)
+	# the painting fills the tile as a child TextureRect (clean centering at a large size); WHITE for a
+	# resolved painting, rarity tint on the neutral slot fallback for un-arted named/unique pieces.
+	var art := TextureRect.new()
+	art.texture = _item_icon(it)
+	art.modulate = _item_icon_color(it)
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(art)
+	art.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for s in ["left", "top"]:
+		art.set("offset_" + s, 4.0)
+	for s in ["right", "bottom"]:
+		art.set("offset_" + s, -4.0)
 	var state_icon := ""
 	if bool(it.get("equipped", false)):
 		state_icon = "equipped"
 	elif _is_upgrade(it):                        # a bag item that beats what it'd replace → at-a-glance
 		state_icon = "upgrade"
 	if state_icon != "":
-		var badge := IconWidget.make(state_icon, {"px": 14, "color": Palette.SUCCESS})
+		var badge := IconWidget.make(state_icon, {"px": 15, "color": Palette.SUCCESS})
 		b.add_child(badge)
 		badge.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_KEEP_SIZE, 3)
-	b.text = str(it.get("name", "?"))
 	if bool(it.get("locked", false)):
-		var lk := IconWidget.make("locked", {"px": 13, "color": Palette.SB_ORANGE})   # decorative badge; lock cue is in the tile tooltip
+		var lk := IconWidget.make("locked", {"px": 14, "color": Palette.SB_ORANGE})   # decorative badge; lock cue is in the tile tooltip
 		b.add_child(lk)
 		lk.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT, Control.PRESET_MODE_KEEP_SIZE, 3)
-	# common items were near-white on grey (low contrast) — lift the common tier to bright text
-	var txt: Color = Palette.TEXT_BRIGHT if str(it.get("rarity", "common")) == "common" else col
-	b.add_theme_color_override("font_color", txt)
-	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
-	b.add_theme_color_override("font_pressed_color", txt)
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND   # affordance: tiles are clickable
 	b.add_theme_stylebox_override("normal", Widgets.tile_box(col, false))
 	var sbh := Widgets.tile_box(col, true)

@@ -35,46 +35,56 @@ func _find_rects(n: Node, out: Array) -> void:
 			out.append(ch)
 		_find_rects(ch, out)
 
+# the icon-only bag tile adds the art TextureRect FIRST (child 0, full-rect), then corner badges
+func _inv_art(b: Button) -> TextureRect:
+	return b.get_child(0) as TextureRect if b.get_child_count() > 0 else null
+
+func _inv_badges(b: Button) -> Array:
+	var out := []
+	for i in range(1, b.get_child_count()):
+		if b.get_child(i) is TextureRect:
+			out.append(b.get_child(i))
+	return out
+
 func _ready() -> void:
 	print("[equipment_ui_test] running")
 	var nc: Node = NetClientS.new()
 	var white := Color.WHITE
 
-	# ---- 1. bag tile: art on Button.icon, white, mipmapped; no badge on a plain item ----
+	# ---- 1. bag tile: ICON-ONLY square — art fills the tile as child 0, white, mipmapped, no text ----
 	var plain := {"name": "Epic Helmet", "slot": "head", "rarity": "epic", "item_power": 0}
 	var t1: Button = nc.call("_inv_tile", plain)
-	ok(t1.icon == EquipIcons.texture("helmet"), "bag tile: icon is the helmet painting")
-	ok(t1.get_theme_color("icon_normal_color") == white, "bag tile: painting renders WHITE")
-	ok(t1.texture_filter == CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, "bag tile: mipmapped filtering")
-	ok(t1.custom_minimum_size.y >= 64.0, "bag tile: tall enough for 46px art (got %s)" % t1.custom_minimum_size)
-	ok(_badges(t1).is_empty(), "bag tile: plain item has no overlay badges")
-	ok(t1.text.contains("Epic Helmet"), "bag tile: readable item name kept")
+	var a1 := _inv_art(t1)
+	ok(a1 != null and a1.texture == EquipIcons.texture("helmet"), "bag tile: art node is the helmet painting")
+	ok(a1 != null and a1.modulate == white, "bag tile: painting renders WHITE")
+	ok(a1 != null and a1.texture_filter == CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, "bag tile: mipmapped filtering")
+	ok(t1.icon == null and t1.text == "", "bag tile: no native icon and no name text (icon-only)")
+	ok(a1 != null and a1.anchor_right == 1.0 and a1.anchor_bottom == 1.0, "bag tile: art fills the tile (full-rect)")
+	ok(t1.custom_minimum_size.x == t1.custom_minimum_size.y and t1.custom_minimum_size.x >= 60.0, "bag tile: square (got %s)" % t1.custom_minimum_size)
+	ok(_inv_badges(t1).is_empty(), "bag tile: plain item has no overlay badges")
 
 	# ---- 2. equipped + locked: TWO independent badges, art untouched ----
 	var eq := {"name": "Rare Catcher's Mitt", "slot": "off_hand", "rarity": "rare", "equipped": true, "locked": true, "item_power": 40}
 	var t2: Button = nc.call("_inv_tile", eq)
-	ok(t2.icon == EquipIcons.texture("catchers_mitt"), "equipped tile: art NOT replaced by the state icon")
-	ok(_badges(t2).size() == 2, "equipped+locked tile: two overlay badges (got %d)" % _badges(t2).size())
-	ok(t2.get_theme_color("icon_normal_color") == white, "equipped tile: painting stays WHITE (no state tint)")
-	for bd in _badges(t2):                       # regression: the 128px SVG master must never leak into an
-		ok((bd as TextureRect).size.x <= 16.0 and (bd as TextureRect).size.y <= 16.0,   # anchored badge (IconWidget
+	ok(_inv_art(t2).texture == EquipIcons.texture("catchers_mitt"), "equipped tile: art NOT replaced by the state icon")
+	ok(_inv_badges(t2).size() == 2, "equipped+locked tile: two overlay badges (got %d)" % _inv_badges(t2).size())
+	ok(_inv_art(t2).modulate == white, "equipped tile: painting stays WHITE (no state tint)")
+	for bd in _inv_badges(t2):                   # regression: the 128px SVG master must never leak into an
+		ok((bd as TextureRect).size.x <= 18.0 and (bd as TextureRect).size.y <= 18.0,   # anchored badge (IconWidget
 			"badge stays chip-sized (got %s)" % (bd as TextureRect).size)               # size-before-expand bug)
 
 	# ---- 3. upgrade state: badge appears, art still the painting ----
 	nc.set("_inv_items", [])                    # empty bag → any IP>0 unequipped piece reads as an upgrade
 	var up := {"name": "Legendary Captain's Band", "slot": "trinket", "rarity": "legendary", "item_power": 80}
 	var t3: Button = nc.call("_inv_tile", up)
-	ok(t3.icon == EquipIcons.texture("captains_band"), "upgrade tile: art NOT replaced by the upgrade icon")
-	ok(_badges(t3).size() == 1, "upgrade tile: exactly one overlay badge")
+	ok(_inv_art(t3).texture == EquipIcons.texture("captains_band"), "upgrade tile: art NOT replaced by the upgrade icon")
+	ok(_inv_badges(t3).size() == 1, "upgrade tile: exactly one overlay badge")
 
-	# ---- 4. unresolved named item: neutral slot icon + rarity tint preserved across EVERY state ----
-	# (regression: the default theme paints icon_focus/hover_pressed WHITE, which would flash a tinted
-	# fallback to white on focus/hover-press — every art button must pin all five icon states)
+	# ---- 4. unresolved named item: neutral slot icon + rarity tint preserved on the art ----
 	var uniq := {"name": "Veteran's Playbook", "slot": "trinket", "rarity": "epic", "item_power": 0}
 	var t4: Button = nc.call("_inv_tile", uniq)
-	ok(t4.icon == nc.call("_slot_icon", "trinket"), "named fallback tile: neutral trinket icon")
-	for st in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
-		ok(t4.get_theme_color(st) != white, "named fallback tile: keeps the rarity tint in %s" % st)
+	ok(_inv_art(t4).texture == nc.call("_slot_icon", "trinket"), "named fallback tile: neutral trinket icon")
+	ok(_inv_art(t4).modulate != white, "named fallback tile: art keeps the rarity tint cue")
 
 	# ---- 5. callbacks preserved on the bag tile ----
 	ok(t1.pressed.get_connections().size() == 1, "bag tile: click-to-equip connected")

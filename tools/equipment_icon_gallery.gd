@@ -28,6 +28,18 @@ const BAG := [
 	{"name": "Rare Catcher's Mitt", "slot": "off_hand", "rarity": "rare", "item_power": 36, "ilvl": 11, "primary_stat": "END", "primary_amt": 19, "id": "g10"},
 	{"name": "Veteran's Playbook", "slot": "trinket", "rarity": "epic", "item_power": 44, "ilvl": 12, "bonus_stat": "INS", "bonus_amt": 22, "id": "g11"},
 	{"name": "Embermaw", "slot": "main_hand", "rarity": "epic", "unique_id": "embermaw", "item_power": 66, "ilvl": 15, "primary_stat": "PWR", "primary_amt": 34, "id": "g12"},
+	{"name": "Epic Breastplate", "slot": "chest", "rarity": "epic", "item_power": 60, "ilvl": 14, "primary_stat": "END", "primary_amt": 30, "id": "g13"},
+	{"name": "Rare Visor", "slot": "head", "rarity": "rare", "item_power": 34, "ilvl": 11, "primary_stat": "PRE", "primary_amt": 18, "id": "g14"},
+	{"name": "Uncommon Boots", "slot": "feet", "rarity": "uncommon", "item_power": 24, "ilvl": 9, "primary_stat": "SPD", "primary_amt": 12, "id": "g15"},
+	{"name": "Epic Gauntlets", "slot": "hands", "rarity": "epic", "item_power": 57, "ilvl": 14, "primary_stat": "PWR", "primary_amt": 29, "id": "g16"},
+	{"name": "Rare Pendant", "slot": "neck", "rarity": "rare", "item_power": 39, "ilvl": 12, "primary_stat": "INS", "primary_amt": 21, "id": "g17"},
+	{"name": "Common Trousers", "slot": "legs", "rarity": "common", "item_power": 12, "ilvl": 6, "primary_stat": "END", "primary_amt": 6, "id": "g18"},
+	{"name": "Legendary Signet", "slot": "ring", "rarity": "legendary", "locked": true, "item_power": 82, "ilvl": 16, "primary_stat": "CLU", "primary_amt": 42, "id": "g19"},
+	{"name": "Epic Club", "slot": "main_hand", "rarity": "epic", "item_power": 62, "ilvl": 15, "primary_stat": "PWR", "primary_amt": 32, "id": "g20"},
+	{"name": "Rare Buckler", "slot": "off_hand", "rarity": "rare", "item_power": 37, "ilvl": 11, "primary_stat": "END", "primary_amt": 20, "id": "g21"},
+	{"name": "Uncommon Loop", "slot": "ring", "rarity": "uncommon", "item_power": 25, "ilvl": 9, "primary_stat": "CLU", "primary_amt": 13, "id": "g22"},
+	{"name": "Aegis Core", "slot": "chest", "rarity": "epic", "unique_id": "aegis_core", "item_power": 64, "ilvl": 15, "primary_stat": "END", "primary_amt": 33, "id": "g23"},
+	{"name": "Epic Token", "slot": "trinket", "rarity": "epic", "item_power": 55, "ilvl": 14, "primary_stat": "INS", "primary_amt": 28, "id": "g24"},
 ]
 
 var out_dir := "/tmp/equipment_icon_gallery"
@@ -127,7 +139,7 @@ func _build_bag_page() -> void:
 	nc.call("_render_inv_tiles")
 	var panel: Control = nc.get("_inv_panel")
 	panel.visible = true
-	_caption("REAL _build_inventory output — art+name tiles, Equipped/Upgrade/Locked badges, neutral-fallback named items (Veteran's Playbook, Embermaw)", Vector2(24, 6))
+	_caption("REAL _build_inventory output — icon-only 6-wide bag grid (name/stats on hover), Equipped/Upgrade/Locked badges, neutral-fallback named items (Veteran's Playbook, Embermaw)", Vector2(24, 6))
 
 func _build_locker_page() -> void:
 	var nc := _nc()
