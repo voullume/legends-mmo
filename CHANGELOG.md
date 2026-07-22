@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.12 — 2026-07-22
+
+- Bespoke art for the 12 named quest-reward items — every in-game item now has its own icon (client-only)
+
+_(rolls up commits since the previous tag; base ddfa80b)_
+
 ## v1.11.11 — 2026-07-22
 
 - Bespoke art for the 6 unique items (Embermaw, Skullcleaver, Aegis Core, Reaper's Edge, Trailblazers, Ironhide Gorget) (client-only)
