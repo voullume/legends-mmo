@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.10 — 2026-07-22
+
+- Icon-only bag grid — no tile name text, denser 6-wide layout, details on hover (client-only)
+
+_(rolls up commits since the previous tag; base 7a4a07d)_
+
 ## v1.11.9 — 2026-07-22
 
 - Full-color equipment item icons across Inventory, Locker, Shop, and Forge (client-only)
