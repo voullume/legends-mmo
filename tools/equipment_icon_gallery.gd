@@ -57,7 +57,9 @@ func _ready() -> void:
 
 func _run() -> void:
 	await get_tree().process_frame
-	# page 1 — the 40-painting catalog wall, keyed, grouped by slot
+	# page 1 — the 46-painting catalog wall (40 slot bases + 6 uniques), keyed, grouped by slot; taller
+	# window so the uniques strip below the 5 slot-rows isn't clipped
+	DisplayServer.window_set_size(Vector2i(1600, 1040))
 	_fresh_stage()
 	_build_catalog_wall()
 	await _shot("catalog_wall")
@@ -129,6 +131,21 @@ func _build_catalog_wall() -> void:
 			tr.size = Vector2(112, 112)
 			_stage.add_child(tr)
 			_caption(k, Vector2(x + ki * 190.0, y + 132.0))
+	# unique-item bespoke arts (batch 011) — resolved by unique_id, so outside the slot-alias groups above
+	var uy := 44.0 + 5 * 166.0 + 6.0
+	_caption("UNIQUES (batch 011 — resolved by item.unique_id)", Vector2(24, uy))
+	var uks := ["embermaw", "skullcleaver", "aegis_core", "reapers_edge", "trailblazers", "ironhide_gorget"]
+	for ui in uks.size():
+		var uk: String = uks[ui]
+		var utr := TextureRect.new()
+		utr.texture = EquipIcons.texture(uk)
+		utr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		utr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		utr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		utr.position = Vector2(24.0 + ui * 190.0, uy + 18.0)
+		utr.size = Vector2(112, 112)
+		_stage.add_child(utr)
+		_caption(uk, Vector2(24.0 + ui * 190.0, uy + 132.0))
 
 func _build_bag_page() -> void:
 	var nc := _nc()
@@ -139,7 +156,7 @@ func _build_bag_page() -> void:
 	nc.call("_render_inv_tiles")
 	var panel: Control = nc.get("_inv_panel")
 	panel.visible = true
-	_caption("REAL _build_inventory output — icon-only 6-wide bag grid (name/stats on hover), Equipped/Upgrade/Locked badges, neutral-fallback named items (Veteran's Playbook, Embermaw)", Vector2(24, 6))
+	_caption("REAL _build_inventory output — icon-only 6-wide bag grid (name/stats on hover); uniques Embermaw + Aegis Core now show bespoke art (batch 011); Veteran's Playbook still neutral-fallback", Vector2(24, 6))
 
 func _build_locker_page() -> void:
 	var nc := _nc()

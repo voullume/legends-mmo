@@ -27,9 +27,9 @@ func ok(cond: bool, what: String) -> void:
 func _init() -> void:
 	print("[equipment_icons_test] running")
 
-	# ---- A1. registry holds exactly 40 keys, each a real 256×256 Texture2D ----
+	# ---- A1. registry holds exactly 46 keys (40 slot bases + 6 unique-item arts), each a 256×256 tex ----
 	var reg_ids: Array = EquipIcons.ids()
-	ok(reg_ids.size() == 40, "registry holds exactly 40 ids (got %d)" % reg_ids.size())
+	ok(reg_ids.size() == 46, "registry holds exactly 46 ids (got %d)" % reg_ids.size())
 	for id in reg_ids:
 		var tex: Texture2D = EquipIcons.texture(str(id))
 		ok(tex != null and tex is Texture2D, "'%s' preloads a Texture2D" % id)
@@ -42,14 +42,14 @@ func _init() -> void:
 	for f in DirAccess.get_files_at("res://client/ui/equipment_icons"):
 		if str(f).ends_with(".png"):
 			disk.append(str(f).trim_suffix(".png"))
-	ok(disk.size() == 40, "exactly 40 PNGs on disk (got %d)" % disk.size())
+	ok(disk.size() == 46, "exactly 46 PNGs on disk (got %d)" % disk.size())
 	for id in reg_ids:
 		ok(str(id) in disk, "registry id '%s' has a PNG" % id)
 	for d in disk:
 		ok(d in reg_ids, "PNG '%s' has a registry entry (no orphan art)" % d)
 
-	# ---- A3. every live procedural base (Server LOOT_SLOTS) resolves, and the resolved key set
-	# is exactly the full registry (the 40 paintings ARE the procedural vocabulary) ----
+	# ---- A3. every live procedural base (Server LOOT_SLOTS) resolves; the procedural vocabulary is
+	# exactly the 40 slot-base paintings (the 6 unique arts sit outside it, resolved by unique_id) ----
 	var resolved := {}
 	for slot in ServerS.LOOT_SLOTS:
 		for base in ServerS.LOOT_SLOTS[slot]:
@@ -60,7 +60,7 @@ func _init() -> void:
 				ok(EquipIcons.texture_for_item(it) != null, "'%s %s' (%s) has art" % [rar, base, slot])
 				if k != "":
 					resolved[k] = true
-	ok(resolved.size() == 40, "procedural vocabulary covers all 40 paintings (got %d)" % resolved.size())
+	ok(resolved.size() == 40, "procedural vocabulary covers all 40 slot-base paintings (got %d)" % resolved.size())
 
 	# ---- A4. Rookie vendor pieces resolve to their canonical keys ("Epic Rookie Helm" shape) ----
 	var rookie_expect := {"head": "helmet", "chest": "chest_pad", "hands": "gloves",
@@ -91,13 +91,24 @@ func _init() -> void:
 	ok(EquipIcons.key_for_item({"name": "Head Coach's Whistle", "slot": "trinket"}) == "whistle", "Head Coach's Whistle → whistle")
 	ok(EquipIcons.key_for_item({"name": "Sanguine Band", "slot": "ring"}) == "band", "Sanguine Band → band")
 
-	# ---- A8. unknown named uniques return null → callers keep the neutral slot fallback ----
+	# ---- A8. uniques resolve by unique_id (batch 011 bespoke art) — the display name shares no in-slot
+	# word, so this MUST come from the canonical field. sanguine_band has no bespoke art → "band" alias. ----
+	var unique_art := {"embermaw": true, "skullcleaver": true, "aegis_core": true,
+		"reapers_edge": true, "trailblazers": true, "ironhide_gorget": true}
 	for uid in GameData.UNIQUE_DEFS:
 		var ud: Dictionary = GameData.UNIQUE_DEFS[uid]
-		var uit := {"name": str(ud["name"]), "slot": str(ud["slot"])}
+		# as it actually ships (Server _make_unique stamps item.unique_id = the def id)
+		var uit := {"name": str(ud["name"]), "slot": str(ud["slot"]), "unique_id": str(uid)}
 		var uk: String = EquipIcons.key_for_item(uit)
-		if uid == "sanguine_band":
-			ok(uk == "band", "unique Sanguine Band resolves in-slot (got '%s')" % uk)
+		if unique_art.has(uid):
+			ok(uk == str(uid) and EquipIcons.texture_for_item(uit) != null,
+				"unique '%s' → bespoke art '%s' (got '%s')" % [ud["name"], uid, uk])
+			# the display name alone (no unique_id) still has no in-slot word → neutral fallback, proving
+			# resolution comes from unique_id and NOT from parsing the display text
+			ok(EquipIcons.key_for_item({"name": str(ud["name"]), "slot": str(ud["slot"])}) == "",
+				"unique '%s' does NOT resolve from display text alone" % ud["name"])
+		elif uid == "sanguine_band":
+			ok(uk == "band", "unique Sanguine Band (no bespoke art) → 'band' alias (got '%s')" % uk)
 		else:
 			ok(uk == "" and EquipIcons.texture_for_item(uit) == null,
 				"unique '%s' → neutral fallback (got '%s')" % [ud["name"], uk])

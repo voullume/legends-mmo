@@ -72,6 +72,23 @@ const ICONS := {
 	"whistle": preload("res://client/ui/equipment_icons/whistle.png"),
 	"captains_band": preload("res://client/ui/equipment_icons/captains_band.png"),
 	"token": preload("res://client/ui/equipment_icons/token.png"),
+
+	# ---- unique items (batch 011) — keyed by GameData UNIQUE_DEFS id, resolved via item.unique_id (NOT
+	# the display name, which shares no in-slot base word). sanguine_band has no bespoke art → it keeps
+	# resolving through the ring "band" alias below. Keys are disjoint from the 40 slot bases above. ----
+	"embermaw": preload("res://client/ui/equipment_icons/embermaw.png"),
+	"skullcleaver": preload("res://client/ui/equipment_icons/skullcleaver.png"),
+	"aegis_core": preload("res://client/ui/equipment_icons/aegis_core.png"),
+	"reapers_edge": preload("res://client/ui/equipment_icons/reapers_edge.png"),
+	"trailblazers": preload("res://client/ui/equipment_icons/trailblazers.png"),
+	"ironhide_gorget": preload("res://client/ui/equipment_icons/ironhide_gorget.png"),
+}
+
+# the unique_id → art keys (subset of ICONS): item.unique_id resolves straight to bespoke art, ahead of
+# any slot-alias match. Kept explicit so a future slot-base painting can never be mistaken for a unique.
+const UNIQUE_ART := {
+	"embermaw": true, "skullcleaver": true, "aegis_core": true,
+	"reapers_edge": true, "trailblazers": true, "ironhide_gorget": true,
 }
 
 # Fixed per-slot alias tables (display words → canonical key), mirroring Server LOOT_SLOTS +
@@ -102,6 +119,12 @@ static func _norm(name: String) -> String:
 # the canonical art key for an inventory item dictionary, or "" when nothing in the item's own
 # slot vocabulary matches (named quest/unique art doesn't exist yet → neutral slot fallback)
 static func key_for_item(item: Dictionary) -> String:
+	# unique items resolve by their canonical unique_id (never display text) → bespoke art if it exists;
+	# a unique WITHOUT bespoke art (sanguine_band) falls through to the slot-alias table below.
+	var uidv = item.get("unique_id")
+	var uid: String = "" if uidv == null else str(uidv)
+	if uid != "" and UNIQUE_ART.has(uid):
+		return uid
 	var slot := str(item.get("slot", ""))
 	if not ALIASES.has(slot):                # build props / malformed rows never enter the resolver
 		return ""
