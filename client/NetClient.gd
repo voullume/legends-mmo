@@ -770,6 +770,7 @@ func _locker_slot(key: String, label: String, idx: int) -> PanelContainer:
 	icon.custom_minimum_size = Vector2(46, 46)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS   # 256px paintings land here when filled
 	icon.modulate = Color(Palette.TEXT_FAINT, 0.5)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(icon)
@@ -912,12 +913,14 @@ func _refresh_locker() -> void:
 		var sb: StyleBoxFlat = entry["sb"]
 		if it != null:
 			var col := _item_color(it)
-			icon.modulate = col
+			icon.texture = _item_icon(it)          # the full-color painting (or neutral art for unresolved named pieces)
+			icon.modulate = _item_icon_color(it)   # WHITE painting; rarity carries on border/bg/name (+ tinted fallback)
 			nm.text = str(it.get("name", "?"))
 			nm.add_theme_color_override("font_color", col)
 			sb.border_color = col
 			sb.bg_color = Color(col, 0.10)
 		else:
+			icon.texture = _slot_icon(sl)          # restore the neutral silhouette after an unequip
 			icon.modulate = Color(Palette.TEXT_FAINT, 0.5)
 			nm.text = "— empty —"
 			nm.add_theme_color_override("font_color", Palette.TEXT_FAINT)
@@ -1029,13 +1032,14 @@ func _render_locker_detail() -> void:
 				if eq_count == idx: equipped = it
 				eq_count += 1
 	_locker_detail.add_child(Widgets.section("ITEM DETAILS"))
-	var big := TextureRect.new()               # the big rarity-tinted slot icon
-	big.texture = _slot_icon(key)
+	var big := TextureRect.new()               # the equipped piece's painting (or the faint slot silhouette when empty)
+	big.texture = _item_icon(equipped) if equipped != null else _slot_icon(key)
 	big.custom_minimum_size = Vector2(96, 96)
 	big.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	big.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	big.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	big.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	big.modulate = _item_color(equipped) if equipped != null else Color(Palette.TEXT_FAINT, 0.5)
+	big.modulate = _item_icon_color(equipped) if equipped != null else Color(Palette.TEXT_FAINT, 0.5)
 	_locker_detail.add_child(big)
 	var info := RichTextLabel.new()
 	info.bbcode_enabled = true
@@ -1084,15 +1088,20 @@ func _render_locker_detail() -> void:
 			var b := Button.new()
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.clip_text = true
-			b.custom_minimum_size = Vector2(286, 30)
+			b.custom_minimum_size = Vector2(286, 34)
 			b.add_theme_color_override("font_color", _item_color(it))
 			b.text = "%s   IP %d" % [str(it.get("name", "?")), int(it.get("item_power", 0))]
-			if is_up:                                 # a strict upgrade over what it would replace → the Upgrade icon
-				b.icon = IconRegistry.texture("upgrade")
-				b.expand_icon = false
-				b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-				b.add_theme_constant_override("icon_max_width", 14)
-				b.add_theme_color_override("icon_normal_color", Palette.SUCCESS)
+			# item painting on the native Button.icon; the Upgrade mark moved to an overlay badge
+			var swap_col := _item_icon_color(it)
+			b.icon = _item_icon(it)
+			b.expand_icon = false
+			b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			b.add_theme_constant_override("icon_max_width", 24)
+			_set_item_icon_color(b, swap_col)
+			if is_up:                                 # a strict upgrade over what it would replace → the Upgrade badge
+				var upb := IconWidget.make("upgrade", {"px": 13, "color": Palette.SUCCESS})
+				b.add_child(upb)
+				upb.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_KEEP_SIZE, 2)
 			var iid2 := str(it.get("id", ""))
 			var slotk2 := str(it.get("slot", ""))
 			var itc: Dictionary = it                  # per-iteration copy for the hover-tooltip closure
@@ -1324,6 +1333,9 @@ func _render_inv_tiles() -> void:
 	var best := IconWidget.icon_button("power_action", "Equip Best", Palette.ACCENT, _equip_best)
 	best.disabled = _equip_best_busy
 	_inv_controls.add_child(best)
+	# gear tiles carry 46px item art → two 222px columns in the 456px scroll; the build tab keeps
+	# its three compact 144px text tiles (equipment-icon handoff §6 Phase B)
+	_inv_grid.columns = 3 if _inv_sort_mode == "build" else 2
 	if _inv_sort_mode == "build":                      # Builder Mode: furniture/props ONLY (gear tabs exclude these)
 		var bview := []
 		for it in _inv_items:
@@ -1463,6 +1475,25 @@ func _item_color_hex(it: Dictionary) -> String:    # the same color as a "#rrggb
 		return "#ff9d3c"
 	return RARITY_COLORS.get(str(it.get("rarity", "common")), "#cfd6df")
 
+# the one item-art gate every gear surface goes through (equipment-icon handoff §5): the approved
+# full-color painting when name+slot resolve, else the neutral slot line-art. _item_icon_color pairs
+# with it — a resolved painting always renders Color.WHITE (rarity lives on borders/backgrounds/
+# text, NEVER on the art); only the neutral fallback keeps the rarity tint cue.
+func _item_icon(it: Dictionary) -> Texture2D:
+	var tex := EquipmentIcons.texture_for_item(it)
+	return tex if tex != null else _slot_icon(str(it.get("slot", "")))
+
+func _item_icon_color(it: Dictionary) -> Color:
+	return Color.WHITE if EquipmentIcons.texture_for_item(it) != null else _item_color(it)
+
+# pin a Button's item-art icon to one color across EVERY interaction state. The default theme paints
+# icon_focus_color / icon_hover_pressed_color WHITE, which would flash a rarity-tinted FALLBACK icon
+# to white on focus or hover-press — so every art button (bag tile, paperdoll, locker swap) sets all
+# five here. A resolved painting is already Color.WHITE, so this is a no-op for it.
+func _set_item_icon_color(b: Button, col: Color) -> void:
+	for st in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		b.add_theme_color_override(st, col)
+
 # a plain message shown in place of tiles (empty list / hint)
 func _hint_tile(text: String) -> Label:
 	var l := Label.new()
@@ -1492,9 +1523,31 @@ func _grid_tile(border: Color, header_bb: String, tip_item, owned: Array, extra:
 	rtl.fit_content = true
 	rtl.scroll_active = false
 	rtl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rtl.custom_minimum_size = Vector2(208, 0)
+	# a GEAR card (tip_item is an item dictionary with a slot) gets the item painting beside the
+	# name/meta block; craft-recipe and Build-Shop cards (tip_item null / no slot) keep the plain
+	# full-width header (equipment-icon handoff §6 Phase E).
+	if tip_item is Dictionary and str((tip_item as Dictionary).get("slot", "")) != "" and str((tip_item as Dictionary).get("category", "gear")) != "build":
+		var head_row := HBoxContainer.new()
+		head_row.add_theme_constant_override("separation", 6)
+		head_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var art := TextureRect.new()
+		art.texture = _item_icon(tip_item)
+		art.custom_minimum_size = Vector2(52, 52)
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		art.modulate = _item_icon_color(tip_item)
+		art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		head_row.add_child(art)
+		rtl.custom_minimum_size = Vector2(150, 0)
+		rtl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		head_row.add_child(rtl)
+		vb.add_child(head_row)
+	else:
+		rtl.custom_minimum_size = Vector2(208, 0)
+		vb.add_child(rtl)
 	rtl.text = header_bb
-	vb.add_child(rtl)
 	if extra != null:
 		vb.add_child(extra)
 	p.mouse_entered.connect(func() -> void:
@@ -1565,27 +1618,28 @@ func _is_upgrade(it: Dictionary) -> bool:
 # right-click opens the context menu. Full stats live in the tooltip (tiles stay compact).
 func _inv_tile(it: Dictionary) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(144, 44)
+	b.custom_minimum_size = Vector2(222, 64)
 	b.clip_text = true
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	var col := _item_color(it)
-	# state icons: Equipped / Upgrade ride the native Button.icon (left of the name); the Locked flag
-	# is an INDEPENDENT top-right corner badge, so both can show at once (handoff §7).
+	# item art rides the native Button.icon (left of the name) — the full-color painting, or the
+	# neutral slot line-art for named quest/unique pieces without bespoke art. Equipped/Upgrade are
+	# now INDEPENDENT bottom-left badges and Locked stays top-right, so state never replaces art.
+	var art_col := _item_icon_color(it)          # WHITE for a painting; rarity tint on the neutral fallback
+	b.icon = _item_icon(it)
+	b.expand_icon = false
+	b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	b.add_theme_constant_override("icon_max_width", 46)
+	_set_item_icon_color(b, art_col)
 	var state_icon := ""
-	var state_col := col
 	if bool(it.get("equipped", false)):
 		state_icon = "equipped"
-		state_col = Palette.SUCCESS
 	elif _is_upgrade(it):                        # a bag item that beats what it'd replace → at-a-glance
 		state_icon = "upgrade"
-		state_col = Palette.SUCCESS
 	if state_icon != "":
-		b.icon = IconRegistry.texture(state_icon)
-		b.expand_icon = false
-		b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		b.add_theme_constant_override("icon_max_width", 16)
-		b.add_theme_color_override("icon_normal_color", state_col)
-		b.add_theme_color_override("icon_hover_color", state_col.lightened(0.2))
+		var badge := IconWidget.make(state_icon, {"px": 14, "color": Palette.SUCCESS})
+		b.add_child(badge)
+		badge.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_KEEP_SIZE, 3)
 	b.text = str(it.get("name", "?"))
 	if bool(it.get("locked", false)):
 		var lk := IconWidget.make("locked", {"px": 13, "color": Palette.SB_ORANGE})   # decorative badge; lock cue is in the tile tooltip
@@ -1639,7 +1693,7 @@ func _rebuild_paperdoll(items: Array) -> void:
 
 func _paperdoll_slot(label: String, it) -> Button:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(190, 34)       # 28 was a sub-standard hit target
+	b.custom_minimum_size = Vector2(190, 38)       # 28 was a sub-standard hit target; 38 fits the 28px art
 	b.clip_text = true
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if it == null:
@@ -1648,6 +1702,13 @@ func _paperdoll_slot(label: String, it) -> Button:
 		b.add_theme_color_override("font_disabled_color", Palette.TEXT_FAINT)
 		return b
 	b.text = "%s:  %s" % [label, str(it.get("name", "?"))]
+	# filled slot → the item painting on the native Button.icon (white, never rarity-tinted)
+	var art_col := _item_icon_color(it)
+	b.icon = _item_icon(it)
+	b.expand_icon = false
+	b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	b.add_theme_constant_override("icon_max_width", 28)
+	_set_item_icon_color(b, art_col)
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var rc: Color = _item_color(it)
 	b.add_theme_color_override("font_color", Palette.TEXT_BRIGHT if str(it.get("rarity", "common")) == "common" else rc)
