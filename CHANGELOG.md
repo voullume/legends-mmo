@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.11.9 — 2026-07-22
+
+- Full-color equipment item icons across Inventory, Locker, Shop, and Forge (client-only)
+
+_(rolls up commits since the previous tag; base bcec659)_
+
 ## v1.11.8 — 2026-07-21
 
 - Elite differentiation (art pass A4): the 3 away elites get client-only tint + scale-up — Old Bull umber, Elder Rallywing silvered, door-guard warfrog obsidian-emerald
