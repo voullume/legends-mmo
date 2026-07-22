@@ -40,6 +40,9 @@ const BAG := [
 	{"name": "Uncommon Loop", "slot": "ring", "rarity": "uncommon", "item_power": 25, "ilvl": 9, "primary_stat": "CLU", "primary_amt": 13, "id": "g22"},
 	{"name": "Aegis Core", "slot": "chest", "rarity": "epic", "unique_id": "aegis_core", "item_power": 64, "ilvl": 15, "primary_stat": "END", "primary_amt": 33, "id": "g23"},
 	{"name": "Epic Token", "slot": "trinket", "rarity": "epic", "item_power": 55, "ilvl": 14, "primary_stat": "INS", "primary_amt": 28, "id": "g24"},
+	# named quest rewards — now resolve to bespoke art by exact display name
+	{"name": "Gallery Keeper's Guard", "slot": "off_hand", "rarity": "epic", "item_power": 108, "ilvl": 26, "bonus_stat": "PRE", "bonus_amt": 107, "id": "g25"},
+	{"name": "Gunner's Gauntlets", "slot": "main_hand", "rarity": "epic", "item_power": 52, "ilvl": 13, "bonus_stat": "PWR", "bonus_amt": 20, "id": "g26"},
 ]
 
 var out_dir := "/tmp/equipment_icon_gallery"
@@ -57,12 +60,15 @@ func _ready() -> void:
 
 func _run() -> void:
 	await get_tree().process_frame
-	# page 1 — the 46-painting catalog wall (40 slot bases + 6 uniques), keyed, grouped by slot; taller
-	# window so the uniques strip below the 5 slot-rows isn't clipped
-	DisplayServer.window_set_size(Vector2i(1600, 1040))
+	# page 1 — the 40 slot-base paintings, keyed, grouped by slot
+	DisplayServer.window_set_size(Vector2i(1600, 900))
 	_fresh_stage()
 	_build_catalog_wall()
 	await _shot("catalog_wall")
+	# page 1b — the 18 named-item arts (6 uniques + 12 quest rewards) on their own page
+	_fresh_stage()
+	_build_named_wall()
+	await _shot("named_catalog")
 	# pages 2–4 — the REAL Inventory panel (bag grid + paperdoll) at every supported size
 	_fresh_stage()
 	_build_bag_page()
@@ -131,21 +137,29 @@ func _build_catalog_wall() -> void:
 			tr.size = Vector2(112, 112)
 			_stage.add_child(tr)
 			_caption(k, Vector2(x + ki * 190.0, y + 132.0))
-	# unique-item bespoke arts (batch 011) — resolved by unique_id, so outside the slot-alias groups above
-	var uy := 44.0 + 5 * 166.0 + 6.0
-	_caption("UNIQUES (batch 011 — resolved by item.unique_id)", Vector2(24, uy))
-	var uks := ["embermaw", "skullcleaver", "aegis_core", "reapers_edge", "trailblazers", "ironhide_gorget"]
-	for ui in uks.size():
-		var uk: String = uks[ui]
-		var utr := TextureRect.new()
-		utr.texture = EquipIcons.texture(uk)
-		utr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		utr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		utr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		utr.position = Vector2(24.0 + ui * 190.0, uy + 18.0)
-		utr.size = Vector2(112, 112)
-		_stage.add_child(utr)
-		_caption(uk, Vector2(24.0 + ui * 190.0, uy + 132.0))
+# the 18 NAMED-item arts (outside the slot-alias groups): 6 uniques (resolved by unique_id) + 12 quest
+# rewards (resolved by exact display name). Its own page so nothing clips past the screen-bound window.
+func _build_named_wall() -> void:
+	_caption("named-item catalog — 6 uniques + 12 quest rewards (bespoke art, resolved without display-text paths)", Vector2(24, 10))
+	_caption("UNIQUES (batch 011 — resolved by item.unique_id)", Vector2(24, 48))
+	_icon_strip(["embermaw", "skullcleaver", "aegis_core", "reapers_edge", "trailblazers", "ironhide_gorget"], 66.0)
+	_caption("QUEST REWARDS (resolved by exact display name)", Vector2(24, 232))
+	_icon_strip(["veterans_medal", "impact_sigil", "command_charm", "coachs_signet", "away_captains_badge", "veterans_playbook"], 250.0)
+	_icon_strip(["gunners_gauntlets", "rival_playmakers_glove", "drillmasters_bulwark", "wildwardens_jacket", "contenders_plate", "gallery_keepers_guard"], 416.0)
+
+# a labeled horizontal strip of art tiles (112px) starting at x=24, keys captioned beneath
+func _icon_strip(keys: Array, y: float) -> void:
+	for ki in keys.size():
+		var k: String = keys[ki]
+		var tr := TextureRect.new()
+		tr.texture = EquipIcons.texture(k)
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		tr.position = Vector2(24.0 + ki * 190.0, y)
+		tr.size = Vector2(112, 112)
+		_stage.add_child(tr)
+		_caption(k, Vector2(24.0 + ki * 190.0, y + 114.0))
 
 func _build_bag_page() -> void:
 	var nc := _nc()
@@ -156,7 +170,7 @@ func _build_bag_page() -> void:
 	nc.call("_render_inv_tiles")
 	var panel: Control = nc.get("_inv_panel")
 	panel.visible = true
-	_caption("REAL _build_inventory output — icon-only 6-wide bag grid (name/stats on hover); uniques Embermaw + Aegis Core now show bespoke art (batch 011); Veteran's Playbook still neutral-fallback", Vector2(24, 6))
+	_caption("REAL _build_inventory output — icon-only 6-wide bag grid (name/stats on hover); every item now has bespoke art: procedural bases, uniques (Embermaw/Aegis Core), and named quest rewards (Veteran's Playbook, Gallery Keeper's Guard, Gunner's Gauntlets)", Vector2(24, 6))
 
 func _build_locker_page() -> void:
 	var nc := _nc()

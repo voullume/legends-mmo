@@ -27,9 +27,9 @@ func ok(cond: bool, what: String) -> void:
 func _init() -> void:
 	print("[equipment_icons_test] running")
 
-	# ---- A1. registry holds exactly 46 keys (40 slot bases + 6 unique-item arts), each a 256×256 tex ----
+	# ---- A1. registry holds exactly 58 keys (40 slot bases + 6 uniques + 12 quest rewards), 256×256 ----
 	var reg_ids: Array = EquipIcons.ids()
-	ok(reg_ids.size() == 46, "registry holds exactly 46 ids (got %d)" % reg_ids.size())
+	ok(reg_ids.size() == 58, "registry holds exactly 58 ids (got %d)" % reg_ids.size())
 	for id in reg_ids:
 		var tex: Texture2D = EquipIcons.texture(str(id))
 		ok(tex != null and tex is Texture2D, "'%s' preloads a Texture2D" % id)
@@ -42,7 +42,7 @@ func _init() -> void:
 	for f in DirAccess.get_files_at("res://client/ui/equipment_icons"):
 		if str(f).ends_with(".png"):
 			disk.append(str(f).trim_suffix(".png"))
-	ok(disk.size() == 46, "exactly 46 PNGs on disk (got %d)" % disk.size())
+	ok(disk.size() == 58, "exactly 58 PNGs on disk (got %d)" % disk.size())
 	for id in reg_ids:
 		ok(str(id) in disk, "registry id '%s' has a PNG" % id)
 	for d in disk:
@@ -81,11 +81,29 @@ func _init() -> void:
 	ok(EquipIcons.key_for_item({"name": "Epic Glove", "slot": "off_hand"}) == "glove", "off_hand Glove → glove")
 	ok(EquipIcons.key_for_item({"name": "Epic Gloves", "slot": "hands"}) == "gloves", "hands Gloves → gloves (no singular bleed)")
 	ok(EquipIcons.key_for_item({"name": "Epic Cap", "slot": "head"}) == "cap", "head Cap → cap")
-	# slot-mismatched quest names must NOT borrow another slot's art
-	ok(EquipIcons.key_for_item({"name": "Gunner's Gauntlets", "slot": "main_hand"}) == "", "main_hand Gauntlets → no art (hands word)")
-	ok(EquipIcons.key_for_item({"name": "Rival Playmaker's Glove", "slot": "main_hand"}) == "", "main_hand Glove → no art (off_hand word)")
-	ok(EquipIcons.key_for_item({"name": "Coach's Signet", "slot": "trinket"}) == "", "trinket Signet → no art (ring word)")
-	ok(EquipIcons.key_for_item({"name": "Veteran's Medal", "slot": "trinket"}) == "", "trinket Medal → no art (neck word)")
+	# a cross-slot base word must NOT leak (synthetic names, not in BY_NAME, so this tests the alias table)
+	ok(EquipIcons.key_for_item({"name": "Epic Gauntlets", "slot": "main_hand"}) == "", "main_hand Gauntlets → no art (hands word)")
+	ok(EquipIcons.key_for_item({"name": "Epic Glove", "slot": "main_hand"}) == "", "main_hand Glove → no art (off_hand word)")
+	ok(EquipIcons.key_for_item({"name": "Epic Signet", "slot": "trinket"}) == "", "trinket Signet → no art (ring word)")
+	ok(EquipIcons.key_for_item({"name": "Epic Medal", "slot": "trinket"}) == "", "trinket Medal → no art (neck word)")
+
+	# ---- A6b. named quest rewards resolve by exact display name (BY_NAME), even when a cross-slot base
+	# word is present — the name allowlist wins ahead of the slot aliases ----
+	var quest_expect := {
+		"Veteran's Medal": ["trinket", "veterans_medal"], "Impact Sigil": ["trinket", "impact_sigil"],
+		"Command Charm": ["trinket", "command_charm"], "Coach's Signet": ["trinket", "coachs_signet"],
+		"Away Captain's Badge": ["trinket", "away_captains_badge"], "Veteran's Playbook": ["trinket", "veterans_playbook"],
+		"Gunner's Gauntlets": ["main_hand", "gunners_gauntlets"], "Rival Playmaker's Glove": ["main_hand", "rival_playmakers_glove"],
+		"Drillmaster's Bulwark": ["chest", "drillmasters_bulwark"], "Wildwarden's Jacket": ["chest", "wildwardens_jacket"],
+		"Contender's Plate": ["chest", "contenders_plate"], "Gallery Keeper's Guard": ["off_hand", "gallery_keepers_guard"]}
+	for qn in quest_expect:
+		var exp: Array = quest_expect[qn]
+		var qit2 := {"name": str(qn), "slot": str(exp[0])}
+		ok(EquipIcons.key_for_item(qit2) == str(exp[1]) and EquipIcons.texture_for_item(qit2) != null,
+			"quest '%s' → '%s'" % [qn, exp[1]])
+	# a curly-apostrophe variant of a quest name still resolves (name is normalized before the lookup)
+	ok(EquipIcons.key_for_item({"name": "Veteran’s Playbook", "slot": "trinket"}) == "veterans_playbook",
+		"curly-apostrophe quest name normalizes and resolves")
 
 	# ---- A7. named items WITH an unambiguous in-slot word resolve naturally ----
 	ok(EquipIcons.key_for_item({"name": "Head Coach's Whistle", "slot": "trinket"}) == "whistle", "Head Coach's Whistle → whistle")
@@ -113,7 +131,7 @@ func _init() -> void:
 			ok(uk == "" and EquipIcons.texture_for_item(uit) == null,
 				"unique '%s' → neutral fallback (got '%s')" % [ud["name"], uk])
 
-	# ---- A9. every quest reward item resolves without crashing; log the fallback set ----
+	# ---- A9. EVERY quest reward item now resolves to a real painting — zero neutral fallbacks ----
 	var q_fallback := []
 	var q_resolved := []
 	for qid in Quests.QUESTS:
@@ -122,13 +140,13 @@ func _init() -> void:
 			var qit: Dictionary = rew["item"]
 			var qk: String = EquipIcons.key_for_item(qit)
 			var qt = EquipIcons.texture_for_item(qit)
-			ok((qk == "" and qt == null) or (qk != "" and qt is Texture2D),
-				"quest item '%s' resolver is consistent" % str(qit.get("name", "?")))
+			ok(qk != "" and qt is Texture2D,
+				"quest item '%s' resolves to art (got '%s')" % [str(qit.get("name", "?")), qk])
 			if qk == "":
 				q_fallback.append(str(qit.get("name", "?")))
 			else:
 				q_resolved.append("%s→%s" % [qit.get("name", "?"), qk])
-	print("  quest items w/ bespoke-less neutral fallback: %s" % [q_fallback])
+	ok(q_fallback.is_empty(), "no quest reward item falls back to a neutral slot icon (fallbacks: %s)" % [q_fallback])
 	print("  quest items resolving to catalog art: %s" % [q_resolved])
 
 	# ---- A10. build rows / malformed input degrade safely (no slot → never enters the resolver) ----

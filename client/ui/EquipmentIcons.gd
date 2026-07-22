@@ -82,6 +82,40 @@ const ICONS := {
 	"reapers_edge": preload("res://client/ui/equipment_icons/reapers_edge.png"),
 	"trailblazers": preload("res://client/ui/equipment_icons/trailblazers.png"),
 	"ironhide_gorget": preload("res://client/ui/equipment_icons/ironhide_gorget.png"),
+
+	# ---- named quest rewards (quest_reward_previews) — resolved by exact display NAME (BY_NAME below).
+	# These names share no in-slot base word, so the slot-alias table can't reach them; a fixed exact-
+	# name allowlist (never a name-derived path) is how they map to art. Keys disjoint from all above. ----
+	"veterans_medal": preload("res://client/ui/equipment_icons/veterans_medal.png"),
+	"impact_sigil": preload("res://client/ui/equipment_icons/impact_sigil.png"),
+	"command_charm": preload("res://client/ui/equipment_icons/command_charm.png"),
+	"coachs_signet": preload("res://client/ui/equipment_icons/coachs_signet.png"),
+	"away_captains_badge": preload("res://client/ui/equipment_icons/away_captains_badge.png"),
+	"veterans_playbook": preload("res://client/ui/equipment_icons/veterans_playbook.png"),
+	"gunners_gauntlets": preload("res://client/ui/equipment_icons/gunners_gauntlets.png"),
+	"rival_playmakers_glove": preload("res://client/ui/equipment_icons/rival_playmakers_glove.png"),
+	"drillmasters_bulwark": preload("res://client/ui/equipment_icons/drillmasters_bulwark.png"),
+	"wildwardens_jacket": preload("res://client/ui/equipment_icons/wildwardens_jacket.png"),
+	"contenders_plate": preload("res://client/ui/equipment_icons/contenders_plate.png"),
+	"gallery_keepers_guard": preload("res://client/ui/equipment_icons/gallery_keepers_guard.png"),
+}
+
+# exact NORMALIZED display name → art key, for named quest rewards whose name shares no in-slot base
+# word (so ALIASES can't reach them). An exact allowlist — NOT a name-derived path — checked ahead of the
+# slot aliases. Keys are _norm(name): lowercased, straight apostrophes, single-spaced.
+const BY_NAME := {
+	"veteran's medal": "veterans_medal",
+	"impact sigil": "impact_sigil",
+	"command charm": "command_charm",
+	"coach's signet": "coachs_signet",
+	"away captain's badge": "away_captains_badge",
+	"veteran's playbook": "veterans_playbook",
+	"gunner's gauntlets": "gunners_gauntlets",
+	"rival playmaker's glove": "rival_playmakers_glove",
+	"drillmaster's bulwark": "drillmasters_bulwark",
+	"wildwarden's jacket": "wildwardens_jacket",
+	"contender's plate": "contenders_plate",
+	"gallery keeper's guard": "gallery_keepers_guard",
 }
 
 # the unique_id → art keys (subset of ICONS): item.unique_id resolves straight to bespoke art, ahead of
@@ -125,10 +159,13 @@ static func key_for_item(item: Dictionary) -> String:
 	var uid: String = "" if uidv == null else str(uidv)
 	if uid != "" and UNIQUE_ART.has(uid):
 		return uid
+	var norm := _norm(str(item.get("name", "")))
+	if BY_NAME.has(norm):                    # named quest rewards (exact-name allowlist, before slot aliases)
+		return str(BY_NAME[norm])
 	var slot := str(item.get("slot", ""))
 	if not ALIASES.has(slot):                # build props / malformed rows never enter the resolver
 		return ""
-	var padded := " " + _norm(str(item.get("name", ""))) + " "
+	var padded := " " + norm + " "
 	for pair in ALIASES[slot]:
 		if padded.contains(" " + str(pair[0]) + " "):
 			return str(pair[1])

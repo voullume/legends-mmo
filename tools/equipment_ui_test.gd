@@ -81,7 +81,8 @@ func _ready() -> void:
 	ok(_inv_badges(t3).size() == 1, "upgrade tile: exactly one overlay badge")
 
 	# ---- 4. unresolved named item: neutral slot icon + rarity tint preserved on the art ----
-	var uniq := {"name": "Veteran's Playbook", "slot": "trinket", "rarity": "epic", "item_power": 0}
+	# a named item with NO art (not procedural / not a unique_id / not in BY_NAME) → neutral slot fallback
+	var uniq := {"name": "Cursed Idol", "slot": "trinket", "rarity": "epic", "item_power": 0}
 	var t4: Button = nc.call("_inv_tile", uniq)
 	ok(_inv_art(t4).texture == nc.call("_slot_icon", "trinket"), "named fallback tile: neutral trinket icon")
 	ok(_inv_art(t4).modulate != white, "named fallback tile: art keeps the rarity tint cue")
@@ -167,7 +168,7 @@ func _ready() -> void:
 	ok(byr.size() == 1 and (byr[0] as TextureRect).texture == EquipIcons.texture("chest_pad"), "shop BUY card: catalog entry carries its painting")
 
 	# ---- 10. unresolved gear on a card keeps the tinted neutral icon ----
-	var fb_card: PanelContainer = nc.call("_grid_tile", Color.WHITE, "x", {"name": "Wildwarden's Jacket", "slot": "chest", "rarity": "epic"}, [])
+	var fb_card: PanelContainer = nc.call("_grid_tile", Color.WHITE, "x", {"name": "Cursed Idol", "slot": "chest", "rarity": "epic"}, [])
 	var fbr := []
 	_find_rects(fb_card, fbr)
 	ok(fbr.size() == 1 and (fbr[0] as TextureRect).texture == nc.call("_slot_icon", "chest"), "fallback card: neutral chest icon")
