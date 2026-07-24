@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://client/vfx/projectiles/soccer_ball/GoldenGoalImpactVFX.gd" id="1_nb1ot"]
+
+[node name="" type="Node3D" unique_id=1101714865]
+script = ExtResource("1_nb1ot")

@@ -6268,6 +6268,13 @@ func _sync_nodes_to_state() -> void:
 				n["pcds"] = f["cds"].duplicate()    # fresh casts — re-prime so they don't phantom-burst
 				if n.has("mobanim"):
 					n["mobanim"]["pcds"] = f["cds"].duplicate()
+				if n.has("cue_pcds"):               # SAME guard for the independent cue-edge tracker, else a
+					n["cue_pcds"] = f["cds"].duplicate()   # cast made off-screen replays the Dribble/Step-Over cue on re-entry
+				var _rid := str(f["id"])            # and the global hit-window edge trackers (Yellow Card / Bicycle Kick)
+				if _melee_pcds.has(_rid):
+					_melee_pcds[_rid] = f["cds"].duplicate()
+				if _leap_pcds.has(_rid):
+					_leap_pcds[_rid] = f["cds"].duplicate()
 			n["holder"].visible = true          # unhide if it was hidden during the despawn grace
 			if f["alive"] and n["died"]:        # server respawned it → reset the death pose
 				n["died"] = false

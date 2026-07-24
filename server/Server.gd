@@ -4934,6 +4934,10 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 			}
 			if str(f.get("party", "")) != "":         # party key → client mirrors party-aware hostility
 				d["party"] = str(f["party"])
+			var _cast = f.get("casting", null)         # additive cast telegraph → keyed charge VFX (Golden Goal wind-up,
+			if _cast != null:                          # local AND remote). Presentation only: ability key + cast progress 0-1.
+				d["castKey"] = str((_cast.get("ab", {}) as Dictionary).get("key", ""))
+				d["castProg"] = clampf(float(_cast.get("t", 0.0)) / maxf(0.01, float(_cast.get("total", 0.4))), 0.0, 1.0)
 			if float(f.get("wobble", 0.0)) > 0.0:     # P3: Wobble stacks → client draws a pip meter (was invisible)
 				d["wobble"] = float(f["wobble"])
 			var st := status_st(f)                    # §3b: buff/debuff chips (optional — absent when clean)
@@ -4986,8 +4990,12 @@ func _snapshot_for(w: Dictionary, mapname: String, center: Vector2, pinfo: Dicti
 		pcls[f["id"]] = f["classId"]
 	for p in w["projectiles"]:
 		if Vector2(p["x"] - center.x, p["y"] - center.y).length() <= INTEREST_RADIUS:
-			# "cls" is additive — old clients ignore unknown keys (same compat ride as the event types)
-			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0), "cls": pcls.get(p.get("owner", ""), "")})
+			# "cls" + "key" are additive presentation-only fields — old clients ignore unknown keys (same
+			# compat ride as the event types). "key" lets online clients pick a keyed projectile VFX (e.g.
+			# the Striker soccer ball) and fall back to the generic sphere when it is absent/empty. We do
+			# NOT leak dmg/speed/tx/riders — only what the renderer needs.
+			ps.append({"x": p["x"], "y": p["y"], "delay": p.get("delay", 0.0),
+				"cls": pcls.get(p.get("owner", ""), ""), "key": str(p.get("key", ""))})
 	var hz := []                                  # hazard zones only (dmg/slow) — buff zones stay invisible
 	for z in w["zones"]:
 		if float(z.get("dmg", 0.0)) <= 0.0 and z.get("slow", null) == null:

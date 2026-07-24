@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://client/vfx/projectiles/soccer_ball/BicycleKickVFX.gd" id="1_uovhv"]
+
+[node name="" type="Node3D" unique_id=1082556825]
+script = ExtResource("1_uovhv")

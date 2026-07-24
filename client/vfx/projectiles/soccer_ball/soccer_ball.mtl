@@ -1,0 +1,7 @@
+newmtl warm_white
+Kd 0.82 0.76 0.63
+Pr 0.72
+
+newmtl charcoal
+Kd 0.025 0.03 0.04
+Pr 0.78

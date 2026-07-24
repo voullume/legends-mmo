@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://client/vfx/projectiles/soccer_ball/YellowCardVFX.gd" id="1_5ggjc"]
+
+[node name="" type="Node3D" unique_id=1845860719]
+script = ExtResource("1_5ggjc")

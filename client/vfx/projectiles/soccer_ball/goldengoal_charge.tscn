@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://client/vfx/projectiles/soccer_ball/GoldenChargeVFX.gd" id="1_qrcb4"]
+
+[node name="" type="Node3D" unique_id=719604759]
+script = ExtResource("1_qrcb4")

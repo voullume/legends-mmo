@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://client/vfx/projectiles/soccer_ball/ThroughballImpactVFX.gd" id="1_lbltj"]
+
+[node name="" type="Node3D" unique_id=582596629]
+script = ExtResource("1_lbltj")

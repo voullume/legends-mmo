@@ -1,0 +1,13 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[resource]
+resource_name = "soccer_charcoal"
+albedo_color = Color(0.03, 0.035, 0.045, 1)
+metallic = 0.05
+roughness = 0.78
+emission_enabled = true
+emission = Color(0.35, 0.22, 0.12, 1)
+emission_energy_multiplier = 0.06
+rim_enabled = true
+rim = 0.3
+rim_tint = 0.2

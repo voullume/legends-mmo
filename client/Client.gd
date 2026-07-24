@@ -67,6 +67,98 @@ const HOP_SQUASH := 0.7                      # landing-pop strength fed to _add_
 const SHARD_CAP := 24                       # hard cap on debris nodes — an AoE multi-kill recycles, never allocates
 const SHARD_LIFE := 0.55                    # seconds a shard flies before fading back to its pool
 const SHARD_G := 22.0                       # shard gravity, world units/s² (chunky arcade fall)
+
+# ── Keyed projectile VFX ────────────────────────────────────────────────────────────────────────
+# Data-driven registry keyed "<classId>/<abilityKey>". Only registered keys get a bespoke presentation;
+# every other projectile (mobs, unregistered abilities, no-key/old-server snapshots, malformed data)
+# keeps the generic fallback sphere below. New soccer variants (throughball/clinical/goldengoal) become
+# NEW entries here — no renderer rewrite. Steps 1-6 register only Finesse Shot.
+# One SHARED soccer-ball projectile scene for ALL variants; they differ only by registry data (tune +
+# impact scene), never by a duplicated renderer or mesh. Add a class's projectile skill = one entry here
+# + one DEFAULT_VFX_TUNE block (+ an impact scene if a new cue is needed) — it then also appears in the
+# F3 tuner automatically.
+const _SOCCER_PROJECTILE := preload("res://client/vfx/projectiles/soccer_ball/soccer_projectile.tscn")
+const _FINESSE_IMPACT := preload("res://client/vfx/projectiles/soccer_ball/finesse_impact.tscn")
+const _THROUGHBALL_IMPACT := preload("res://client/vfx/projectiles/soccer_ball/throughball_impact.tscn")
+const _CLINICAL_IMPACT := preload("res://client/vfx/projectiles/soccer_ball/clinical_impact.tscn")
+const _CLINICAL_RELEASE := preload("res://client/vfx/projectiles/soccer_ball/clinical_release.tscn")
+const _GOLDENGOAL_IMPACT := preload("res://client/vfx/projectiles/soccer_ball/goldengoal_impact.tscn")
+const _GOLDEN_CHARGE := preload("res://client/vfx/projectiles/soccer_ball/goldengoal_charge.tscn")
+const _GOLDEN_REWARD := preload("res://client/vfx/projectiles/soccer_ball/goldengoal_reward.tscn")
+# Dribble is a DASH, not a projectile — a separate character-attached controller (see DribbleVFX.gd),
+# keyed "<classId>/<dashKey>". Started from the accepted cooldown edge, driven from the rendered body.
+const _DRIBBLE_SCENE := preload("res://client/vfx/projectiles/soccer_ball/dribble.tscn")
+const DASH_VFX := {"striker/dribble": true}
+# Melee cues keyed "<classId>/<meleeKey>" — a TARGET-attached cue (Yellow Card) armed on the caster's
+# cooldown edge and played only on a CONFIRMED damage event from that caster. Not a projectile/dash.
+const _YELLOWCARD_SCENE := preload("res://client/vfx/projectiles/soccer_ball/yellowcard.tscn")
+const MELEE_VFX := {"striker/yellowcard": {"scene": _YELLOWCARD_SCENE}}
+# Self-buff cues keyed "<classId>/<selfbuffKey>" — a CASTER-attached brief feint then a STATUS-driven aura
+# (Step Over). Started on the accepted cooldown edge; the aura follows the authoritative st.ms / st.dr.
+const _STEPOVER_SCENE := preload("res://client/vfx/projectiles/soccer_ball/stepover.tscn")
+const SELFBUFF_VFX := {"striker/stepover": {"scene": _STEPOVER_SCENE}}
+# Leap cues keyed "<classId>/<leapKey>" — a CASTER leap (render-only arc + backward pitch on the model,
+# started on the cast-edge) PLUS a single-target impact played on a CONFIRMED same-tick damage event from a
+# caster who teleported adjacent (Bicycle Kick). The temporary ball is a contact prop, NOT a projectile.
+const _BICYCLEKICK_SCENE := preload("res://client/vfx/projectiles/soccer_ball/bicyclekick.tscn")
+const _BICYCLE_IMPACT_SCENE := preload("res://client/vfx/projectiles/soccer_ball/bicycle_impact.tscn")
+const LEAP_VFX := {"striker/bicyclekick": {"scene": _BICYCLEKICK_SCENE, "impact": _BICYCLE_IMPACT_SCENE, "impact_y": 1.1}}
+# Optional per-style cue scenes: "release" (brief cue where a ball first appears at its caster — Clinical/
+# Golden Goal), "charge" (a cast wind-up rendered while the server reports the fighter casting this style —
+# Golden Goal), "reward" (a caster-side on-kill pulse — Golden Goal). "*_y" = that cue's ground height.
+const PROJECTILE_VFX := {
+	"striker/finesse":     {"scene": _SOCCER_PROJECTILE, "impact": _FINESSE_IMPACT,     "impact_y": 1.0},
+	"striker/throughball": {"scene": _SOCCER_PROJECTILE, "impact": _THROUGHBALL_IMPACT, "impact_y": 0.35},
+	"striker/clinical":    {"scene": _SOCCER_PROJECTILE, "impact": _CLINICAL_IMPACT,    "impact_y": 0.95, "release": _CLINICAL_RELEASE, "release_y": 0.28},
+	"striker/goldengoal":  {"scene": _SOCCER_PROJECTILE, "impact": _GOLDENGOAL_IMPACT,  "impact_y": 1.0, "release": _CLINICAL_RELEASE, "release_y": 0.28, "charge": _GOLDEN_CHARGE, "charge_y": 1.0, "reward": _GOLDEN_REWARD},
+}
+# Per-style live-tunable presentation values (owner-adjustable via the dev VFX tuner, F3 in dev/practice
+# — persisted per-style to user://settings.cfg). These are the shipped DEFAULTS; the tuner overrides
+# them on the owner's machine. Bake a tuned value here to ship it to all players. Trail colour is stored
+# as r/g/b floats so it drops straight onto sliders.
+const DEFAULT_VFX_TUNE := {
+	"striker/finesse": {                    # curled shot — warm, readable (owner-tuned live 2026-07-23)
+		"scale": 0.34, "spin_speed": 16.0, "trail_life": 0.09, "trail_width": 0.16,
+		"trail_r": 1.0, "trail_g": 0.86, "trail_b": 0.6, "impact_scale": 2.25, "impact_life": 0.30,
+	},
+	"striker/throughball": {                # driven ball — owner-tuned live 2026-07-23 (warm amber streak + cyan slow ring)
+		"scale": 0.32, "spin_speed": 23.0, "trail_life": 0.11, "trail_width": 0.11,
+		"trail_r": 0.9, "trail_g": 0.48, "trail_b": 0.32, "impact_scale": 1.9, "impact_life": 0.42,
+	},
+	"striker/clinical": {                   # precise power strike — owner-tuned live 2026-07-23 (wide blue trail + heavy precision impact)
+		"scale": 0.34, "spin_speed": 13.0, "trail_life": 0.5, "trail_width": 0.4,
+		"trail_r": 0.0, "trail_g": 0.12, "trail_b": 1.0, "impact_scale": 2.25, "impact_life": 0.32,
+	},
+	"striker/goldengoal": {                 # the ULTIMATE — owner-tuned live 2026-07-24 (orange-gold, big impact + charge/reward)
+		"scale": 0.42, "spin_speed": 12.0, "trail_life": 0.25, "trail_width": 0.4,
+		"trail_r": 1.0, "trail_g": 0.64, "trail_b": 0.1, "impact_scale": 2.5, "impact_life": 0.42,
+	},
+	"striker/dribble": {                    # the DASH — owner-tuned live 2026-07-24 (wider touches, longer streaks, big arrival ring)
+		"ball_scale": 0.28, "side": 0.36, "mark_len": 0.64, "mark_life": 0.33, "arrival_scale": 2.0,
+		"gold_r": 1.0, "gold_g": 0.78, "gold_b": 0.35, "cyan_r": 0.45, "cyan_g": 0.9, "cyan_b": 1.0,
+	},
+	"striker/yellowcard": {                 # the MELEE stun cue — owner-tuned live 2026-07-24 (bigger card/contact, raised above target)
+		"card_scale": 1.6, "star_scale": 1.3, "contact_scale": 1.85, "orbit_r": 0.86, "card_height": 3.4,
+		"card_r": 1.0, "card_g": 0.85, "card_b": 0.1, "star_r": 1.0, "star_g": 0.9, "star_b": 0.2,
+	},
+	"striker/stepover": {                   # the SELF-BUFF — owner-tuned live + baked 2026-07-24 (bigger activation
+		"ball_scale": 0.24, "ring_scale": 2.5, "chevron_scale": 1.95, "arc_scale": 1.2,   # ring + bolder haste chevrons)
+		"cyan_r": 0.45, "cyan_g": 0.9, "cyan_b": 1.0, "gold_r": 1.0, "gold_g": 0.8, "gold_b": 0.35,
+	},
+	"striker/bicyclekick": {                # the LEAP attack — owner-tuned live + baked 2026-07-24 (tall arc + big
+		"arc_height": 5.0, "arc_pitch": 4.2, "ribbon_width": 0.4, "ball_scale": 0.22,   # backflip + wide ribbon + punchy impact)
+		"land_scale": 1.0, "impact_scale": 1.95, "impact_life": 0.6,
+		"cyan_r": 0.4, "cyan_g": 0.9, "cyan_b": 1.0, "gold_r": 1.0, "gold_g": 0.8, "gold_b": 0.35,
+	},
+}
+const MAX_VFX_PER_STYLE := 16               # hard cap on live balls PER style; excess falls back to the sphere
+const MAX_IMPACT_PER_STYLE := 12            # hard cap on impact bursts per style; excess steals the oldest
+const VFX_IMPACT_EPS := 55.0               # sim units: a ball this near a freshly-damaged target = its landed shot
+const RELEASE_NEW_GATE := 40.0             # sim units: a ball that "moved" more than this between frames is NEW, not the same ball
+const RELEASE_CASTER_GATE := 22.0          # sim units: a new ball this close to a same-class fighter = a genuine release (not interest re-entry)
+const LEAP_DUR := 0.4                       # Bicycle Kick render-arc duration (the sim already teleported; this is a brief reconciliation)
+const LEAP_HIT_RADIUS := 3.5               # world units: the leap teleports adjacent to its target — gate the confirmed-hit impact by this
+const MAX_LEAP_IMPACT_PER_STYLE := 6        # hard cap on leap impacts per style (single-target, so few live at once)
 const RESPAWN_DELAY := 3.0
 const MAP_ID := "stadium"                 # open field; obstacle rendering supports any venue
 
@@ -154,6 +246,23 @@ var _rim_sig := ""                          # map signature the rim was last bui
 var _arena_sig := ""
 var _field_theme_sig := ""                 # current map name the field texture/tint is themed for
 var _proj_pool := []
+var _vfx_pools := {}                        # style -> [SoccerProjectileVFX nodes], capped at MAX_VFX_PER_STYLE each
+var _impact_pools := {}                     # style -> [impact nodes], capped at MAX_IMPACT_PER_STYLE each
+var _release_pools := {}                    # style -> [release-cue nodes] (styles with a "release" scene), capped
+var _charge_pools := {}                     # style -> [charge wind-up nodes] (styles with a "charge" scene), assigned to casting fighters
+var _reward_pools := {}                     # style -> [on-kill reward nodes] (styles with a "reward" scene), capped
+var _dribbles := {}                         # fighter id -> DribbleVFX controller (character-attached dash, not a projectile)
+var _melee_windows := {}                    # caster id -> {t, style}: armed "expecting a melee hit" window (Yellow Card)
+var _melee_cues := {}                        # target id -> YellowCardVFX controller (target-attached melee-stun cue)
+var _melee_pcds := {}                        # caster id -> {meleeKey -> prev cd}: melee-cue cooldown-edge tracker
+var _selfbuffs := {}                         # caster id -> StepOverVFX controller (caster-attached self-buff cue)
+var _leaps := {}                             # caster id -> {ctrl, origin, dest, t, restored}: Bicycle Kick leap (render-only arc)
+var _leap_windows := {}                      # caster id -> {t, style}: armed "expecting the leap hit" window (Bicycle Kick)
+var _leap_pcds := {}                         # caster id -> {leapKey -> prev cd}: leap-cue cooldown-edge tracker (impact arm)
+var _leap_impact_pools := {}                 # style -> [BicycleImpactVFX nodes], capped (single-target leap impact)
+var _vfx_prev := {}                         # style -> [sim-space Vector2] of that style's balls last frame (impact correlation)
+var _vfx_tune := {}                         # style -> live-tunable presentation values (seeded from DEFAULT_VFX_TUNE + settings)
+var _vfx_tuner = null                        # dev-only VFX slider panel (lazy; F3 in dev/practice)
 var _fx_active := []                       # {node, t, life, vel}
 var _shake := 0.0                          # current camera screen-shake magnitude (decays each frame)
 var _cam_kick := Vector3.ZERO              # directional impulse when YOU land a hit (decays fast)
@@ -288,8 +397,19 @@ func _ready() -> void:
 # "reduce screen effects" persists next to the audio settings in user://settings.cfg
 func _load_fx_settings() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(AudioManager.SETTINGS_PATH) == OK:
+	var loaded := cfg.load(AudioManager.SETTINGS_PATH) == OK
+	if loaded:
 		reduce_fx = bool(cfg.get_value("fx", "reduce", false))
+	# per-style projectile-VFX tunables: shipped defaults, overridden per-value by the owner's saved tuner
+	# values (one settings section per style, e.g. [vfx_striker_finesse]).
+	_vfx_tune = {}
+	for style in DEFAULT_VFX_TUNE:
+		var t: Dictionary = DEFAULT_VFX_TUNE[style].duplicate()
+		if loaded:
+			var sect := "vfx_" + str(style).replace("/", "_")
+			for k in DEFAULT_VFX_TUNE[style]:
+				t[k] = float(cfg.get_value(sect, k, DEFAULT_VFX_TUNE[style][k]))
+		_vfx_tune[style] = t
 
 func set_reduce_fx(on: bool) -> void:
 	reduce_fx = on
@@ -974,6 +1094,10 @@ func _update_deco_lbl() -> void:
 func _input(e: InputEvent) -> void:
 	if hud_edit_on:
 		return          # HUD edit mode: the _input-phase builder layer must not see clicks/keys
+	if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F3 and _vfx_tune_allowed():
+		_toggle_vfx_tuner()                             # dev-only finesse-VFX slider panel
+		get_viewport().set_input_as_handled()
+		return
 	if not _deco_on:
 		if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F4:
 			# F4 is context-sensitive: in your OWN Locker Room it toggles the server-driven build editor (P3b);
@@ -1458,6 +1582,57 @@ func _teardown() -> void:
 		if is_instance_valid(p):
 			p.queue_free()
 	_proj_pool.clear()
+	for style in _vfx_pools:
+		for n in _vfx_pools[style]:
+			if is_instance_valid(n):
+				n.queue_free()
+	_vfx_pools.clear()
+	for style in _impact_pools:
+		for n in _impact_pools[style]:
+			if is_instance_valid(n):
+				n.queue_free()
+	_impact_pools.clear()
+	for style in _release_pools:
+		for n in _release_pools[style]:
+			if is_instance_valid(n):
+				n.queue_free()
+	_release_pools.clear()
+	for style in _charge_pools:
+		for n in _charge_pools[style]:
+			if is_instance_valid(n):
+				n.queue_free()
+	_charge_pools.clear()
+	for style in _reward_pools:
+		for n in _reward_pools[style]:
+			if is_instance_valid(n):
+				n.queue_free()
+	_reward_pools.clear()
+	for id in _dribbles:
+		if is_instance_valid(_dribbles[id]):
+			_dribbles[id].queue_free()
+	_dribbles.clear()
+	for id in _melee_cues:
+		if is_instance_valid(_melee_cues[id]):
+			_melee_cues[id].queue_free()
+	_melee_cues.clear()
+	_melee_windows.clear()
+	_melee_pcds.clear()
+	for id in _selfbuffs:
+		if is_instance_valid(_selfbuffs[id]):
+			_selfbuffs[id].queue_free()
+	_selfbuffs.clear()
+	for id in _leaps:
+		if is_instance_valid(_leaps[id]["ctrl"]):
+			_leaps[id]["ctrl"].queue_free()
+	_leaps.clear()
+	_leap_windows.clear()
+	_leap_pcds.clear()
+	for style in _leap_impact_pools:                # mirror the sibling impact pools — don't bleed a fade into the new world
+		for n in _leap_impact_pools[style]:
+			if is_instance_valid(n):
+				n.queue_free()
+	_leap_impact_pools.clear()
+	_vfx_prev.clear()
 	for fx in _fx_active:
 		if is_instance_valid(fx["node"]):
 			fx["node"].visible = false
@@ -1773,6 +1948,7 @@ func _process(delta: float) -> void:
 # fills _state from server snapshots instead of ticking the sim locally).
 func _render_world(delta: float) -> void:
 	_sync_projectiles()
+	_sync_charges()                          # cast wind-up cues for styles that have one (Golden Goal)
 	_update_fx(delta)
 	_update_hop(delta)                       # Phase 0 cosmetic jump on the local avatar (after _update_fx so a landing squash arms cleanly)
 	var pf = _find_fighter(_player_id)
@@ -1862,6 +2038,10 @@ func _render_world(delta: float) -> void:
 		_update_ui(n, f)
 		n["pflash"] = f["flash"]
 
+	_update_dribbles(delta)        # character-attached dash cues (Dribble), from the rendered body just updated above
+	_update_melee_cues(delta)      # target-attached melee-stun cues (Yellow Card)
+	_update_selfbuffs(delta)       # caster-attached self-buff cues (Step Over feint + ms/dr aura)
+	_update_leaps(delta)           # caster render-only leap arc (Bicycle Kick); impact is confirmed in _handle_events
 	_resize_arena()
 	_apply_field_theme()           # re-theme the field texture/tint when the map changes (client-only)
 	_render_portals()
@@ -2132,6 +2312,38 @@ func _plate_fade(world_pos: Vector3) -> float:
 	return WorldUI.plate_fade(_cam.global_position.distance_to(world_pos)) * _wfade
 
 func _handle_events() -> void:
+	# arm melee-cue hit windows from fresh caster cooldown edges BEFORE matching damage events (the cast
+	# and the hit land the same tick). A dash cue attaches to the caster and needs no hit match.
+	for mf in _state["fighters"]:
+		var _mid := str(mf["id"])
+		var _mp: Dictionary = _melee_pcds.get(_mid, {})
+		var _mseed := not _melee_pcds.has(_mid)
+		for _mstyle in MELEE_VFX:
+			if not str(_mstyle).begins_with(str(mf["classId"]) + "/"):
+				continue
+			var _mk := str(_mstyle).substr(str(mf["classId"]).length() + 1)
+			var _mcd := float(mf["cds"].get(_mk, 0.0))
+			if not _mseed and _mcd > float(_mp.get(_mk, 0.0)) + 0.05:
+				_melee_windows[_mid] = {"t": 0.35, "style": str(_mstyle)}
+			_mp[_mk] = _mcd
+		if not _mp.is_empty():
+			_melee_pcds[_mid] = _mp   # only track fighters that actually have a melee cue (not every mob)
+	# arm leap-hit windows the SAME way (Bicycle Kick): its teleport + hit resolve one tick, so the confirmed
+	# damage this batch IS the leap hit. Matched below with a proximity gate (the leap lands adjacent).
+	for lf in _state["fighters"]:
+		var _lid := str(lf["id"])
+		var _lp: Dictionary = _leap_pcds.get(_lid, {})
+		var _lseed := not _leap_pcds.has(_lid)
+		for _lstyle in LEAP_VFX:
+			if not str(_lstyle).begins_with(str(lf["classId"]) + "/"):
+				continue
+			var _lk := str(_lstyle).substr(str(lf["classId"]).length() + 1)
+			var _lcd := float(lf["cds"].get(_lk, 0.0))
+			if not _lseed and _lcd > float(_lp.get(_lk, 0.0)) + 0.05:
+				_leap_windows[_lid] = {"t": 0.35, "style": str(_lstyle)}
+			_lp[_lk] = _lcd
+		if not _lp.is_empty():
+			_leap_pcds[_lid] = _lp
 	var gains := {}                    # "type|src|tgt" → summed amt. One floater per batch: a Setter
 	for ev in _state["events"]:        # echo (two same-tick heals) or a multi-hit stack would otherwise
 		var t = ev.get("type", "")     # superpose two lockstep numbers at the same spot — illegible
@@ -2151,6 +2363,29 @@ func _handle_events() -> void:
 			_spawn_num(tgt, int(ev["amt"]), crit, taken, dealt)
 			# hit burst in the ATTACKER's class signature color; crits stay gold so they read at a glance
 			_spawn_pop(tgt, crit, _class_vfx_color(str(sf["classId"])).lightened(0.25) if sf != null else Color(1, 0.95, 0.7))
+			# Keyed projectile impact: dmg events carry no ability key and Combat.gd is untouchable, so the
+			# identity is recovered by correlation — the attacker's registered ball sitting next to this
+			# target last render frame + this CONFIRMED damage event = its landed shot. This routes each hit
+			# to the RIGHT cue (finesse burst vs throughball slow ring) and, being driven by real damage, can
+			# never fire from interest filtering (which emits no dmg event).
+			if tf != null and sf != null:
+				var _istyle := _nearest_vfx_style(tf, str(sf["classId"]))
+				if _istyle != "":
+					_spawn_vfx_impact(_istyle, tf)
+			# Yellow Card: a confirmed hit = the attacker has an armed melee window (from their yellowcard
+			# cast edge) and just dealt this real damage → play the TARGET cue. Never from a bare stun/other source.
+			if tf != null and sf != null and _melee_windows.has(str(sf["id"])) and _fighter_stun_secs(tf) > 0.01:
+				_spawn_melee_cue(str(_melee_windows[str(sf["id"])]["style"]), tf)
+				_melee_windows.erase(str(sf["id"]))
+			# Bicycle Kick: the leaper armed a window this tick and just dealt this real damage to a target it
+			# teleported ADJACENT to (proximity gate), and this hit was NOT a projectile (no tracked ball sat
+			# next to the target -> that would be a same-tick finesse/clinical/etc. shot, not the leap) -> the
+			# confirmed single-target leap impact. Same-tick only, single-target.
+			if tf != null and sf != null and _leap_windows.has(str(sf["id"])) \
+					and _world(tf).distance_to(_world(sf)) < LEAP_HIT_RADIUS \
+					and _nearest_vfx_style(tf, str(sf["classId"])) == "":
+				_spawn_leap_impact(str(_leap_windows[str(sf["id"])]["style"]), tf)
+				_leap_windows.erase(str(sf["id"]))
 			if crit and tf != null:
 				_spawn_shards(tf, 3, _class_vfx_color(str(tf["classId"])))
 			# damage-scaled audio: a bigger chunk of the target's HP sits lower + louder; slight random
@@ -2192,6 +2427,13 @@ func _handle_events() -> void:
 			if kf != null and vf != null:
 				kdir = _world(vf) - _world(kf)
 			_add_recoil(victim, kdir, RECOIL_KILL)          # the death blow hits hardest
+			# Golden Goal on-kill reward at the CASTER — ONLY when a reward-carrying ball (Golden Goal) was
+			# next to the victim last frame AND the killer's class owns it (same truthful ball-near-target
+			# correlation as impacts). Never from a bare kill / proximity-in-time / disappearance.
+			if kf != null and vf != null:
+				var _rstyle := _nearest_vfx_style(vf, str(kf["classId"]))
+				if _rstyle != "" and PROJECTILE_VFX[_rstyle].has("reward"):
+					_spawn_reward(_rstyle, kf)
 			if vf != null and (str(ev.get("killer", "")) == _player_id or victim == _player_id):
 				_spawn_shards(vf, randi_range(6, 8), _class_vfx_color(str(vf["classId"])))
 			if str(ev.get("killer", "")) == _player_id:
@@ -2205,6 +2447,8 @@ func _handle_events() -> void:
 		var gp: PackedStringArray = (gk as String).split("|")
 		# gain floaters (green heal / blue absorb) — pure info layer, never the impact stack
 		_spawn_num(gp[2], int(gains[gk]), false, gp[2] == _player_id, gp[1] == _player_id, gp[0])
+	_melee_windows.clear()   # same-tick only: an unmatched (whiffed/0-dmg) melee window must not leak to later damage
+	_leap_windows.clear()    # same-tick only: an unmatched leap window must not paint a later unrelated hit
 	_state["events"].clear()
 
 func _tick_respawns(dt: float) -> void:
@@ -2388,6 +2632,24 @@ func _detect_cast(n: Dictionary, f: Dictionary) -> void:
 	for k in f["cds"]:                    # in one frame after a hitstop hold deferred detection)
 		if f["cds"][k] > float(n["pcds"].get(k, 0.0)) + 0.05:
 			risen.append(k)
+	# Cue activation (Dribble dash + Yellow Card melee): track each cue key's cooldown edge INDEPENDENTLY
+	# of the anim pcds above (which consumes only risen[0]). Seed on the node's first frame so a fighter
+	# entering mid-cooldown does not false-start. A dash edge starts the controller immediately; a melee
+	# edge ARMS a short window — the TARGET cue then needs a confirmed damage event (see _handle_events).
+	var _cpc: Dictionary = n.get("cue_pcds", {})
+	var _cseed := not n.has("cue_pcds")
+	for _cstyle in _cue_styles_for(str(f["classId"])):
+		var _ck := str(_cstyle).substr(str(f["classId"]).length() + 1)
+		var _cdn := float(f["cds"].get(_ck, 0.0))
+		if not _cseed and _cdn > float(_cpc.get(_ck, 0.0)) + 0.05:
+			if DASH_VFX.has(_cstyle):
+				_dribble_start(f, str(_cstyle))     # dashes attach to the caster (melee windows are armed in _handle_events)
+			elif SELFBUFF_VFX.has(_cstyle):
+				_selfbuff_start(f, str(_cstyle))    # self-buff feint + status-driven aura (Step Over)
+			elif LEAP_VFX.has(_cstyle):
+				_leap_start(n, f, str(_cstyle))     # render-only leap arc (Bicycle Kick; impact armed in _handle_events)
+		_cpc[_ck] = _cdn
+	n["cue_pcds"] = _cpc
 	# handle ONE edge per frame (a node can only start one clip anyway); the rest keep their stale
 	# pcds entry below so they re-detect next frame instead of being silently swallowed.
 	if not risen.is_empty():
@@ -3193,13 +3455,31 @@ func _update_fx(delta: float) -> void:
 	_fx_active = keep
 
 func _sync_projectiles() -> void:
-	var shown := 0
+	var gen := 0                                        # generic fallback-sphere pool cursor
+	var counts := {}                                    # style -> keyed-ball count this frame
+	var now := {}                                       # style -> [sim-space Vector2] shown this frame
+	for style in PROJECTILE_VFX:
+		counts[style] = 0
+		now[style] = []
+	var dt := get_process_delta_time()
 	for p in _state["projectiles"]:
 		if p.get("delay", 0.0) > 0.0:
 			continue
+		var wpos := Vector3((p["x"] - _aw() / 2.0) * SCALE, 1.4, (p["y"] - _ah() / 2.0) * SCALE)
+		# Keyed presentation: registered abilities get their bespoke node; everything else (mobs, other
+		# abilities, no-key/old-server snapshots) falls through to the generic sphere. A per-style overflow
+		# past the hard cap also falls through — never invisible. No per-ability conditionals here.
+		var style := _proj_vfx_key(p)
+		if style != "" and int(counts[style]) < MAX_VFX_PER_STYLE:
+			var fnode = _vfx_node(style, int(counts[style]))
+			if fnode != null:
+				fnode.set_snapshot_position(wpos, dt)
+				now[style].append(Vector2(p["x"], p["y"]))
+				counts[style] = int(counts[style]) + 1
+				continue
 		var pm: MeshInstance3D
-		if shown < _proj_pool.size():
-			pm = _proj_pool[shown]
+		if gen < _proj_pool.size():
+			pm = _proj_pool[gen]
 		else:
 			pm = MeshInstance3D.new()
 			var sm := SphereMesh.new()
@@ -3233,10 +3513,597 @@ func _sync_projectiles() -> void:
 				var col := _class_vfx_color(cid)
 				mt2.albedo_color = col.lightened(0.35)      # hot core, class-colored glow
 				mt2.emission = col
-		pm.position = Vector3((p["x"] - _aw() / 2.0) * SCALE, 1.4, (p["y"] - _ah() / 2.0) * SCALE)
-		shown += 1
-	for i in range(shown, _proj_pool.size()):
+		pm.position = wpos
+		gen += 1
+	for i in range(gen, _proj_pool.size()):
 		_proj_pool[i].visible = false
+	for style in _vfx_pools:
+		var pool: Array = _vfx_pools[style]
+		for i in range(int(counts.get(style, 0)), pool.size()):
+			pool[i].hide_to_pool()
+	_detect_releases(now)                               # release cues for styles that have one (Clinical)
+	_vfx_prev = now
+
+# The registry key for a projectile, or "" for the generic fallback. Networked snapshots carry "cls"
+# (owner class) + "key" (ability); the local sandbox's full sim dicts carry "owner" + "key". A key is
+# only honoured when the registry actually has an entry for it — so unregistered/stale/malformed data
+# renders the generic sphere, never an invisible projectile. Combined classId/abilityKey identity means
+# another class's same-named key never borrows Striker art.
+func _proj_vfx_key(p) -> String:
+	var k := str(p.get("key", ""))
+	if k == "":
+		return ""
+	var cid := str(p.get("cls", ""))
+	if cid == "" and p.has("owner"):
+		var of = _find_fighter(p["owner"])
+		if of != null:
+			cid = str(of["classId"])
+	if cid == "":
+		return ""
+	var full := cid + "/" + k
+	return full if PROJECTILE_VFX.has(full) else ""
+
+# The per-instance config dict for `style` (trail colour rebuilt from the r/g/b tune floats).
+func _vfx_style_dict(style: String) -> Dictionary:
+	var t: Dictionary = _vfx_tune.get(style, {})
+	return {
+		"scale": float(t.get("scale", 0.42)), "spin_speed": float(t.get("spin_speed", 12.0)),
+		"trail_life": float(t.get("trail_life", 0.16)), "trail_width": float(t.get("trail_width", 0.16)),
+		"trail_color": Color(float(t.get("trail_r", 1.0)), float(t.get("trail_g", 0.86)), float(t.get("trail_b", 0.6))),
+		"impact_scale": float(t.get("impact_scale", 1.0)), "impact_life": float(t.get("impact_life", 0.28)),
+	}
+
+# Fetch (lazily creating) pool node `i` for `style`, growing only up to the hard cap. reset_for_spawn
+# fires when the node transitions from hidden → visible (a fresh spawn / pool reuse); a still-visible
+# node keeps its trail. Index shuffles between snapshots are absorbed by the node's discontinuity reset.
+func _vfx_node(style: String, i: int):
+	if not _vfx_pools.has(style):
+		_vfx_pools[style] = []
+	var pool: Array = _vfx_pools[style]
+	while pool.size() <= i and pool.size() < MAX_VFX_PER_STYLE:
+		var n = PROJECTILE_VFX[style]["scene"].instantiate()
+		_fx_root.add_child(n)                            # parent is live → _ready runs synchronously
+		n.configure(_vfx_style_dict(style))
+		pool.append(n)
+	if i >= pool.size():
+		return null
+	var node = pool[i]
+	if not node.visible:
+		node.reset_for_spawn(reduce_fx)
+	return node
+
+# The registered style whose ball sat nearest fighter `f` last frame (within VFX_IMPACT_EPS) AND belongs
+# to the attacker's class — or "". This ties a real damage event to the specific projectile that landed,
+# so the RIGHT impact plays (finesse burst vs throughball slow cue) and never from interest filtering.
+func _nearest_vfx_style(f: Dictionary, attacker_cls: String) -> String:
+	var here := Vector2(float(f["x"]), float(f["y"]))
+	var best := ""
+	var best_d := VFX_IMPACT_EPS
+	for style in _vfx_prev:
+		if not str(style).begins_with(attacker_cls + "/"):
+			continue
+		for pos in _vfx_prev[style]:
+			var d: float = (pos as Vector2).distance_to(here)
+			if d <= best_d:
+				best_d = d
+				best = str(style)
+	return best
+
+# Pooled + hard-capped impact for `style` at fighter `f` (impact_y set per style — ankle for the slow cue).
+func _spawn_vfx_impact(style: String, f: Dictionary) -> void:
+	var node = _impact_node(style)
+	if node == null:
+		return
+	node.configure(_vfx_style_dict(style))
+	var pos := _world(f)
+	pos.y = float(PROJECTILE_VFX[style].get("impact_y", 1.0))
+	node.position = pos
+	node.play(reduce_fx)
+
+func _impact_node(style: String):
+	if not _impact_pools.has(style):
+		_impact_pools[style] = []
+	var pool: Array = _impact_pools[style]
+	for n in pool:
+		if n.is_free():
+			return n
+	if pool.size() < MAX_IMPACT_PER_STYLE:
+		var n = PROJECTILE_VFX[style]["impact"].instantiate()
+		_fx_root.add_child(n)
+		pool.append(n)
+		return n
+	return pool[0]                                       # cap reached: steal the oldest and replay
+
+# Release cues: a style with a "release" scene (Clinical's compression ring) fires one the frame its ball
+# first APPEARS next to its caster — a genuine kick. Never on interest re-entry (a re-entering ball is
+# mid-flight, far from its caster) and never mid-flight (a prior-frame ball sits within RELEASE_NEW_GATE).
+func _detect_releases(now: Dictionary) -> void:
+	for style in PROJECTILE_VFX:
+		if not PROJECTILE_VFX[style].has("release"):
+			continue
+		var cur: Array = now.get(style, [])
+		if cur.is_empty():
+			continue
+		var prev: Array = _vfx_prev.get(style, [])
+		var cls := str(style).get_slice("/", 0)
+		for pos in cur:
+			var is_new := true
+			for pp in prev:
+				if (pp as Vector2).distance_to(pos) <= RELEASE_NEW_GATE:
+					is_new = false
+					break
+			if is_new and _near_caster(pos, cls):
+				_spawn_release(style, pos)
+
+func _near_caster(sim_pos: Vector2, cls: String) -> bool:
+	if not _state.has("fighters"):
+		return false
+	for f in _state["fighters"]:
+		if str(f.get("classId", "")) != cls:
+			continue
+		if Vector2(float(f["x"]), float(f["y"])).distance_to(sim_pos) <= RELEASE_CASTER_GATE:
+			return true
+	return false
+
+func _spawn_release(style: String, sim_pos: Vector2) -> void:
+	var node = _release_node(style)
+	if node == null:
+		return
+	node.configure(_vfx_style_dict(style))
+	node.position = Vector3((sim_pos.x - _aw() / 2.0) * SCALE, float(PROJECTILE_VFX[style].get("release_y", 0.3)), (sim_pos.y - _ah() / 2.0) * SCALE)
+	node.play(reduce_fx)
+
+func _release_node(style: String):
+	if not _release_pools.has(style):
+		_release_pools[style] = []
+	var pool: Array = _release_pools[style]
+	for n in pool:
+		if n.is_free():
+			return n
+	if pool.size() < MAX_IMPACT_PER_STYLE:
+		var n = PROJECTILE_VFX[style]["release"].instantiate()
+		_fx_root.add_child(n)
+		pool.append(n)
+		return n
+	return pool[0]
+
+# A fighter's in-progress cast, or {}. Networked snapshots carry castKey + castProg (additive); the local
+# sandbox's full sim dicts carry the "casting" object — resolve either into {key, prog}.
+func _fighter_cast(f) -> Dictionary:
+	var k := str(f.get("castKey", ""))
+	if k != "":
+		return {"key": k, "prog": float(f.get("castProg", 0.0))}
+	var c = f.get("casting", null)
+	if c != null:
+		var tot: float = float(c.get("total", 0.4))
+		return {"key": str((c.get("ab", {}) as Dictionary).get("key", "")), "prog": clampf(float(c.get("t", 0.0)) / maxf(0.01, tot), 0.0, 1.0)}
+	return {}
+
+# Charge wind-up cues: assign a pooled charge node to every fighter the server reports casting a registered
+# charge style (Golden Goal), driven by the authoritative progress. It spawns no projectile and vanishes the
+# instant the cast ends (release OR stun interrupt) — the fighter simply stops reporting the cast.
+func _sync_charges() -> void:
+	var counts := {}
+	for style in PROJECTILE_VFX:
+		if PROJECTILE_VFX[style].has("charge"):
+			counts[style] = 0
+	if counts.is_empty():
+		return
+	for f in _state.get("fighters", []):
+		if not bool(f.get("alive", true)):
+			continue
+		var cast := _fighter_cast(f)
+		if cast.is_empty():
+			continue
+		var cstyle := str(f.get("classId", "")) + "/" + str(cast["key"])
+		if not counts.has(cstyle):
+			continue
+		var node = _charge_node(cstyle, int(counts[cstyle]))
+		if node == null:
+			continue
+		node.position = Vector3((f["x"] - _aw() / 2.0) * SCALE, float(PROJECTILE_VFX[cstyle].get("charge_y", 1.0)), (f["y"] - _ah() / 2.0) * SCALE)
+		node.set_charge(float(cast["prog"]), reduce_fx)
+		counts[cstyle] = int(counts[cstyle]) + 1
+	for style in _charge_pools:
+		var pool: Array = _charge_pools[style]
+		for i in range(int(counts.get(style, 0)), pool.size()):
+			pool[i].hide_charge()
+
+func _charge_node(style: String, i: int):
+	if not _charge_pools.has(style):
+		_charge_pools[style] = []
+	var pool: Array = _charge_pools[style]
+	while pool.size() <= i and pool.size() < MAX_VFX_PER_STYLE:
+		var n = PROJECTILE_VFX[style]["charge"].instantiate()
+		_fx_root.add_child(n)
+		n.configure(_vfx_style_dict(style))
+		pool.append(n)
+	if i >= pool.size():
+		return null
+	return pool[i]
+
+# On-kill reward pulse at the CASTER, gated on truthful attribution: a Golden Goal ball was next to the
+# victim last frame AND the killer's class owns that style. Reuses the ball-near-target correlation.
+func _spawn_reward(style: String, f: Dictionary) -> void:
+	var node = _reward_node(style)
+	if node == null:
+		return
+	var pos := _world(f)
+	pos.y = 0.1
+	node.position = pos
+	node.play(reduce_fx)
+
+func _reward_node(style: String):
+	if not _reward_pools.has(style):
+		_reward_pools[style] = []
+	var pool: Array = _reward_pools[style]
+	for n in pool:
+		if n.is_free():
+			return n
+	if pool.size() < MAX_IMPACT_PER_STYLE:
+		var n = PROJECTILE_VFX[style]["reward"].instantiate()
+		_fx_root.add_child(n)
+		pool.append(n)
+		return n
+	return pool[0]
+
+# --- Dribble (dash) — character-attached, not a projectile ---
+# The per-instance config for a dash style (colours rebuilt from the r/g/b tune floats).
+func _dash_style_dict(style: String) -> Dictionary:
+	var t: Dictionary = _vfx_tune.get(style, {})
+	return {
+		"ball_scale": float(t.get("ball_scale", 0.28)), "side": float(t.get("side", 0.3)),
+		"mark_len": float(t.get("mark_len", 0.5)), "mark_life": float(t.get("mark_life", 0.22)),
+		"arrival_scale": float(t.get("arrival_scale", 1.0)),
+		"gold": Color(float(t.get("gold_r", 1.0)), float(t.get("gold_g", 0.78)), float(t.get("gold_b", 0.35))),
+		"cyan": Color(float(t.get("cyan_r", 0.45)), float(t.get("cyan_g", 0.9)), float(t.get("cyan_b", 1.0))),
+	}
+
+# Cast-edge-triggered cue styles (dash + self-buff) for a class — started directly from _detect_cast (no
+# hit needed). Melee cues are correlated to a damage event in _handle_events instead.
+func _cue_styles_for(cls: String) -> Array:
+	var out := []
+	for s in DASH_VFX:
+		if str(s).begins_with(cls + "/"):
+			out.append(str(s))
+	for s in SELFBUFF_VFX:
+		if str(s).begins_with(cls + "/"):
+			out.append(str(s))
+	for s in LEAP_VFX:
+		if str(s).begins_with(cls + "/"):
+			out.append(str(s))
+	return out
+
+# The per-instance config for a melee cue style (colours rebuilt from the r/g/b tune floats).
+func _melee_style_dict(style: String) -> Dictionary:
+	var t: Dictionary = _vfx_tune.get(style, {})
+	return {
+		"card_scale": float(t.get("card_scale", 1.0)), "star_scale": float(t.get("star_scale", 1.0)),
+		"contact_scale": float(t.get("contact_scale", 1.0)), "orbit_r": float(t.get("orbit_r", 0.5)),
+		"card_height": float(t.get("card_height", 3.4)),
+		"card_col": Color(float(t.get("card_r", 1.0)), float(t.get("card_g", 0.85)), float(t.get("card_b", 0.1))),
+		"star_col": Color(float(t.get("star_r", 1.0)), float(t.get("star_g", 0.9)), float(t.get("star_b", 0.2))),
+	}
+
+# The authoritative remaining stun in seconds — online snapshots carry st.stn (tenths); the local sandbox
+# dict carries the raw `stun` float.
+func _fighter_stun_secs(f) -> float:
+	if f.has("st"):
+		return float((f["st"] as Dictionary).get("stn", 0)) / 10.0
+	return float(f.get("stun", 0.0))
+
+# Play the Yellow Card cue at the confirmed TARGET (pooled per-target).
+func _spawn_melee_cue(style: String, f: Dictionary) -> void:
+	var id := str(f["id"])
+	var d
+	if _melee_cues.has(id) and is_instance_valid(_melee_cues[id]):
+		d = _melee_cues[id]
+	else:
+		d = MELEE_VFX[style]["scene"].instantiate()
+		_fx_root.add_child(d)
+		_melee_cues[id] = d
+	d.configure(_melee_style_dict(style))
+	d.begin(reduce_fx)
+
+# Drive each active target cue from its rendered body + authoritative stun; prune stale trackers so the
+# per-fighter maps can't grow. (Windows are same-tick and cleared in _handle_events — nothing to decay here.)
+func _update_melee_cues(delta: float) -> void:
+	for id in _melee_pcds.keys():
+		if _find_fighter(id) == null:
+			_melee_pcds.erase(id)                        # bound the cooldown-edge tracker to present fighters
+	if _melee_cues.is_empty():
+		return
+	for id in _melee_cues:
+		var d = _melee_cues[id]
+		if not is_instance_valid(d) or not d.is_active():
+			continue
+		var n = _nodes.get(id)
+		var f = _find_fighter(id)
+		if n == null or f == null or not bool(f.get("alive", true)):
+			d.stop()                                     # death / despawn / interest exit → no lingering card
+			continue
+		d.follow((n["holder"] as Node3D).position, _fighter_stun_secs(f), delta)
+		if d.is_done():
+			d.stop()
+	var gone := []
+	for id in _melee_cues:
+		if not is_instance_valid(_melee_cues[id]) or (not _melee_cues[id].is_active() and _find_fighter(id) == null):
+			gone.append(id)
+	for id in gone:
+		if is_instance_valid(_melee_cues[id]):
+			_melee_cues[id].queue_free()
+		_melee_cues.erase(id)
+
+# Start a dribble from an accepted cooldown edge (called from _detect_cast).
+func _dribble_start(f: Dictionary, style: String) -> void:
+	var id := str(f["id"])
+	var d
+	if _dribbles.has(id) and is_instance_valid(_dribbles[id]):
+		d = _dribbles[id]
+	else:
+		d = _DRIBBLE_SCENE.instantiate()
+		_fx_root.add_child(d)                            # world-space; follows the rendered body each frame
+		_dribbles[id] = d
+	d.configure(_dash_style_dict(style))
+	d.begin(reduce_fx)
+
+# --- Step Over (self-buff) — caster-attached feint + status-driven aura ---
+func _selfbuff_style_dict(style: String) -> Dictionary:
+	var t: Dictionary = _vfx_tune.get(style, {})
+	return {
+		"ball_scale": float(t.get("ball_scale", 0.24)), "ring_scale": float(t.get("ring_scale", 1.0)),
+		"chevron_scale": float(t.get("chevron_scale", 1.0)), "arc_scale": float(t.get("arc_scale", 1.0)),
+		"cyan": Color(float(t.get("cyan_r", 0.45)), float(t.get("cyan_g", 0.9)), float(t.get("cyan_b", 1.0))),
+		"gold": Color(float(t.get("gold_r", 1.0)), float(t.get("gold_g", 0.8)), float(t.get("gold_b", 0.35))),
+	}
+
+# Authoritative haste (move-speed buff) active? Online snapshots carry st.ms = [percent, remaining tenths]
+# (haste = percent > 100); the local sandbox carries buffs.msT/ms.
+func _status_ms_active(f) -> bool:
+	if f.has("st"):
+		var ms = (f["st"] as Dictionary).get("ms", null)
+		return ms != null and int(ms[0]) > 100 and int(ms[1]) > 0
+	var b: Dictionary = f.get("buffs", {})
+	return float(b.get("msT", 0.0)) > 0.0 and float(b.get("ms", 1.0)) > 1.0
+
+# Authoritative damage-reduction active? Online st.dr = [percent, remaining tenths]; local buffs.drT.
+func _status_dr_active(f) -> bool:
+	if f.has("st"):
+		var dr = (f["st"] as Dictionary).get("dr", null)
+		return dr != null and int(dr[1]) > 0
+	return float((f.get("buffs", {}) as Dictionary).get("drT", 0.0)) > 0.0
+
+func _selfbuff_start(f: Dictionary, style: String) -> void:
+	var id := str(f["id"])
+	var d
+	if _selfbuffs.has(id) and is_instance_valid(_selfbuffs[id]):
+		d = _selfbuffs[id]
+	else:
+		d = SELFBUFF_VFX[style]["scene"].instantiate()
+		_fx_root.add_child(d)
+		_selfbuffs[id] = d
+	d.configure(_selfbuff_style_dict(style))
+	d.begin(reduce_fx)
+
+# Drive each active self-buff cue from its caster's rendered body + facing + authoritative ms/dr status;
+# the feint plays once, the aura components follow st.ms / st.dr and finish when both end.
+func _update_selfbuffs(delta: float) -> void:
+	if _selfbuffs.is_empty():
+		return
+	for id in _selfbuffs:
+		var d = _selfbuffs[id]
+		if not is_instance_valid(d) or not d.is_active():
+			continue
+		var n = _nodes.get(id)
+		var f = _find_fighter(id)
+		if n == null or f == null or not bool(f.get("alive", true)):
+			d.stop()
+			continue
+		var yaw: float = (n["model"] as Node3D).rotation.y if n.has("model") and n["model"] != null else 0.0
+		d.follow((n["holder"] as Node3D).position, yaw, _status_ms_active(f), _status_dr_active(f), delta)
+		if d.is_done():
+			d.stop()
+	var gone := []
+	for id in _selfbuffs:
+		if not is_instance_valid(_selfbuffs[id]) or (not _selfbuffs[id].is_active() and _find_fighter(id) == null):
+			gone.append(id)
+	for id in gone:
+		if is_instance_valid(_selfbuffs[id]):
+			_selfbuffs[id].queue_free()
+		_selfbuffs.erase(id)
+
+# --- Bicycle Kick (leap attack) — a CASTER render-only arc + a CONFIRMED-hit single-target impact ---
+func _leap_style_dict(style: String) -> Dictionary:
+	var t: Dictionary = _vfx_tune.get(style, {})
+	return {
+		"arc_height": float(t.get("arc_height", 2.5)), "arc_pitch": float(t.get("arc_pitch", 2.6)),
+		"ribbon_width": float(t.get("ribbon_width", 0.14)), "ball_scale": float(t.get("ball_scale", 0.22)),
+		"land_scale": float(t.get("land_scale", 1.0)),
+		"impact_scale": float(t.get("impact_scale", 1.0)), "impact_life": float(t.get("impact_life", 0.26)),
+		"cyan": Color(float(t.get("cyan_r", 0.4)), float(t.get("cyan_g", 0.9)), float(t.get("cyan_b", 1.0))),
+		"gold": Color(float(t.get("gold_r", 1.0)), float(t.get("gold_g", 0.8)), float(t.get("gold_b", 0.35))),
+	}
+
+# Start the render-only leap on an accepted bicyclekick cast-edge. The sim ALREADY teleported the fighter,
+# so the previous frame's rendered position (holder.position, not yet moved this frame) is the leap ORIGIN
+# and the authoritative _world(f) is the DEST. Snap holder + last to dest so the fighter does not ALSO
+# slide (and no velocity spike spins/runs the model) — the arc is owned entirely by _update_leaps.
+func _leap_start(n: Dictionary, f: Dictionary, style: String) -> void:
+	var id := str(f["id"])
+	var origin: Vector3 = (n["holder"] as Node3D).position
+	var dest: Vector3 = _world(f)
+	(n["holder"] as Node3D).position = dest
+	n["last"] = dest
+	var ctrl
+	if _leaps.has(id) and is_instance_valid(_leaps[id]["ctrl"]):
+		ctrl = _leaps[id]["ctrl"]
+	else:
+		ctrl = _BICYCLEKICK_SCENE.instantiate()
+		_fx_root.add_child(ctrl)
+	ctrl.configure(_leap_style_dict(style))
+	ctrl.begin(dest, reduce_fx)
+	_leaps[id] = {"ctrl": ctrl, "origin": origin, "dest": dest, "t": 0.0, "restored": false, "style": style}
+
+# Undo the leap pivot lift/pitch — restore the model's resting local transform, even mid-arc.
+func _restore_leap_model(n: Dictionary) -> void:
+	if not n.has("model") or not is_instance_valid(n["model"]):
+		return
+	var model: Node3D = n["model"]
+	model.position = Vector3(0.0, float(n.get("base_y", 0.0)), 0.0)
+	model.rotation.x = 0.0
+	model.rotation.z = 0.0
+
+# Drive each active Bicycle Kick: arc the MODEL (horizontal ease origin->dest + up-bump + backward pitch)
+# while the holder stays at the authoritative dest, then feed the controller the model + foot world
+# positions for its ribbon / contact-ball / landing-ring. Restore + prune on completion / death / despawn.
+func _update_leaps(delta: float) -> void:
+	for id in _leap_pcds.keys():
+		if _find_fighter(id) == null:
+			_leap_pcds.erase(id)                         # bound the leap cooldown-edge tracker to present fighters
+	if _leaps.is_empty():
+		return
+	for id in _leaps:
+		var L: Dictionary = _leaps[id]
+		var ctrl = L["ctrl"]
+		if not is_instance_valid(ctrl):
+			continue
+		var n = _nodes.get(id)
+		var f = _find_fighter(id)
+		if n == null or f == null or not bool(f.get("alive", true)):
+			if n != null:
+				_restore_leap_model(n)
+			ctrl.stop()
+			continue
+		var model: Node3D = n["model"]
+		if not bool(L["restored"]):
+			L["t"] = float(L["t"]) + delta
+			var p: float = clampf(float(L["t"]) / LEAP_DUR, 0.0, 1.0)
+			var ep: float = p * p * (3.0 - 2.0 * p)              # smoothstep ease
+			var origin: Vector3 = L["origin"]
+			var dest: Vector3 = L["dest"]
+			var tune: Dictionary = _vfx_tune.get(str(L["style"]), {})
+			var arc_h: float = float(tune.get("arc_height", 2.5))
+			var arc_pitch: float = float(tune.get("arc_pitch", 2.6))
+			var by: float = float(n.get("base_y", 0.0))
+			var off: Vector3 = origin.lerp(dest, ep) - dest       # holder is at dest; offset the model back toward origin
+			model.position = Vector3(off.x, by + sin(p * PI) * arc_h, off.z)
+			model.rotation.x = -sin(p * PI) * arc_pitch           # backward tuck, recovers upright at landing
+			var dir: Vector3 = dest - origin
+			var flip: float = PI if MESHY_FLIP else 0.0
+			if Vector2(dir.x, dir.z).length() > 0.001:
+				model.rotation.y = atan2(dir.x, dir.z) + flip     # face the leap/target direction
+			var mw: Vector3 = model.global_position
+			var fwd: Vector3 = Vector3(dir.x, 0.0, dir.z)
+			fwd = fwd.normalized() if fwd.length() > 0.001 else Vector3(0.0, 0.0, 1.0)
+			ctrl.follow(mw, mw + Vector3(0.0, 0.9, 0.0) + fwd * 0.4, p, model.rotation.y, delta)
+			if p >= 1.0:
+				_restore_leap_model(n)
+				L["restored"] = true
+		else:
+			ctrl.follow(L["dest"], L["dest"], 1.0, model.rotation.y, delta)   # arc done — advance the landing-ring tail
+	var gone := []
+	for id in _leaps:
+		var ctrl = _leaps[id]["ctrl"]
+		if not is_instance_valid(ctrl) or ctrl.is_done() or not ctrl.is_active():
+			gone.append(id)
+	for id in gone:
+		var c = _leaps[id]["ctrl"]
+		if is_instance_valid(c):
+			c.queue_free()
+		_leaps.erase(id)
+
+# Single-target Bicycle Kick impact — pooled, played at the confirmed target (see _handle_events).
+func _spawn_leap_impact(style: String, f: Dictionary) -> void:
+	if not LEAP_VFX.has(style):
+		return
+	var pool: Array = _leap_impact_pools.get(style, [])
+	var node = null
+	for nd in pool:
+		if is_instance_valid(nd) and nd.is_free():
+			node = nd
+			break
+	if node == null:
+		if pool.size() >= MAX_LEAP_IMPACT_PER_STYLE:
+			node = pool[0]                                        # steal the oldest
+		else:
+			node = LEAP_VFX[style]["impact"].instantiate()   # the IMPACT scene, not the leap controller
+			_fx_root.add_child(node)
+			pool.append(node)
+			_leap_impact_pools[style] = pool
+	node.configure(_leap_style_dict(style))
+	var w := _world(f)
+	node.position = Vector3(w.x, float(LEAP_VFX[style].get("impact_y", 0.9)), w.z)
+	node.play(reduce_fx)
+
+# Drive every active dribble from its fighter's RENDERED body position + smoothed travel dir, then prune
+# controllers whose fighter is gone. Cleanup on death/despawn is the stop() below.
+func _update_dribbles(delta: float) -> void:
+	if _dribbles.is_empty():
+		return
+	for id in _dribbles:
+		var d = _dribbles[id]
+		if not is_instance_valid(d) or not d.is_active():
+			continue
+		var n = _nodes.get(id)
+		var f = _find_fighter(id)
+		if n == null or f == null or not bool(f.get("alive", true)):
+			d.stop()                                     # despawn / death / interest exit → immediate cleanup, no arrival ring
+			continue
+		var vel: Vector2 = n.get("vel", Vector2.ZERO)
+		d.follow((n["holder"] as Node3D).position, Vector3(vel.x, 0.0, vel.y), delta)
+	var gone := []
+	for id in _dribbles:
+		if not is_instance_valid(_dribbles[id]) or (not _dribbles[id].is_active() and _find_fighter(id) == null):
+			gone.append(id)
+	for id in gone:
+		if is_instance_valid(_dribbles[id]):
+			_dribbles[id].queue_free()
+		_dribbles.erase(id)
+
+# Re-apply a style's tune to every live ball of that style (the dev tuner calls this so a slider drag
+# updates the ball already in flight, not just the next shot). Impact nodes read the tune on spawn.
+func _apply_vfx_tune(style: String) -> void:
+	if DASH_VFX.has(style):                              # dash styles (Dribble): reconfigure any active controller
+		var dd := _dash_style_dict(style)
+		for id in _dribbles:
+			if is_instance_valid(_dribbles[id]):
+				_dribbles[id].configure(dd)
+		return
+	if MELEE_VFX.has(style):                             # melee styles (Yellow Card): reconfigure any active cue
+		var md := _melee_style_dict(style)
+		for id in _melee_cues:
+			if is_instance_valid(_melee_cues[id]):
+				_melee_cues[id].configure(md)
+		return
+	if SELFBUFF_VFX.has(style):                          # self-buff styles (Step Over): reconfigure any active cue
+		var sd := _selfbuff_style_dict(style)
+		for id in _selfbuffs:
+			if is_instance_valid(_selfbuffs[id]):
+				_selfbuffs[id].configure(sd)
+		return
+	if LEAP_VFX.has(style):                              # leap styles (Bicycle Kick): reconfigure any active controller
+		var ld := _leap_style_dict(style)
+		for id in _leaps:
+			if is_instance_valid(_leaps[id]["ctrl"]):
+				_leaps[id]["ctrl"].configure(ld)
+		return
+	if _vfx_pools.has(style):
+		for n in _vfx_pools[style]:
+			if is_instance_valid(n):
+				n.configure(_vfx_style_dict(style))
+
+# --- dev-only live VFX tuner (F3 in dev/practice; client-only, no gameplay) ---
+func _vfx_tune_allowed() -> bool:
+	return OS.has_feature("editor") or "--vfxtune" in OS.get_cmdline_user_args()
+
+func _toggle_vfx_tuner() -> void:
+	if _vfx_tuner == null:
+		_vfx_tuner = preload("res://client/ui/VfxTuner.gd").new()
+		var host: Node = _hud if _hud != null else self
+		host.add_child(_vfx_tuner)
+		_vfx_tuner.setup(self)
+	else:
+		_vfx_tuner.visible = not _vfx_tuner.visible
 
 # ============================================================ helpers
 func _find_fighter(id) -> Variant:
