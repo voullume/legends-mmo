@@ -182,7 +182,7 @@ const QUESTS := {
 		"name": "The Old Bull",
 		"desc": "An old bull grazer has claimed the east lot — twice the size of the herd and twice as mean. Put it down.",
 		"min_level": 9, "prereq": "away1_roadgame",
-		"objective": {"type": "kill", "match": {"map": "away_1", "tier": "elite"}, "count": 1},
+		"objective": {"type": "kill", "match": {"map": "away_1", "tier": "elite", "class": "tacklehorn_grazer"}, "count": 1},  # P3: class-keyed — the Nest Broodmother (2nd away_1 elite) must not cross-credit the Bull
 		"rewards": {"xp": 520, "credits": 320, "tokens": 25},
 	},
 	"away2_gauntlet": {

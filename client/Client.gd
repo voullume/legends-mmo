@@ -1858,6 +1858,10 @@ const ELITE_LOOKS := {
 	"tacklehorn_grazer": {"tint": "#6B4A26", "scale": 1.15},                   # the Old Bull — weathered umber
 	"rallywing_magpie":  {"tint": "#C9D4DC", "scale": 1.10},                   # the Elder Rallywing — silvered
 	"emerald_warfrog":   {"tint": "#173F30", "scale": 1.12, "minLevel": 16},   # the door guard — obsidian emerald
+	# P3: the Nest Broodmother (away_1's L11 lair champion). minLevel 11 keeps every other skink
+	# baseline — summon adds are forced minion (Server.gd) and admin spawns clamp to L10, so this
+	# entry can only ever hit her. Tint = brood-queen viridian; OWNER-SWAPPABLE hex before ship.
+	"netvine_skink":     {"tint": "#3A5230", "scale": 1.12, "minLevel": 11},
 }
 
 func _elite_look(f: Dictionary) -> Dictionary:
@@ -2197,7 +2201,9 @@ func _render_decals() -> void:
 	# key presence — so a META cached across a zone change can't render locker props in home/combat for ~1s.
 	var mapn := str(_state.get("map", ""))
 	var decals: Array = _state["decals"] if (mapn == World.LOCKER and _state.has("decals")) else _decals_for(mapn)
-	var sig := JSON.stringify(decals)
+	# P3 hardening: dims in the sig — decal world positions bake (x - aw/2)*SCALE at build time, so a
+	# dims change with a byte-identical record list must still re-anchor (obstacles/field already do this).
+	var sig := "%dx%d|%s" % [int(_aw()), int(_ah()), JSON.stringify(decals)]
 	if sig == _decals_sig:
 		return
 	_decals_sig = sig

@@ -81,7 +81,7 @@ const MAPS := {
 	GY_SECRET: {"type": "combat", "w": 1440, "h": 940, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": GYS_SPAWN},
 	ARENA: {"type": "combat", "w": 1200, "h": 800,  "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": true,  "spawn": ARENA_SPAWN},
 	# Phase 8 — the Away Circuit chain (same combat profile as the Glitchyard zones)
-	AWAY1: {"type": "combat", "w": 1700, "h": 950,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY1_SPAWN},
+	AWAY1: {"type": "combat", "w": 2600, "h": 950,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY1_SPAWN},  # P3: 1700→2600 east growth (the exploration flagship — deliberately out-sizes the 2000-wide late zones)
 	AWAY2: {"type": "combat", "w": 1850, "h": 1000, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY2_SPAWN},
 	AWAY3: {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY3_SPAWN},
 	AWAY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": AWAYB_SPAWN},
@@ -211,11 +211,20 @@ const PORTALS := {
 		# from its inbound pads, so without this a tampered last_map="away_2" restore would skip the level-8
 		# check entirely (adversarial-review find). Zero UX cost — anyone standing here already passed it.
 		# S2 rule: every deeper away/finals pad carries its chain's gate for the same reason.
-		{"x": 1620.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "wild_gate", "label": "▶ Overrun Gauntlet"},
+		{"x": 2520.0, "y": 475.0,  "to": AWAY2, "tx": 200.0,  "ty": 500.0, "gate": "wild_gate", "label": "▶ Overrun Gauntlet"},  # P3: moved east with the zone (80-su inset kept)
+	# P3: the Field Entrance checkpoint — the game's first INTRA-map pad (the normal portal path
+	# handles to==self; TP grace blocks re-trigger). SE plaza at the Sideline Walk terminus,
+	# outside EVERY camp's aggro (Bull 391 / S-camp 467 / Broodmother 779); arrival (210,475) is
+	# 342 from both L9 camps (> AGGRO 320), 90 from the HOME pad (> 42), and past the 1840-column
+	# leash edge (1636 > 1600). Death after use respawns at the arrival (accepted semantics).
+	# Carries wild_gate (S1 rule). (300,475) was REJECTED: 263 from both L9 camps + a 1607-vs-1600
+	# leash knife-edge.
+	{"x": 2250.0, "y": 860.0,  "to": AWAY1, "tx": 210.0,  "ty": 475.0, "gate": "wild_gate", "label": "◀ Field Entrance"},
 	],
 	AWAY2: [
-		# back-drop lands mid away_1 (1080,475), WEST of its tackle_brute elite @1500 (> AGGRO_RANGE 320) —
-		# same convention as the GY3→GY2 drop (TP grace blocks re-port, not aggro).
+		# back-drop lands at away_1's Season Monument meadow (1080,475) — P3 moved the Old Bull east
+		# to (2320,475), so the drop clears him by 1240 (>> AGGRO 320; was 340 vs the old @1420 spot).
+		# Same convention as the GY3→GY2 drop (TP grace blocks re-port, not aggro).
 		{"x": 120.0,  "y": 500.0,  "to": AWAY1, "tx": 1080.0, "ty": 475.0, "label": "◀ Overgrown Practice Field"},
 		# S2: the withheld forward pad ships now that its destination exists (carries the chain gate — S1 rule)
 		{"x": 1770.0, "y": 500.0,  "to": AWAY3, "tx": 220.0,  "ty": 550.0, "gate": "wild_gate", "label": "▶ Reclaimed Stadium"},
@@ -339,8 +348,26 @@ const MOBS := {
 		{"class": "tacklehorn_grazer", "level": 9,  "tier": "minion", "x": 960.0,  "y": 330.0},
 		{"class": "tacklehorn_grazer", "level": 10, "tier": "minion", "x": 960.0,  "y": 620.0},
 		# the elite guard sits 200 from the forward pad (the shipped-grammar minimum — jukeable, not a
-		# mandatory hit) and 340 from away_2's back-drop @1080 (> AGGRO 320).
-		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 1420.0, "y": 475.0},   # the Old Bull — pure-wildlife roster (owner 2026-07-21); elite tier carries the chip + 2.2×/1.6× scaling
+		# mandatory hit; P3 moved him east WITH the pad: 2320 vs 2520) and 1240 from the @1080 back-drop.
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 2320.0, "y": 475.0},   # the Old Bull — pure-wildlife roster (owner 2026-07-21); elite tier carries the chip + 2.2×/1.6× scaling
+		# P2 discovery — "Coach's Last Stand" nest pocket (NE corner): a rare L10 skink pair,
+		# joint-pull by design (65.8 apart). Aggro-audited: ≥345 from the main lane (y 430-520),
+		# 358.9/418.4 from the Half-Time Oak stand @(1100,185), 384+ from the Old Bull — the pocket
+		# pulls only on commit. The r60 nest ring in data/decals/away_1.json telegraphs it.
+		# NOTE: the away_2 back-drop @(1080,475) is dressed by a RENDER-ONLY wildflower meadow
+		# (+ the trophy 75 north, clear by r+16) — keep future decor at that drop collision-free.
+		{"class": "netvine_skink",     "level": 10, "tier": "minion", "x": 1440.0, "y": 70.0},
+		{"class": "netvine_skink",     "level": 10, "tier": "minion", "x": 1505.0, "y": 80.0},
+		# P3 (the Away Mile): the Wild Yards lane column — L10 pair continuing the west→east gradient.
+		# N camp nudged to (1840,335) so the Broodmother clears it by 350 (> the 345 audit bar).
+		{"class": "netvine_skink",     "level": 10, "tier": "minion", "x": 1840.0, "y": 335.0},
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "minion", "x": 1850.0, "y": 620.0},
+		# P3 champion — the NEST BROODMOTHER (L11 skink elite, OFF-route NE "Nest Wood" lair): the
+		# payoff the Coach's-Last-Stand pocket foreshadows. Aggro-audited: 350 from the lane (y 430+),
+		# 350 from the N camp, 462 from the Old Bull (in-wallow-ring worst case 332 > 320 — kiting the
+		# Bull ≥130 su NW past his ring CAN chain her; accepted, mirrors the P2 pocket class of risk).
+		# away1_blocker is class-keyed (tacklehorn_grazer) so she does NOT credit "The Old Bull".
+		{"class": "netvine_skink",     "level": 11, "tier": "elite",  "x": 2080.0, "y": 80.0},
 	],
 	AWAY2: [  # Overrun Gauntlet — first healer-camp lesson: the medic sits IN its lane camp's pull
 		# (260 from the blocker < AGGRO 320, the CAMP-instance joint-pull convention) so the lesson always
@@ -605,7 +632,12 @@ const OBSTACLES := {
 	AWAY1: [
 		{"x": 740.0,  "y": 330.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708}, {"x": 740.0,  "y": 620.0, "prop": "barrier", "len": 120.0, "yaw": 1.5708},
 		{"x": 1230.0, "y": 475.0, "prop": "rack", "len": 120.0, "yaw": 1.5708},
-		{"x": 1420.0, "y": 330.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1420.0, "y": 620.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the Lot Marshal
+		{"x": 2320.0, "y": 330.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 2320.0, "y": 620.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # flank the Old Bull (P3: moved east with his arena)
+		{"x": 1500.0, "y": 240.0, "prop": "bag", "len": 36.0, "yaw": 0.0},  # P2: nest-pocket cover (elite-flank-bag grammar; 160 from the nest pair)
+		# P3: the dragged-rack blockade before the Bull's wallow (exact echo of the 1230 rack: 190 out)
+		{"x": 2130.0, "y": 475.0, "prop": "rack", "len": 120.0, "yaw": 1.5708},
+		# P3: Nest Wood lair cover — the elite-flank grammar for the Broodmother (renders as stones)
+		{"x": 1965.0, "y": 140.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 2175.0, "y": 55.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
 	AWAY2: [
 		{"x": 740.0,  "y": 350.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708}, {"x": 740.0,  "y": 650.0, "prop": "barrier", "len": 130.0, "yaw": 1.5708},

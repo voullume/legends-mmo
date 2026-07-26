@@ -39,12 +39,12 @@ func _run() -> void:
 	ok(srv._worlds.has("away_1") and srv._worlds.has("away_2"), "boot: away_1 + away_2 auto-boot as static worlds")
 	var m1 := _mobs_in("away_1")
 	var m2 := _mobs_in("away_2")
-	ok(m1.size() == 5, "away_1: 5 spawns (got %d)" % m1.size())
+	ok(m1.size() == 10, "away_1: 10 spawns (got %d)" % m1.size())  # P2: +2 nest skinks; P3: +Wild-Yards pair +the Broodmother
 	ok(m2.size() == 6, "away_2: 6 spawns (got %d)" % m2.size())
 	var c1 := {}
 	for f in m1: c1[str(f["classId"])] = c1.get(str(f["classId"]), 0) + 1
-	ok(int(c1.get("netvine_skink", 0)) == 2 and int(c1.get("tacklehorn_grazer", 0)) == 3
-		and int(c1.get("tackle_brute", 0)) == 0, "away_1 roster (pure wildlife): 2×skink + 2×grazer + the Old Bull elite")
+	ok(int(c1.get("netvine_skink", 0)) == 6 and int(c1.get("tacklehorn_grazer", 0)) == 4
+		and int(c1.get("tackle_brute", 0)) == 0, "away_1 roster (pure wildlife): 6×skink (nest pair + Wild-Yards N + the Broodmother) + 4×grazer (incl. the Old Bull)")
 	var elites2 := 0
 	for f in m2:
 		if str(f.get("mobTier", "")) == "elite": elites2 += 1
@@ -79,12 +79,21 @@ func _run() -> void:
 	# ---- 3. real portal walk: HOME → away_1 → away_2 → away_1 → HOME ----
 	_walk(2, 300.0, 200.0)
 	ok(str(srv._session[2]["map"]) == "away_1", "walk: HOME pad → away_1")
-	_walk(2, 1620.0, 475.0)
+	_walk(2, 2520.0, 475.0)
 	ok(str(srv._session[2]["map"]) == "away_2", "walk: away_1 forward pad → away_2")
 	_walk(2, 120.0, 500.0)
 	ok(str(srv._session[2]["map"]) == "away_1", "walk: away_2 back pad → away_1")
 	var f2 = srv._find(vet["fid"])
-	ok(Vector2(f2["x"] - 1500.0, f2["y"] - 475.0).length() > 320.0, "walk: the back-drop lands > AGGRO 320 from away_1's elite")
+	ok(Vector2(f2["x"] - 2320.0, f2["y"] - 475.0).length() > 320.0, "walk: the back-drop lands > AGGRO 320 from away_1's elite")  # P3: the Old Bull moved east to 2320 with his arena
+	# P3: the Field Entrance checkpoint round-trip — SE plaza pad → the west arrival (same map, no bounce)
+	_walk(2, 2250.0, 860.0)
+	var ckf = srv._find(vet["fid"])
+	ok(str(srv._session[2]["map"]) == "away_1" and Vector2(float(ckf["x"]) - 210.0, float(ckf["y"]) - 475.0).length() < 60.0,
+		"walk: the Field Entrance checkpoint ports across away_1 (arrives ~210,475)")
+	# P3: the arrival must sit outside EVERY away_1 camp's aggro (the C-design audit, now CI)
+	for crow in World.MOBS["away_1"]:
+		var cd := Vector2(float(crow["x"]) - 210.0, float(crow["y"]) - 475.0).length()
+		ok(cd > 320.0, "geometry: checkpoint arrival clear of %s@%d,%d aggro (%.0f > 320)" % [str(crow["class"]), int(crow["x"]), int(crow["y"]), cd])
 	_walk(2, 120.0, 475.0)
 	ok(str(srv._session[2]["map"]) == "home", "walk: away_1 back pad → HOME")
 
@@ -205,8 +214,9 @@ func _run() -> void:
 	# the away_1 elite guard keeps the shipped grammar: ≥200 from the forward pad, >320 from the back-drop
 	var brute = null
 	for row in World.MOBS["away_1"]:
-		if str(row["tier"]) == "elite": brute = row
-	var pad_d := Vector2(float(brute["x"]) - 1620.0, float(brute["y"]) - 475.0).length()
+		# P3: away_1 has TWO elites now — the guard grammar belongs to the Bull (grazer), not the Broodmother
+		if str(row["tier"]) == "elite" and str(row["class"]) == "tacklehorn_grazer": brute = row
+	var pad_d := Vector2(float(brute["x"]) - 2520.0, float(brute["y"]) - 475.0).length()
 	var drop_d := Vector2(float(brute["x"]) - 1080.0, float(brute["y"]) - 475.0).length()
 	ok(pad_d >= 200.0, "geometry: the elite guard is jukeable (%.0f ≥ 200 from the forward pad)" % pad_d)
 	ok(drop_d > 320.0, "geometry: the away_2 back-drop is outside the elite's aggro (%.0f > 320)" % drop_d)
@@ -307,7 +317,7 @@ func _run() -> void:
 	var vet2: Dictionary = await login("Traveler2", 13, {"level": 16})
 	srv._session[13]["quests"]["gy5_command"] = {"completed": true, "progress": 2, "rewarded": true}   # W6: the walker passed the Tower
 	_walk(13, 300.0, 200.0)                                   # HOME → away_1
-	_walk(13, 1620.0, 475.0)                                  # → away_2
+	_walk(13, 2520.0, 475.0)                                  # → away_2 (P3: the pad moved east)
 	_walk(13, 1770.0, 500.0)                                  # → away_3 (the pad withheld in S1, live now)
 	ok(str(srv._session[13]["map"]) == "away_3", "walk: away_2 forward pad → away_3")
 	_walk(13, 1920.0, 550.0)                                  # → the Rival Sideline

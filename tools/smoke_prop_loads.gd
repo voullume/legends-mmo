@@ -46,6 +46,22 @@ func _init() -> void:
 	for mp in World.OBSTACLES:
 		for ob in World.OBSTACLES[mp]:
 			ids[str(ob.get("prop", ""))] = "OBSTACLES:" + str(mp)
+	# P2: client-only backdrop silhouettes (data/backdrops/*.json) — same GLB loader, same
+	# null-load hazard; also catches a backdrop file going unparseable (the client only warns).
+	var bd := DirAccess.open("res://data/backdrops")
+	if bd != null:
+		for fn in bd.get_files():
+			if not fn.ends_with(".json"):
+				continue
+			var txt := FileAccess.get_file_as_string("res://data/backdrops/" + fn)
+			var rows = JSON.parse_string(txt)
+			if not (rows is Array):
+				print("  ✗ backdrops JSON unparseable: ", fn)
+				quit(1)
+				return
+			for r in rows:
+				if r is Dictionary and r.has("model"):
+					ids[str(r.get("model", ""))] = "backdrops:" + fn
 
 	var fails := 0
 	for id in ids:

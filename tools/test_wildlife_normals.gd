@@ -89,7 +89,7 @@ func _init() -> void:
 
 	# --- current away spawn tables (W3 normals + W4 warfrog + W4b splinterback) --------------------
 	var want := {
-		"away_1": {"netvine_skink": 2, "tacklehorn_grazer": 3},
+		"away_1": {"netvine_skink": 6, "tacklehorn_grazer": 4},  # P2: +2 nest skinks; P3: +Wild-Yards pair + the L11 Broodmother elite
 		"away_2": {"scrapmask_forager": 2, "tacklehorn_grazer": 1, "rallywing_magpie": 2, "emerald_warfrog": 1},
 		"away_3": {"rallywing_magpie": 1, "netvine_skink": 1, "scrapmask_forager": 1, "splinterback_elite": 1, "emerald_warfrog": 1},
 	}
