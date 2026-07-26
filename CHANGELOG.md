@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.13.0 — 2026-07-26
+
+- World Expansion P1A+P1B: per-biome dusk sky + horizon camera, client-only backdrop scenery, Glitchyard landmark
+
+_(rolls up commits since the previous tag; base 9530489)_
+
 ## v1.12.0 — 2026-07-24
 
 - Bespoke in-game VFX for all 8 Striker skills (client-only + additive Golden Goal cast telegraph)
