@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.14.0 — 2026-07-26
+
+- away_1 becomes the Away Mile: P2 composition + P3 enlargement to 2600x950, the Nest Broodmother champion, and the first intra-map checkpoint pad
+
+_(rolls up commits since the previous tag; base f230580)_
+
 ## v1.13.0 — 2026-07-26
 
 - World Expansion P1A+P1B: per-biome dusk sky + horizon camera, client-only backdrop scenery, Glitchyard landmark
