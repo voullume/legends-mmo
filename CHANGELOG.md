@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.15.0 — 2026-07-26
+
+- the Reclaimed Stadium climb (concourse + roof, the game's first stacked zones) + the empty-zone sleep (idle tick 20-49ms -> 1.9ms)
+
+_(rolls up commits since the previous tag; base 318c62d)_
+
 ## v1.14.0 — 2026-07-26
 
 - away_1 becomes the Away Mile: P2 composition + P3 enlargement to 2600x950, the Nest Broodmother champion, and the first intra-map checkpoint pad
