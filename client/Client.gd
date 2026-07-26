@@ -167,9 +167,11 @@ const FOV := 60.0
 const ORBIT_SENS := 0.006
 const ZOOM_STEP := 1.12
 const DIST_MIN := 10.0
-const DIST_MAX := 55.0
-const PITCH_MIN := 0.62        # keep it overhead — no dropping to a flat free-cam angle
+const DIST_MAX := 70.0         # world-expansion P1A: modest raise (55→70) — plates verified readable at max zoom
+const PITCH_MIN := 0.35        # world-expansion P1A: low enough to see the horizon/sky, still clearly overhead
 const PITCH_MAX := 1.45        # up to near top-down
+const CAM_NEAR := 0.05
+const CAM_FAR := 800.0         # covers the 600-unit horizon plane viewed from a map edge; far below the 4000 default
 
 const TEAM_COLOR := [Color(0.26, 0.74, 0.98), Color(0.98, 0.46, 0.52)]
 const PLAYABLE := ["striker", "batter", "spiker", "linebacker", "pitcher", "quarterback", "setter", "goalkeeper"]
@@ -234,6 +236,8 @@ var _obstacle_root: Node3D = null          # cover/obstacle barriers (rebuilt wh
 var _obstacles_sig := ""
 var _decal_root: Node3D = null             # purely-visual decals (drill rings + cones), rebuilt on map change
 var _decals_sig := ""
+var _backdrop_root: Node3D = null           # world-expansion P1B: unreachable skyline scenery (client-ONLY —
+var _backdrops_cache := {}                  # data/backdrops/<map>.json, never read by the server/sim), + its per-map cache
 var _ground: MeshInstance3D                # floor planes, resized when the arena (map) size changes
 var _field: MeshInstance3D
 # world-depth pass (2026-07-15, owner-requested: maps read as floating flat slabs): a vast horizon plane +
@@ -242,9 +246,13 @@ var _field: MeshInstance3D
 var _horizon: MeshInstance3D
 var _rim_root: Node3D
 var _env: Environment
+var _sky_mat: ProceduralSkyMaterial         # world-expansion P1A: BG_SKY replaces BG_COLOR — _theme_depth
+                                            # themes THIS per biome (background_color is only a fallback now)
+var _theme_override := ""                   # dev-only --biome <map>: force the render theming (field/depth/sky)
+                                            # for the screenshot matrix — never touches the sim or _state
 var _rim_sig := ""                          # map signature the rim was last built for
 var _arena_sig := ""
-var _field_theme_sig := ""                 # current map name the field texture/tint is themed for
+var _field_theme_sig := ""                 # "map|WxH" sig the field texture/tint + depth/sky theme was built for
 var _proj_pool := []
 var _vfx_pools := {}                        # style -> [SoccerProjectileVFX nodes], capped at MAX_VFX_PER_STYLE each
 var _impact_pools := {}                     # style -> [impact nodes], capped at MAX_IMPACT_PER_STYLE each
@@ -450,9 +458,6 @@ func _enter_mode() -> void:
 	if pdi >= 0:
 		_plate_demo = uargs[pdi + 1] if pdi + 1 < uargs.size() and not uargs[pdi + 1].begins_with("--") else "overflow"
 		_setup_plate_demo()
-	var cdi := uargs.find("--cam-dist")       # dev: force a camera zoom distance for close/default/far shots
-	if cdi >= 0 and cdi + 1 < uargs.size():
-		_dist = clampf(float(uargs[cdi + 1]), DIST_MIN, DIST_MAX)
 	if "--meter" in uargs:
 		_toggle_meter()
 	if "--hudedit" in uargs:                  # dev: open HUD edit mode (pairs with --shot verification)
@@ -765,29 +770,40 @@ func _make_field_material(map: String) -> StandardMaterial3D:
 func _apply_field_theme() -> void:
 	if _field == null:
 		return
-	var map := str(_state.get("map", ""))
-	if map == _field_theme_sig:
+	var map := _theme_override if _theme_override != "" else str(_state.get("map", ""))
+	# sig includes the arena dims (like _build_rim's own sig): under --biome the NAME is pinned, but a zone
+	# change still resizes the planes — dims in the sig keep the field UVs + rim ring tracking the real bounds
+	var sig := "%s|%dx%d" % [map, int(_aw()), int(_ah())]
+	if sig == _field_theme_sig:
 		return
-	_field_theme_sig = map
+	_field_theme_sig = sig
 	_field.material_override = _make_field_material(map)
 	_theme_depth(map)                             # world-depth pass: horizon/apron/fog follow the biome
 	_build_rim(map)
+	_render_backdrops(map)                        # P1B: unreachable skyline scenery rides the same once-per-map seam
 
 # ---- world-depth pass (client-only; the sim stays flat — the raised rim sits OUTSIDE walkable bounds) ----
-# Per-biome palette: [horizon, apron(ground), hills, fog/bg]. Keeps each family's identity at the edges
-# instead of the one-green-apron-in-a-void look that read as a floating slab.
+# Per-biome palette: [horizon, apron(ground), hills, fog/bg, sky-top, sky-horizon]. Keeps each family's
+# identity at the edges instead of the one-green-apron-in-a-void look that read as a floating slab.
+# World-expansion P1A added [4]/[5]: every family keeps a DUSK-toned sky (dark zenith, glowing horizon band)
+# so the bright-sky/dark-ground clash never appears — the glow color is each biome's signature.
 func _depth_palette(map: String) -> Array:
-	if map == World.AWAY_BOSS:                            # the Howler's den: darker clawed-earth range
-		return [Color(0.095, 0.075, 0.055), Color(0.14, 0.11, 0.082), Color(0.24, 0.19, 0.13), Color(0.075, 0.06, 0.05)]
-	if map.begins_with("away"):                           # trampled range: dry olive-tan hills
-		return [Color(0.10, 0.09, 0.05), Color(0.15, 0.13, 0.075), Color(0.26, 0.23, 0.12), Color(0.08, 0.075, 0.05)]
-	if map.begins_with("finals"):
-		return [Color(0.055, 0.055, 0.085), Color(0.10, 0.10, 0.13), Color(0.11, 0.11, 0.17), Color(0.05, 0.055, 0.09)]
+	if map == World.AWAY_BOSS:                            # the Howler's den: darker clawed-earth range, ember dusk
+		return [Color(0.095, 0.075, 0.055), Color(0.14, 0.11, 0.082), Color(0.24, 0.19, 0.13), Color(0.075, 0.06, 0.05),
+			Color(0.055, 0.045, 0.06), Color(0.36, 0.19, 0.10)]
+	if map.begins_with("away"):                           # trampled range: dry olive-tan hills, gold range sunset
+		return [Color(0.10, 0.09, 0.05), Color(0.15, 0.13, 0.075), Color(0.26, 0.23, 0.12), Color(0.08, 0.075, 0.05),
+			Color(0.08, 0.085, 0.13), Color(0.50, 0.36, 0.18)]
+	if map.begins_with("finals"):                         # championship night: indigo zenith, violet city-glow
+		return [Color(0.055, 0.055, 0.085), Color(0.10, 0.10, 0.13), Color(0.11, 0.11, 0.17), Color(0.05, 0.055, 0.09),
+			Color(0.035, 0.035, 0.08), Color(0.23, 0.20, 0.40)]
 	if map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL:
-		return [Color(0.085, 0.08, 0.075), Color(0.13, 0.125, 0.115), Color(0.19, 0.18, 0.16), Color(0.075, 0.075, 0.085)]
+		return [Color(0.085, 0.08, 0.075), Color(0.13, 0.125, 0.115), Color(0.19, 0.18, 0.16), Color(0.075, 0.075, 0.085),
+			Color(0.06, 0.065, 0.085), Color(0.35, 0.30, 0.24)]  # smoggy slate + sodium-amber industrial haze
 	# default green family — deliberately kept for BASECAMP too: earth floor inside green hills reads
 	# as "a clearing in the wilds", and the safe-zone horizon stays in HOME's visual language.
-	return [Color(0.07, 0.10, 0.07), Color(0.10, 0.13, 0.10), Color(0.16, 0.24, 0.13), Color(0.06, 0.085, 0.075)]
+	return [Color(0.07, 0.10, 0.07), Color(0.10, 0.13, 0.10), Color(0.16, 0.24, 0.13), Color(0.06, 0.085, 0.075),
+		Color(0.055, 0.095, 0.17), Color(0.38, 0.50, 0.44)]
 
 func _theme_depth(map: String) -> void:
 	var pal := _depth_palette(map)
@@ -795,9 +811,14 @@ func _theme_depth(map: String) -> void:
 		(_horizon.material_override as StandardMaterial3D).albedo_color = pal[0]
 	if _ground != null:
 		(_ground.material_override as StandardMaterial3D).albedo_color = pal[1]
+	if _sky_mat != null:                          # P1A: the sky IS the visible background now — theme it per biome
+		_sky_mat.sky_top_color = pal[4]
+		_sky_mat.sky_horizon_color = pal[5]
+		_sky_mat.ground_horizon_color = pal[5].lerp(pal[3], 0.35)  # land-haze band just under the horizon line
+		_sky_mat.ground_bottom_color = pal[3]     # below-horizon hemisphere sinks into the biome's fog color
 	if _env != null:
-		_env.fog_light_color = pal[3]
-		_env.background_color = pal[3]
+		_env.fog_light_color = pal[3].lerp(pal[5], 0.18)  # near-fog leans toward the sky glow → no fog/sky seam
+		_env.background_color = pal[3]            # BG_SKY fallback only (kept: never rely on it for the visible sky)
 		_env.fog_density = 0.006                  # slightly denser: the rim fades into the horizon, not a hard edge
 
 # A ring of squashed-sphere hills just past the ground apron — irregular via a deterministic per-map LCG
@@ -863,6 +884,93 @@ func _build_rim(map: String) -> void:
 			hill.material_override = ring_mats[ring][int(h4 * 2.999)]
 			hill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_rim_root.add_child(hill)
+
+# ---- world-expansion P1B: client-only BACKDROPS (unreachable skyline scenery) --------------------------
+# data/backdrops/<map>.json — array of {model, x, y, h, yaw, oy}: model = a GLB basename resolved through
+# PROP_DIRS (the same lazy loader decal props use), x/y = the model's horizontal CENTER in that map's
+# sim-space (authored OUTSIDE the playable bounds — the sim clamps fighters to the arena, so nothing out
+# there is ever reachable; keep tall masses clear of the camera's orbit envelope too), h = the target
+# world-space height (scaled against the model's natural AABB height, NOT the decal h-as-scale rule),
+# yaw = rotation, oy = vertical lift. STRICTLY render-only: the server / shared/World.gd /
+# collision_from_decals never read this directory, records never enter snapshots or sim state, and every
+# mesh drops shadow casting (distant scenery). An absent file or malformed record fails safe: skip + warn.
+func _backdrops_for(map: String) -> Array:
+	if _backdrops_cache.has(map):
+		return _backdrops_cache[map]
+	var out: Array = []
+	var jpath := "res://data/backdrops/%s.json" % map
+	if map != "" and FileAccess.file_exists(jpath):
+		var f := FileAccess.open(jpath, FileAccess.READ)
+		if f != null:
+			var parsed = JSON.parse_string(f.get_as_text())
+			f.close()
+			if parsed is Array:
+				out = parsed
+			else:
+				push_warning("[backdrop] %s is not a JSON array — ignored" % jpath)
+	_backdrops_cache[map] = out
+	return out
+
+func _render_backdrops(map: String) -> void:
+	if _backdrop_root != null:
+		_backdrop_root.queue_free()
+		_backdrop_root = null
+	var recs := _backdrops_for(map)
+	if recs.is_empty() or _world_root == null:
+		return
+	_backdrop_root = Node3D.new()
+	_world_root.add_child(_backdrop_root)
+	# Backdrops render as SILHOUETTE masses, like the rim hills: kit albedo textures read paper-white
+	# against the dusk scene, so every mesh gets a shared dark biome-tinted material (shaded, so roof/wall
+	# planes still separate). Materials are quantized per distinct tint string — never per-instance.
+	var pal := _depth_palette(map)
+	var def_col: Color = (pal[2] as Color).darkened(0.35)   # a step darker than the hills: nearer = darker
+	var mats := {}
+	for r in recs:
+		var bx := _bd_num(r, "x", NAN) if r is Dictionary else NAN
+		var by := _bd_num(r, "y", NAN) if r is Dictionary else NAN
+		if not (r is Dictionary) or not r.has("model") or is_nan(bx) or is_nan(by):
+			push_warning("[backdrop] %s: skipping malformed record %s" % [map, str(r)])
+			continue
+		var e := _prop_entry(str(r["model"]))
+		if e["scene"] == null:
+			continue                               # missing GLB — _prop_entry already warned
+		var tint := str(r.get("tint", ""))
+		if not mats.has(tint):
+			var m := _mat(Color.from_string(tint, def_col))
+			m.roughness = 1.0
+			m.cull_mode = BaseMaterial3D.CULL_DISABLED   # camera INSIDE a mass at extreme orbits reads as a
+			mats[tint] = m                               # solid dark wall, never a flickering backface x-ray
+		var h := clampf(_bd_num(r, "h", 10.0), 0.5, 80.0)
+		var sc: float = h / float(e["hgt"])
+		var yaw := _bd_num(r, "yaw", 0.0)
+		var inst = e["scene"].instantiate()
+		inst.scale = Vector3(sc, sc, sc)
+		# anchor on the model's horizontal AABB CENTER (kit GLBs are often corner-origined — building-n's
+		# origin sits on its +x FACE, which would shift the mass ~10 wu off the authored spot at skyline scale)
+		var co := Vector2(float(e["cx"]), float(e["cz"])) * sc
+		var cw := Vector2(co.x * cos(yaw) + co.y * sin(yaw), -co.x * sin(yaw) + co.y * cos(yaw))
+		inst.position = Vector3((bx - _aw() / 2.0) * SCALE - cw.x,
+			-float(e["min_y"]) * sc + _bd_num(r, "oy", 0.0),
+			(by - _ah() / 2.0) * SCALE - cw.y)
+		inst.rotation.y = yaw
+		_backdrop_dress(inst, mats[tint])
+		_backdrop_root.add_child(inst)
+
+# strict numeric field read for backdrop records: a JSON null / list / object in a numeric slot falls back
+# to def (a raw float(Nil) would hard-error and abort the whole build — the gate only checks key presence).
+func _bd_num(r: Dictionary, key: String, def: float) -> float:
+	var v = r.get(key, def)
+	return float(v) if (v is float or v is int) else def
+
+# silhouette dressing: shadow casting OFF (distant scenery) + the shared dark material, recursively.
+func _backdrop_dress(n: Node, m: StandardMaterial3D) -> void:
+	if n is GeometryInstance3D:
+		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		if n is MeshInstance3D:
+			n.material_override = m
+	for c in n.get_children():
+		_backdrop_dress(c, m)
 
 # A held sport prop for the class, or null. The Batter carries a bat (a tapered cylinder); _spawn pins
 # it to the RightHand bone so it tracks the swing. (Balls are intentionally omitted — a ball stuck in
@@ -1353,14 +1461,26 @@ func _build_world() -> void:
 
 	var we := WorldEnvironment.new()
 	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.05, 0.07, 0.11)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	# world-expansion P1A: a real sky instead of a flat color. The dusk-toned procedural gradient keeps the
+	# game's dark stadium-evening mood; _theme_depth() re-themes the material per biome on every map change.
+	env.background_mode = Environment.BG_SKY
+	env.background_color = Color(0.05, 0.07, 0.11)   # fallback only under BG_SKY — kept in _theme_depth for safety
+	_sky_mat = ProceduralSkyMaterial.new()
+	_sky_mat.sun_angle_max = 10.0               # subtle dusk sun disc, not a noon glare bloom
+	_sky_mat.sun_curve = 0.12
+	var sky := Sky.new()
+	sky.sky_material = _sky_mat
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR   # ambient stays COLOR-sourced: scene lighting unchanged
 	env.ambient_light_color = Color(0.46, 0.52, 0.64)
 	env.ambient_light_energy = 0.75
 	env.fog_enabled = true
 	env.fog_density = 0.004
 	env.fog_light_color = Color(0.06, 0.08, 0.12)
+	env.fog_sky_affect = 0.12                   # sky keeps its gradient (1.0 would fog it to a flat color again)
+	env.fog_aerial_perspective = 0.5            # distant fog samples the SKY → rim/horizon-plane fade into it seamlessly
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED  # parity: BG_COLOR reflected the near-black
+	                                            # bg; sourcing reflections from the sky glow is a LOOK change — opt in later
 	we.environment = env
 	_env = env                                  # world-depth pass re-tints fog/bg per biome
 	add_child(we)
@@ -1409,7 +1529,24 @@ func _build_world() -> void:
 
 	_cam = Camera3D.new()
 	_cam.fov = FOV
+	_cam.near = CAM_NEAR                        # set ONCE here (never per-frame): _update_cam only moves/aims
+	_cam.far = CAM_FAR
 	add_child(_cam)
+	# dev-only camera/theme flags (pair with Main's --shot). Parsed HERE, not in _enter_mode, so they work
+	# in BOTH the sandbox and the online client (NetClient overrides _enter_mode but reuses _build_world).
+	var cargs := OS.get_cmdline_user_args()
+	var ci := cargs.find("--cam-pitch")         # force a camera pitch (radians) for horizon captures
+	if ci >= 0 and ci + 1 < cargs.size():
+		_pitch = clampf(float(cargs[ci + 1]), PITCH_MIN, PITCH_MAX)
+	ci = cargs.find("--cam-yaw")                # force a camera heading (radians) for the 4-heading seam sweep
+	if ci >= 0 and ci + 1 < cargs.size():
+		_yaw = float(cargs[ci + 1])
+	ci = cargs.find("--cam-dist")               # force a camera zoom distance for close/default/far shots
+	if ci >= 0 and ci + 1 < cargs.size():
+		_dist = clampf(float(cargs[ci + 1]), DIST_MIN, DIST_MAX)
+	ci = cargs.find("--biome")                  # force the render THEME (field/depth/sky) of another map family
+	if ci >= 0 and ci + 1 < cargs.size():
+		_theme_override = str(cargs[ci + 1])
 	_update_cam()
 
 func _update_cam() -> void:
@@ -2142,7 +2279,7 @@ func _prop_entry(id: String) -> Dictionary:
 			break
 	if path == "":
 		push_warning("[prop] no GLB found for id '%s' under %s" % [id, str(PROP_DIRS)])
-	var e := {"scene": null, "min_y": 0.0, "foot": 1.0, "h": 1.0, "depth": 1.0, "zlong": false}
+	var e := {"scene": null, "min_y": 0.0, "foot": 1.0, "h": 1.0, "hgt": 1.0, "depth": 1.0, "zlong": false}
 	if path != "" and ResourceLoader.exists(path):
 		e["scene"] = load(path)
 		var inst = e["scene"].instantiate()
@@ -2151,6 +2288,10 @@ func _prop_entry(id: String) -> Dictionary:
 		inst.free()
 		var a: AABB = acc["aabb"]
 		e["min_y"] = a.position.y
+		e["hgt"] = maxf(a.size.y, 0.001)           # natural world height (P1B backdrops scale h against THIS;
+		                                           # decal records keep their legacy h-as-scale-factor semantics)
+		e["cx"] = a.position.x + a.size.x / 2.0    # horizontal AABB center — kit GLBs are often corner-origined,
+		e["cz"] = a.position.z + a.size.z / 2.0    # so backdrops anchor on THIS, not the model origin
 		e["foot"] = maxf(maxf(a.size.x, a.size.z), 0.001)
 		e["depth"] = maxf(minf(a.size.x, a.size.z), 0.001)
 		e["zlong"] = a.size.z > a.size.x           # kit models vary: some lie long along Z, not X

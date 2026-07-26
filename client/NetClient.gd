@@ -4365,8 +4365,11 @@ func _lb_input(e: InputEvent) -> bool:
 	return false
 
 # the placement transform the server will clamp (never trusted). Snapped like the admin decorator.
+# {} when the cursor aims at/above the horizon (reachable since P1A's lower PITCH_MIN) — callers must skip.
 func _lb_xform() -> Dictionary:
 	var p := _cursor_sim()
+	if p.x < 0.0:
+		return {}
 	return {"x": snappedf(p.x, 1.0), "y": snappedf(p.y, 1.0), "h": snappedf(_lb_h, 0.1),
 		"yaw": snappedf(_lb_yaw, 0.01), "oy": snappedf(_lb_oy, 0.01)}
 
@@ -4422,7 +4425,10 @@ func _lb_place() -> void:
 	var id := str((_lb_pal[_lb_idx] as Dictionary).get("id", ""))
 	if id == "":
 		return
-	net.build_place.rpc_id(1, id, _lb_xform())
+	var xf := _lb_xform()
+	if xf.is_empty():                               # aiming at the sky — no ground point to place at
+		return
+	net.build_place.rpc_id(1, id, xf)
 	_lb_push_undo({"act": "remove", "id": id})      # undo a place → remove it
 
 # grab the nearest placed prop to move it: adopt its size/rotation/lift so the ghost shows it faithfully and the
@@ -4447,7 +4453,10 @@ func _lb_drop_move() -> void:
 	if _lb_grab_id == "":
 		return
 	if net != null and _connected:
-		net.build_move.rpc_id(1, _lb_grab_id, _lb_xform())
+		var xf := _lb_xform()
+		if xf.is_empty():                           # aiming at the sky — keep holding the prop, drop nothing
+			return
+		net.build_move.rpc_id(1, _lb_grab_id, xf)
 		if not _lb_grab_from.is_empty():
 			_lb_push_undo({"act": "move", "id": _lb_grab_id, "xform": _lb_grab_from.duplicate()})
 	_lb_grab_id = ""

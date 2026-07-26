@@ -48,7 +48,7 @@ func _ready() -> void:
 	for i in SFX_VOICES:
 		var p := AudioStreamPlayer3D.new()
 		p.bus = "SFX"
-		p.max_distance = 70.0
+		p.max_distance = 90.0    # must exceed Client.DIST_MAX (70) + shake/kick headroom, or combat goes SILENT at max zoom
 		p.unit_size = 10.0
 		add_child(p)
 		_voices.append(p)

@@ -1,0 +1,10 @@
+[
+	{"model": "building-t", "x": 2150.0, "y": 300.0, "h": 12.0, "yaw": -0.12, "oy": -0.2},
+	{"model": "building-n", "x": 2120.0, "y": 230.0, "h": 20.0, "yaw": 0.18, "oy": -0.2},
+	{"model": "chimney-medium", "x": 2100.0, "y": 265.0, "h": 28.0, "yaw": 0.0, "oy": -0.2},
+	{"model": "chimney-medium", "x": 2135.0, "y": 335.0, "h": 23.0, "yaw": 0.35, "oy": -0.2},
+	{"model": "detail-tank", "x": 2060.0, "y": 395.0, "h": 4.5, "yaw": -0.5, "oy": -0.2},
+	{"model": "building-k", "x": 640.0, "y": -300.0, "h": 6.5, "yaw": 1.35, "oy": -0.2},
+	{"model": "chimney-small", "x": 830.0, "y": -290.0, "h": 8.0, "yaw": 0.6, "oy": -0.2},
+	{"model": "detail-tank", "x": 960.0, "y": -260.0, "h": 4.5, "yaw": 1.1, "oy": -0.2}
+]
