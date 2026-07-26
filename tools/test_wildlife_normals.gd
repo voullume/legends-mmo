@@ -92,6 +92,7 @@ func _init() -> void:
 		"away_1": {"netvine_skink": 6, "tacklehorn_grazer": 4},  # P2: +2 nest skinks; P3: +Wild-Yards pair + the L11 Broodmother elite
 		"away_2": {"scrapmask_forager": 2, "tacklehorn_grazer": 1, "rallywing_magpie": 2, "emerald_warfrog": 1},
 		"away_3": {"rallywing_magpie": 1, "netvine_skink": 1, "scrapmask_forager": 1, "splinterback_elite": 1, "emerald_warfrog": 1},
+		"away_3_concourse": {"rallywing_magpie": 4},  # P4: 3 roosts + the Rafter elite (the roof is mob-free by design)
 	}
 	for zone in want:
 		var counts := {}

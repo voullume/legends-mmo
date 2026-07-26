@@ -1,0 +1,253 @@
+[
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 140.0,
+		"y": 45.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 320.0,
+		"y": 45.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 580.0,
+		"y": 45.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 760.0,
+		"y": 45.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 150.0,
+		"y": 515.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 430.0,
+		"y": 515.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 620.0,
+		"y": 515.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 45.0,
+		"y": 150.0,
+		"yaw": 1.5708
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 45.0,
+		"y": 410.0,
+		"yaw": 1.5708
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 855.0,
+		"y": 150.0,
+		"yaw": 1.5708
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 855.0,
+		"y": 390.0,
+		"yaw": 1.5708
+	},
+	{
+		"h": 3.4,
+		"kind": "prop",
+		"model": "player_tunnel_gate",
+		"x": 760.0,
+		"y": 520.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.8,
+		"kind": "prop",
+		"model": "arena_service_door",
+		"x": 845.0,
+		"y": 530.0,
+		"yaw": 3.14
+	},
+	{
+		"h": 3.2,
+		"kind": "prop",
+		"model": "player_tunnel_gate",
+		"x": 30.0,
+		"y": 280.0,
+		"yaw": 1.5708
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 150.0,
+		"y": 230.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 150.0,
+		"y": 330.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.1,
+		"kind": "prop",
+		"model": "player_bench",
+		"x": 430.0,
+		"y": 120.0,
+		"yaw": 3.14
+	},
+	{
+		"h": 1.1,
+		"kind": "prop",
+		"model": "player_bench",
+		"x": 530.0,
+		"y": 120.0,
+		"yaw": 3.14
+	},
+	{
+		"h": 1.1,
+		"kind": "prop",
+		"model": "player_bench",
+		"x": 300.0,
+		"y": 490.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.6,
+		"kind": "prop",
+		"model": "championship_trophy",
+		"x": 545.0,
+		"y": 80.0,
+		"yaw": 3.14
+	},
+	{
+		"h": 4.2,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 180.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.2,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 720.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.2,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 260.0,
+		"y": 450.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.0,
+		"kind": "prop",
+		"model": "equipment_transport_crate",
+		"x": 805.0,
+		"y": 555.0,
+		"yaw": 0.7
+	},
+	{
+		"h": 0.6,
+		"kind": "prop",
+		"model": "grass_large",
+		"x": 250.0,
+		"y": 300.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 0.6,
+		"kind": "prop",
+		"model": "grass_large",
+		"x": 600.0,
+		"y": 380.0,
+		"yaw": 1.9
+	},
+	{
+		"kind": "cone",
+		"x": 640.0,
+		"y": 420.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "championship_trophy",
+		"x": 250.0,
+		"y": 150.0,
+		"yaw": 0.6
+	},
+	{
+		"h": 1.8,
+		"kind": "prop",
+		"model": "championship_reward_chest",
+		"x": 205.0,
+		"y": 195.0,
+		"yaw": 2.4
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "scrap_sports_equipment_pile",
+		"x": 300.0,
+		"y": 200.0,
+		"yaw": 1.1
+	},
+	{
+		"h": 1.8,
+		"kind": "prop",
+		"model": "scrap_sports_equipment_pile",
+		"x": 195.0,
+		"y": 125.0,
+		"yaw": 3.9
+	},
+	{
+		"kind": "ring",
+		"r": 90.0,
+		"x": 250.0,
+		"y": 165.0
+	}
+]

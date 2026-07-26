@@ -211,6 +211,14 @@ var _spawn_pos := {}
 var _respawn := {}
 var _mob_engaged := {}              # mob id → currently engaged (for leash hysteresis + heal-once)
 var _tp_next := {}                 # fighter id → earliest ms it may use a portal (grace after teleport/spawn)
+# P6§1 — empty-zone sleep (world-expansion capacity fix): a static zone with zero REAL players skips
+# its whole _tick_world. Residents do NOT hold zones awake (they'd pin 11/18 hot); bonded residents'
+# zones DO stay awake (party frames are the one cross-zone surface). Drain window: a just-vacated
+# zone keeps ticking ~12s so combat settles (leash-heal, projectiles/hazards/DOTs expire) before it
+# freezes. Respawns need NO catch-up: _advance_respawns is global and _revive works on unticked worlds.
+var _zone_awake_until := {}        # map → wall-clock ms until which a vacated zone keeps ticking (drain)
+var _zone_asleep := {}             # map → true for zones skipped this sub-step (RP4 gate + [health] count)
+const ZONE_DRAIN_MS := 12000
 var _gate_prompt_next := {}        # pid → earliest ms for the next "sealed pad" prompt (difficulty-pass v1)
 var _chat_next := {}               # peer id → earliest ms it may chat again (rate limit)
 var _equipping := {}               # peer ids with an equip() toggle in flight (race guard)
@@ -503,6 +511,21 @@ var _residents := {}                             # resident fighter id → its r
 var _res_dir := {}                               # resident fighter id → director state {route_idx, next_move_t}
 var _res_t := 0.0                                # director cadence accumulator (~2 Hz is plenty)
 var _res_party := {}                             # RP2: resident fid → leader pid (a partied resident follows this player)
+
+# P6§1 — the sleep predicate's occupancy set: maps holding a REAL player (any connected peer's session
+# map — a corpse keeps its session, so a zone stays awake through the respawn window) plus maps holding
+# a BONDED resident (its HP/status shows cross-zone in the leader's party frame — never freeze those).
+func _occupied_maps() -> Dictionary:
+	var occ := {}
+	for pid in _peers:
+		var s = _session.get(pid, null)
+		if s != null:
+			occ[str(s.get("map", ""))] = true
+	for rfid in _res_party:
+		var rf = _find(rfid)
+		if rf != null:
+			occ[str(rf["map"])] = true
+	return occ
 var _res_chat_next := {}                         # RP3: resident fid → earliest ms it may speak again
 var _res_chat_i := 0                             # RP3: rotating line index (server-side only — never the sim RNG)
 var _res_prog := {}                              # RP4: resident fid → {last_dmg, stall_t} (no-combat-progress tracking)
@@ -634,6 +657,14 @@ func _tick_reports(dt: float) -> void:
 			continue
 		var prog: Dictionary = _res_prog.get(fid, {"last_dmg": 0.0, "stall_t": 0.0, "zone": ""})
 		var cur_dmg := float(f.get("dmgDealt", 0.0))
+		# P6§1: the resident's zone is asleep — its sim state (dmgDealt/noDmgT) is frozen while this
+		# scan runs on wall-time, so stall accrual would fabricate endless false no_progress reports
+		# (and mask real ones). Reset and skip; RP4 resumes honestly when the zone wakes.
+		if _zone_asleep.has(zone):
+			prog["stall_t"] = 0.0
+			prog["last_dmg"] = cur_dmg
+			_res_prog[fid] = prog
+			continue
 		if str(prog.get("zone", "")) != zone:         # the stall clock is PER-ZONE — a relocate (router/follow) starts
 			prog["zone"] = zone                       # a fresh clock so a report always names the zone it accrued in
 			prog["stall_t"] = 0.0
@@ -3211,8 +3242,25 @@ func _physics_process(delta: float) -> void:
 	_acc += delta
 	var steps := 0
 	while _acc >= SIM_DT and steps < 5:
+		# P6§1: occupancy is re-derived EVERY sub-step — every entry path (_portal_teleport, _relocate,
+		# _spawn_player, admin goto) updates _session["map"] synchronously, so a fresh arrival wakes its
+		# zone before the player's first sim contact with zero explicit wake hooks. Instances ("#")
+		# never sleep (created on demand, torn down when empty; drills need their tick).
+		var occ := _occupied_maps()
+		var now_ms := Time.get_ticks_msec()
+		_zone_asleep.clear()
 		for mapname in _worlds:
-			_tick_world(_worlds[mapname], mapname)
+			var mn := str(mapname)
+			if mn.contains("#"):
+				_tick_world(_worlds[mapname], mapname)   # instances always tick (torn down when empty) —
+				                                          # and never enter _zone_awake_until (no key leak)
+			elif occ.has(mn):
+				_zone_awake_until[mn] = now_ms + ZONE_DRAIN_MS
+				_tick_world(_worlds[mapname], mapname)
+			elif int(_zone_awake_until.get(mn, 0)) > now_ms:
+				_tick_world(_worlds[mapname], mapname)   # drain window: settle the vacated fight
+			else:
+				_zone_asleep[mn] = true
 		_advance_respawns(SIM_DT)                 # respawn countdown runs once per tick (not per world)
 		_check_portals()                          # move players between worlds after the sims resolve
 		_tick_drills()                            # Two-Minute Drill: advance waves / end runs (P5)
@@ -3256,8 +3304,8 @@ func _health_log() -> void:
 	var load := _proc_first_token("/proc/loadavg")
 	var free_mb := _proc_kb("/proc/meminfo", "MemAvailable:") / 1024
 	var rss_mb := _proc_kb("/proc/self/status", "VmRSS:") / 1024
-	print("[health] players=%d [%s]  load=%s (1 vCPU)  peak_tick=%.1fms/33ms  free_ram=%dMB  server_rss=%dMB  hops/min=%d" % [
-		players, zones, load, _tick_us_peak / 1000.0, free_mb, rss_mb, _hop_n])
+	print("[health] players=%d [%s]  load=%s (1 vCPU)  peak_tick=%.1fms/33ms  asleep=%d/%d  free_ram=%dMB  server_rss=%dMB  hops/min=%d" % [
+		players, zones, load, _tick_us_peak / 1000.0, _zone_asleep.size(), _worlds.size(), free_mb, rss_mb, _hop_n])
 	_tick_us_peak = 0
 	_hop_n = 0
 
@@ -4859,7 +4907,10 @@ func _broadcast() -> void:
 				if f["team"] == 0 and not f.get("resident", false):   # real players only in the heartbeat
 					np += 1
 			counts.append("%s:%dp" % [mapname, np])
-		var any_t: float = _worlds[_worlds.keys()[0]]["t"]   # every world ticks in lockstep — read any
+		# P6§1: worlds no longer tick in lockstep (sleeping zones freeze their t) — report the max
+		var any_t: float = 0.0
+		for mapname in _worlds:
+			any_t = maxf(any_t, float(_worlds[mapname]["t"]))
 		print("[zone] t=%.0f  %s" % [any_t, " ".join(counts)])
 
 # UI-consistency §3b — the compact per-fighter status dict ("st"): shipped as an OPTIONAL,

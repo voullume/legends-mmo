@@ -26,6 +26,8 @@ const AWAY1 := "away_1"                     # Overgrown Practice Field — lvl 9
 const AWAY2 := "away_2"                     # Overrun Gauntlet    — lvl 12-13 wildlife, healer-camp lesson (field_medic) + the warfrog anchor (W4)
 const BASECAMP := "basecamp"                # W7: the Wildlife Expanse Base Camp — the biome's safe hub (tier-2 shop, forge, giver #2)
 const AWAY3 := "away_3"                     # Reclaimed Stadium   — lvl 15-16 wildlife, the drill_sergeant guards the boss door (S2)
+const AWAY3C := "away_3_concourse"          # P4: Reclaimed Stadium · North Concourse — under-stand gallery, magpie roosts
+const AWAY3R := "away_3_roof"               # P4: Reclaimed Stadium · The Roof — quiet overlook capstone (aggro false, NO mobs)
 const AWAY_BOSS := "away_boss"                 # Howler's Sideline — THE ARROWBOUND HOWLER (teaching boss: cores, no ult) (W5)
 const FINALS1 := "finals_1"                 # Contenders' Quarter — lvl 19-21, behind finals_gate (L17 + IP800) (S3)
 const FINALS2 := "finals_2"                 # Champions' Gate     — lvl 23-25 + THE GRAND GALLERY elite-plus (S3)
@@ -55,6 +57,8 @@ const ARENA_SPAWN := Vector2(200, 400)       # the Home→Arena portal drops you
 const AWAY1_SPAWN := Vector2(200, 475)       # the Home→Wildlife Expanse portal drops you here (west, clear of camps)
 const AWAY2_SPAWN := Vector2(200, 500)
 const AWAY3_SPAWN := Vector2(220, 550)
+const AWAY3C_SPAWN := Vector2(600, 595)      # P4: concourse arrival — the map's south edge (you kept walking north)
+const AWAY3R_SPAWN := Vector2(760, 470)      # P4: roof arrival — the SE stairhead arch
 const BASECAMP_SPAWN := Vector2(400, 540)    # safe-map fixed login spawn (south-center; residents offset east of it)
 const AWAYB_SPAWN := Vector2(140, 410)       # boss room: arrive far WEST, well clear of the central Rival Coach
 const FINALS1_SPAWN := Vector2(200, 520)
@@ -84,6 +88,11 @@ const MAPS := {
 	AWAY1: {"type": "combat", "w": 2600, "h": 950,  "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY1_SPAWN},  # P3: 1700→2600 east growth (the exploration flagship — deliberately out-sizes the 2000-wide late zones)
 	AWAY2: {"type": "combat", "w": 1850, "h": 1000, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY2_SPAWN},
 	AWAY3: {"type": "combat", "w": 2000, "h": 1100, "regen": 0.012, "regen_delay": 6.0, "aggro": true,  "pvp": false, "spawn": AWAY3_SPAWN},
+	# P4 (the stadium climb): two stacked flat "levels" of the Reclaimed Stadium (handoff-v2 §Phase 4 —
+	# no sim height; layers are ordinary maps masked by arch/stair/gantry transitions). The roof uses the
+	# ARENA aggro-false pattern: a quiet overlook, resume-at-logout preserved, zero mobs by design.
+	AWAY3C: {"type": "combat", "w": 1200, "h": 700, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": AWAY3C_SPAWN},
+	AWAY3R: {"type": "combat", "w": 900,  "h": 560, "regen": 0.012, "regen_delay": 6.0, "aggro": false, "pvp": false, "spawn": AWAY3R_SPAWN},
 	AWAY_BOSS: {"type": "combat", "w": 1240, "h": 820, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": AWAYB_SPAWN},
 	# Phase 8 S3 — the Finals district (the 18-25 capstone band)
 	FINALS1: {"type": "combat", "w": 1900, "h": 1040, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": FINALS1_SPAWN},
@@ -238,6 +247,25 @@ const PORTALS := {
 		# W7: the Base Camp hangs off the stadium's south edge — pad 354 from both south camps (skink
 		# @520,720 / splinterback @1000,720, > AGGRO 320); carries wild_gate (S1 rule — basecamp is in-biome)
 		{"x": 760.0,  "y": 980.0,  "to": BASECAMP, "tx": 400.0, "ty": 450.0, "gate": "wild_gate", "label": "▶ Base Camp"},
+		# P4: the Superstructure Gate — the stadium climb enters at the bowl's own base (north-central
+		# candidate; 361 from the forager camp, 768 from the door guard). Arch decal flanks it (yaw 0 —
+		# the ENGINE's row axis is (cos yaw, sin yaw): yaw 0 = posts E/W, walk N-S through). wild_gate (S1).
+		{"x": 1270.0, "y": 140.0, "to": AWAY3C, "tx": 600.0, "ty": 595.0, "gate": "wild_gate", "label": "▲ Stadium Concourse"},
+	],
+	AWAY3C: [
+		# south-arcade exit through the service-bay gap (bay x 262-468 between the interior wall spans);
+		# drop (1345,140) shares ONE audited landing with the roof express: 542 from the warfrog guard,
+		# 420 from the forager camp, 75 from the entrance pad (> PORTAL_RADIUS 42), north of the boss-exit lane
+		{"x": 360.0,  "y": 650.0, "to": AWAY3,  "tx": 1345.0, "ty": 140.0, "gate": "wild_gate", "label": "▼ Stadium Exterior"},
+		# the NE stair — the east switchback up (arch posts flank the walk)
+		{"x": 1120.0, "y": 120.0, "to": AWAY3R, "tx": 760.0,  "ty": 470.0, "gate": "wild_gate", "label": "▲ The Roof"},
+	],
+	AWAY3R: [
+		# stairhead back down; concourse-side drop (1120,240) clears every roost by > 320 (min 338 to the Rafter)
+		{"x": 830.0, "y": 480.0, "to": AWAY3C, "tx": 1120.0, "ty": 240.0, "gate": "wild_gate", "label": "▼ Concourse"},
+		# the west gantry express — P3-checkpoint precedent: the whole reverse walk for free; lands at the
+		# gate base you first entered (same audited point as the concourse exit — single keep-clear surface)
+		{"x": 110.0, "y": 280.0, "to": AWAY3,  "tx": 1345.0, "ty": 140.0, "gate": "wild_gate", "label": "▼ Field Exit · Gantry"},
 	],
 	AWAY_BOSS: [
 		# drop back mid away_3, WEST of the drill_sergeant boss-door guard @1700 (> AGGRO 320) and CLEAR of
@@ -385,6 +413,15 @@ const MOBS := {
 		{"class": "scrapmask_forager", "level": 15, "tier": "minion", "x": 1000.0, "y": 380.0},
 		{"class": "splinterback_elite", "level": 15, "tier": "elite", "x": 1000.0, "y": 720.0},   # W4b: the quill-back takes the ranged-elite seat
 		{"class": "emerald_warfrog", "level": 16, "tier": "elite", "x": 1700.0, "y": 550.0},   # the hulking door guard (220 from the pad — jukeable)
+	],
+	AWAY3C: [  # P4 — the North Concourse roosts: magpies fouling the rafters (pure-wildlife rule; kills
+		# credit NOTHING map-matched by design — the class-matched wild3 quest gains credit sources, accepted).
+		# Roost separations all > 320; the SW roost is 195 from the exit pad BY DESIGN (door-guard grammar).
+		{"class": "rallywing_magpie", "level": 15, "tier": "minion", "x": 660.0, "y": 140.0},   # north-lane roost (nudged ≥320 from the stair leg)
+		{"class": "rallywing_magpie", "level": 15, "tier": "minion", "x": 300.0, "y": 240.0},   # west-wing roost
+		{"class": "rallywing_magpie", "level": 15, "tier": "minion", "x": 190.0, "y": 555.0},   # SW alcove roost (guards the exit bay)
+		# THE RAFTER — the silvered ELITE_LOOKS magpie entry auto-applies (no minLevel); 355/443 from both pads
+		{"class": "rallywing_magpie", "level": 16, "tier": "elite",  "x": 930.0, "y": 520.0},
 	],
 	AWAY_BOSS: [  # Rival Sideline — the teaching boss: 3 SLOW-respawn cores shield it (0.40 DR), NO ult.
 		# rival_core (respawnS 45, lvl 10) — a solo rotation can genuinely earn the shield-down window;

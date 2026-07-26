@@ -751,6 +751,10 @@ func _make_field_material(map: String) -> StandardMaterial3D:
 	var tile := 5.0                                       # world-units per texture repeat
 	if map == World.AWAY_BOSS:
 		tex = "howler_den_albedo.png"; tint = Color(0.94, 0.90, 0.84); tile = 7.0
+	elif map == World.AWAY3C:                             # P4 climb: cool in-shadow concourse concrete
+		tex = "stadium_deck_albedo.png"; tint = Color(0.82, 0.84, 0.88); tile = 6.0
+	elif map == World.AWAY3R:                             # P4 climb: sun-washed roof deck (tighter repeat = finer slabs)
+		tex = "stadium_deck_albedo.png"; tint = Color(1.0, 0.98, 0.94); tile = 4.5
 	elif map.begins_with("away"):
 		tex = "wildrange_albedo.png"; tint = Color(0.94, 0.92, 0.82); tile = 7.0
 	elif map == World.BASECAMP:
@@ -791,6 +795,14 @@ func _depth_palette(map: String) -> Array:
 	if map == World.AWAY_BOSS:                            # the Howler's den: darker clawed-earth range, ember dusk
 		return [Color(0.095, 0.075, 0.055), Color(0.14, 0.11, 0.082), Color(0.24, 0.19, 0.13), Color(0.075, 0.06, 0.05),
 			Color(0.055, 0.045, 0.06), Color(0.36, 0.19, 0.10)]
+	if map == World.AWAY3C:                               # P4: under-stand gloom — the gold dusk crushed to a hot slit
+		return [Color(0.07, 0.065, 0.055), Color(0.10, 0.10, 0.10), Color(0.15, 0.14, 0.12), Color(0.06, 0.055, 0.05),
+			Color(0.05, 0.05, 0.075), Color(0.42, 0.28, 0.13)]
+	if map == World.AWAY3R:                               # P4: altitude light — sky channels LIGHTER than the exterior,
+		# but horizon/apron pulled DOWN toward the fog color (review fix): the beyond-edge planes read
+		# as haze/void under the deck, not flush adjacent ground. Rim ring is skipped entirely (see _build_rim).
+		return [Color(0.13, 0.12, 0.10), Color(0.14, 0.13, 0.11), Color(0.30, 0.27, 0.17), Color(0.13, 0.12, 0.10),
+			Color(0.11, 0.13, 0.20), Color(0.62, 0.46, 0.26)]
 	if map.begins_with("away"):                           # trampled range: dry olive-tan hills, gold range sunset
 		return [Color(0.10, 0.09, 0.05), Color(0.15, 0.13, 0.075), Color(0.26, 0.23, 0.12), Color(0.08, 0.075, 0.05),
 			Color(0.08, 0.085, 0.13), Color(0.50, 0.36, 0.18)]
@@ -819,7 +831,14 @@ func _theme_depth(map: String) -> void:
 	if _env != null:
 		_env.fog_light_color = pal[3].lerp(pal[5], 0.18)  # near-fog leans toward the sky glow → no fog/sky seam
 		_env.background_color = pal[3]            # BG_SKY fallback only (kept: never rely on it for the visible sky)
-		_env.fog_density = 0.006                  # slightly denser: the rim fades into the horizon, not a hard edge
+		# P4 climb: per-layer altitude fog — plunge-then-burst (0.006 exterior → 0.0085 concourse gloom
+		# → 0.003 roof: half baseline sells thin clear air so the miniature world bands stay crisp)
+		if map == World.AWAY3C:
+			_env.fog_density = 0.0085
+		elif map == World.AWAY3R:
+			_env.fog_density = 0.003
+		else:
+			_env.fog_density = 0.006              # slightly denser: the rim fades into the horizon, not a hard edge
 
 # A ring of squashed-sphere hills just past the ground apron — irregular via a deterministic per-map LCG
 # (stable across rebuilds, no rng stream contact). Nothing here is reachable: the sim clamps to the arena.
@@ -832,6 +851,11 @@ func _build_rim(map: String) -> void:
 	_rim_sig = sig
 	for c in _rim_root.get_children():
 		c.queue_free()
+	# P4 review fix: NO rim ring on the roof — tan hills at deck level read as "a plaza in a sandy
+	# basin" and kill the altitude illusion. The deck edge is bounded by its own rail decals; beyond
+	# it the apron/horizon (pulled toward the fog color) drop into haze — 78 su of implied air.
+	if map == World.AWAY3R:
+		return
 	var pal := _depth_palette(map)
 	var hw := _aw() * SCALE / 2.0 + 16.0          # ring half-extent: past the 12-unit apron edge
 	var hh := _ah() * SCALE / 2.0 + 16.0

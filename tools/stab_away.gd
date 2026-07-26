@@ -222,7 +222,7 @@ func _run() -> void:
 	ok(drop_d > 320.0, "geometry: the away_2 back-drop is outside the elite's aggro (%.0f > 320)" % drop_d)
 	# review: EVERY away forward pad keeps the ≥200 guard margin, and EVERY portal drop-point lands clear
 	# of the destination's obstacle collision circles (a drop inside a panel's block band strands arrivals)
-	for mp in ["away_1", "away_2", "away_3", "away_boss", "finals_1", "finals_2"]:
+	for mp in ["away_1", "away_2", "away_3", "away_3_concourse", "away_3_roof", "away_boss", "finals_1", "finals_2"]:  # P4: + the climb layers
 		for p in World.PORTALS.get(mp, []):
 			if p.has("to") and (str(p["to"]).begins_with("away") or str(p["to"]).begins_with("finals")):   # forward pads: guard margin
 				for row in World.MOBS.get(mp, []):
@@ -237,7 +237,7 @@ func _run() -> void:
 					if cd <= float(c["r"]) + 16.0:
 						ok(false, "geometry: %s→%s drop (%.0f,%.0f) lands inside an obstacle/decor circle" % [mp, str(p["to"]), float(p["tx"]), float(p["ty"])])
 	# S5: spawn points must clear decor collision too (a fountain on the spawn would trap arrivals)
-	for mp in ["away_1", "away_2", "away_3", "away_boss", "finals_1", "finals_2"]:
+	for mp in ["away_1", "away_2", "away_3", "away_3_concourse", "away_3_roof", "away_boss", "finals_1", "finals_2"]:  # P4: + the climb layers
 		var sp2: Vector2 = World.MAPS[mp]["spawn"]
 		for c in World.collision_from_decals(mp):
 			var sd := Vector2(sp2.x - float(c["x"]), sp2.y - float(c["y"])).length()
@@ -303,8 +303,21 @@ func _run() -> void:
 		ok(fwd_gated, "S1 rule: %s's forward pad carries wild_gate" % mp)
 	ok(World.gate_for_map("away_3") == "wild_gate" and World.gate_for_map("away_boss") == "wild_gate",
 		"restore: away_3 + away_boss derive the login gate from their inbound pads")
+	# ---- P4: the stadium climb (concourse + roof) ----
+	ok(World.gate_for_map("away_3_concourse") == "wild_gate" and World.gate_for_map("away_3_roof") == "wild_gate",
+		"P4: both climb layers derive wild_gate from their inbound pads")
+	ok(srv._worlds.has("away_3_concourse") and srv._worlds.has("away_3_roof"), "P4: both climb layers boot as worlds")
+	var mc := {}
+	for row in World.MOBS.get("away_3_concourse", []): mc[str(row["class"])] = int(mc.get(str(row["class"]), 0)) + 1
+	ok(mc == {"rallywing_magpie": 4}, "P4: concourse roster = 4 magpies (3 minion + the Rafter elite)")
+	ok(World.MOBS.get("away_3_roof", []).size() == 0 and World.MAPS["away_3_roof"]["aggro"] == false,
+		"P4: the roof is a quiet overlook (no mobs, aggro false)")
+	ok(World.MOBS.get("away_3_concourse", []).size() + World.MOBS.get("away_3_roof", []).size() <= 5,
+		"P4: combined layer mob budget stays <= 5 (capacity watch-item)")
+	var tclimb: Dictionary = await login("Tamper9c", 22, {"level": 1, "last_map": "away_3_roof", "created_at": "2099-01-01T00:00:00Z"})
+	ok(str(srv._session[22]["map"]) == "home", "P4 restore: ungated tampered last_map=away_3_roof lands at HOME (%s)" % str(tclimb.get("fid", "")))
 	var dangling2 := 0
-	for mp in ["away_1", "away_2", "away_3", "away_boss"]:
+	for mp in ["away_1", "away_2", "away_3", "away_3_concourse", "away_3_roof", "away_boss"]:  # P4: + the climb layers
 		for p in World.PORTALS.get(mp, []):
 			if p.has("to") and not srv._worlds.has(str(p["to"])): dangling2 += 1
 	ok(dangling2 == 0, "pads: the full chain has no dangling destinations")
@@ -320,6 +333,15 @@ func _run() -> void:
 	_walk(13, 2520.0, 475.0)                                  # → away_2 (P3: the pad moved east)
 	_walk(13, 1770.0, 500.0)                                  # → away_3 (the pad withheld in S1, live now)
 	ok(str(srv._session[13]["map"]) == "away_3", "walk: away_2 forward pad → away_3")
+	# P4: the full stadium-climb round trip — gate → concourse → roof → gantry express back
+	_walk(13, 1270.0, 140.0)                                  # ▲ the Superstructure Gate
+	ok(str(srv._session[13]["map"]) == "away_3_concourse", "P4 walk: away_3 gate → the concourse")
+	_walk(13, 1120.0, 120.0)                                  # ▲ the NE stair
+	ok(str(srv._session[13]["map"]) == "away_3_roof", "P4 walk: concourse stair → the roof")
+	_walk(13, 110.0, 280.0)                                   # ▼ the west gantry express
+	var rf = srv._find(srv._session[13]["fid"])
+	ok(str(srv._session[13]["map"]) == "away_3" and Vector2(float(rf["x"]) - 1345.0, float(rf["y"]) - 140.0).length() < 60.0,
+		"P4 walk: the gantry express lands at the gate base (~1345,140)")
 	_walk(13, 1920.0, 550.0)                                  # → the Rival Sideline
 	ok(str(srv._session[13]["map"]) == "away_boss", "walk: away_3 boss door → away_boss")
 	var bf = srv._find(vet2["fid"])
@@ -527,7 +549,7 @@ func _run() -> void:
 	ok(true, "pass-2: every pad, drop, spawn, camp + service point on every static map clears all collision circles")
 	# review: WALLS must block along their FULL rendered length (a single circle left ~75% phantom) —
 	# sample each panel-model decal's midpoint and quarter points; each must be inside SOME circle's LOS band
-	for mp1 in ["glitchyard_1", "arena", "away_3", "finals_2"]:
+	for mp1 in ["glitchyard_1", "arena", "away_3", "finals_2", "away_3_concourse", "away_3_roof"]:  # P4: layer walls/rails
 		var circles1: Array = World.collision_from_decals(str(mp1))
 		for d1 in World._decals_source(str(mp1)):
 			if not (d1 is Dictionary) or str(d1.get("kind", "")) != "prop" or not World.DECAL_PANELS.has(str(d1.get("model", ""))):

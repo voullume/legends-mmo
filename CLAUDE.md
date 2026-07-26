@@ -37,8 +37,12 @@ server-side companion "players"), **Builder Mode / Locker Rooms**, the **UI over
 the **combat-feel** pass, the **gameplay-length program** (XP economy, level-gated kits, talents,
 Paragon, Bounty Board, Difficulty Pass v1 — `docs/gameplay-length-handoff.md`), **Phase 8 "The Away
 Circuit"** (away_1-3 + boss + the Finals district; S4 slot owner-reserved for a special boss), the
-**64 full-color ability icons** (v1.8.3), and the **Wildlife Expanse workstream** (below). *(The live
-world is now **16 zones** + instance templates.)*
+**64 full-color ability icons** (v1.8.3), the **Wildlife Expanse workstream** (below), and the
+**world-expansion program** (P1A sky/camera + P1B backdrops v1.13.0; P2+P3 away_1 "Away Mile"
+composed + enlarged to 2600×950 v1.14.0; P4 Reclaimed Stadium climb — away_3_concourse/roof, the
+game's first stacked zones — + the P6§1 empty-zone sleep v1.15.0, `docs/world-expansion-p2-report.md`).
+*(The live world is now **18 zones** + instance templates; static zones with no players sleep —
+watch `asleep=N/M` in the `[health]` line.)*
 
 ## 🐾 The Wildlife Expanse (2026-07-20..21, v1.8.4→v1.11.3) — COMPLETE
 The away biome is the owner's **Wildlife Expanse**: all 7 owner-built creatures live (skink / grazer /

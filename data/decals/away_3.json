@@ -173,5 +173,63 @@
 		"x": 300.0,
 		"y": 100.0,
 		"yaw": 1.2
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "player_tunnel_gate",
+		"x": 1270.0,
+		"y": 105.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.2,
+		"kind": "prop",
+		"model": "arena_service_door",
+		"x": 1270.0,
+		"y": 60.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.2,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 1150.0,
+		"y": 90.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.2,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 1390.0,
+		"y": 85.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.3,
+		"kind": "prop",
+		"model": "equipment_transport_crate",
+		"x": 1195.0,
+		"y": 65.0,
+		"yaw": 0.6
+	},
+	{
+		"h": 2.8,
+		"kind": "prop",
+		"model": "spectator_safety_rail",
+		"x": 1105.0,
+		"y": 120.0,
+		"yaw": 0.0
+	},
+	{
+		"kind": "cone",
+		"x": 1240.0,
+		"y": 190.0
+	},
+	{
+		"kind": "cone",
+		"x": 1300.0,
+		"y": 190.0
 	}
 ]

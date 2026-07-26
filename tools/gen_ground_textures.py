@@ -150,3 +150,15 @@ build_wild(
     octs=[(1,0,2.0,0.5),(0,1,1.3,0.5),(2,1,0.7,0.32),(1,2,1.8,0.32),(3,2,2.4,0.2),
           (2,4,1.0,0.15),(5,4,0.4,0.1),(7,5,1.7,0.07),(9,8,2.2,0.05)],
     dark=(96,76,50), light=(166,138,98), grain=0.32, jitter=(10.0,6.0,2.0))
+
+# Stadium Deck (away_3_concourse / away_3_roof — P4 climb): poured stadium concrete — cool gray
+# slabs, expansion-joint seams (integer stripe freq), damp moss-stain patches (the reclamation
+# creeping indoors), fine blue-leaning aggregate speckle. One texture serves both layers: the
+# concourse tints it cool/dim, the roof near-white (tints live in Client._make_field_material).
+build_wild(
+    os.path.join(OUT, "stadium_deck_albedo.png"),
+    octs=[(1,0,1.4,0.5),(0,1,0.8,0.5),(2,1,2.1,0.30),(1,2,0.5,0.28),(3,3,1.8,0.18),
+          (5,3,0.7,0.12),(4,6,2.2,0.09),(8,7,1.1,0.06)],
+    dark=(88,90,94), light=(158,160,166), stripe_amp=0.07, stripe_freq=8.0, grain=0.30,
+    jitter=(6.0,6.0,8.0), patch=((64,78,58),(118,132,96),
+        [(1,1,1.2,0.5),(2,2,0.3,0.4),(3,1,1.9,0.3),(4,3,0.8,0.2),(6,5,2.5,0.14)],0.66,0.12))

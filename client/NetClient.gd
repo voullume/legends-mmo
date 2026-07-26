@@ -4940,7 +4940,7 @@ func _build_admin_panel() -> void:
 		["Character", [["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}]], 2],
 		["Items", [["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}]], 2],
 		["Survival", [["God Mode", "god", {}], ["Heal", "heal", {}]], 2],
-		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}], ["AW1", "goto", {"map": "away_1"}], ["AW2", "goto", {"map": "away_2"}], ["AW3", "goto", {"map": "away_3"}], ["RIVAL", "goto", {"map": "away_boss"}], ["FIN1", "goto", {"map": "finals_1"}], ["FIN2", "goto", {"map": "finals_2"}]], 4],
+		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}], ["AW1", "goto", {"map": "away_1"}], ["AW2", "goto", {"map": "away_2"}], ["AW3", "goto", {"map": "away_3"}], ["CONC", "goto", {"map": "away_3_concourse"}], ["ROOF", "goto", {"map": "away_3_roof"}], ["RIVAL", "goto", {"map": "away_boss"}], ["FIN1", "goto", {"map": "finals_1"}], ["FIN2", "goto", {"map": "finals_2"}]], 4],
 		["Mobs", [["Spawn Mob", "spawn_mob", {"level": 3}], ["Spawn Skink", "spawn_mob", {"class": "netvine_skink", "level": 3, "tier": "minion"}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}]], 3],
 	]
 	for grp in groups:
@@ -6575,6 +6575,8 @@ func _zone_name(map: String) -> String:
 		"away_1": return "Wildlife Expanse · Overgrown Practice Field"
 		"away_2": return "Wildlife Expanse · Overrun Gauntlet"
 		"away_3": return "Wildlife Expanse · Reclaimed Stadium"
+		"away_3_concourse": return "Reclaimed Stadium · North Concourse"
+		"away_3_roof": return "Reclaimed Stadium · The Roof"
 		"away_boss": return "Wildlife Expanse · Howler's Sideline"
 		"finals_1": return "The Finals · Contenders' Quarter"
 		"finals_2": return "The Finals · Champions' Gate"
