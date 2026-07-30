@@ -1,0 +1,52 @@
+[
+	{
+		"h": 6.0,
+		"model": "sideline_stand",
+		"oy": -0.2,
+		"x": 420.0,
+		"y": -300.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 6.5,
+		"model": "sideline_stand",
+		"oy": -0.2,
+		"x": 780.0,
+		"y": -330.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 6.0,
+		"model": "sideline_stand",
+		"oy": -0.2,
+		"x": 420.0,
+		"y": 1100.0,
+		"yaw": 3.14
+	},
+	{
+		"h": 6.5,
+		"model": "sideline_stand",
+		"oy": -0.2,
+		"x": 780.0,
+		"y": 1060.0,
+		"yaw": 3.14
+	},
+	{
+		"h": 8.0,
+		"model": "plaza_light_column",
+		"oy": -0.2,
+		"tint": "#617F70",
+		"x": 140.0,
+		"y": -280.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 8.0,
+		"model": "plaza_light_column",
+		"oy": -0.2,
+		"tint": "#617F70",
+		"x": 1060.0,
+		"y": 1080.0,
+		"yaw": 0.0
+	}
+]

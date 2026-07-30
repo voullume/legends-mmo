@@ -1,0 +1,135 @@
+[
+	{
+		"kind": "ring",
+		"r": 150.0,
+		"x": 950.0,
+		"y": 520.0
+	},
+	{
+		"kind": "ring",
+		"r": 110.0,
+		"x": 1580.0,
+		"y": 520.0
+	},
+	{
+		"kind": "cone",
+		"x": 720.0,
+		"y": 340.0
+	},
+	{
+		"kind": "cone",
+		"x": 720.0,
+		"y": 700.0
+	},
+	{
+		"kind": "cone",
+		"x": 1280.0,
+		"y": 520.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "rack",
+		"x": 310.0,
+		"y": 422.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "rack",
+		"x": 310.0,
+		"y": 618.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.4,
+		"kind": "prop",
+		"model": "sports_ball_rack",
+		"x": 785.0,
+		"y": 420.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.4,
+		"kind": "prop",
+		"model": "sports_ball_rack",
+		"x": 785.0,
+		"y": 620.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 1150.0,
+		"y": 300.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 1250.0,
+		"y": 300.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "boundary_pylon",
+		"x": 1350.0,
+		"y": 300.0,
+		"yaw": 0.0
+	},
+	{
+		"kind": "cone",
+		"x": 1150.0,
+		"y": 470.0
+	},
+	{
+		"kind": "cone",
+		"x": 1150.0,
+		"y": 570.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "equipment_transport_crate",
+		"x": 1420.0,
+		"y": 620.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 900.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 1140.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.0,
+		"kind": "prop",
+		"model": "industrial_ventilation_unit",
+		"x": 1000.0,
+		"y": 900.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "maintenance_tool_cart",
+		"x": 1300.0,
+		"y": 910.0,
+		"yaw": 0.0
+	}
+]

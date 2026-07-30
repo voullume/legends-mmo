@@ -1,0 +1,127 @@
+[
+	{
+		"kind": "ring",
+		"r": 150.0,
+		"x": 900.0,
+		"y": 490.0
+	},
+	{
+		"kind": "ring",
+		"r": 110.0,
+		"x": 1500.0,
+		"y": 490.0
+	},
+	{
+		"kind": "cone",
+		"x": 720.0,
+		"y": 320.0
+	},
+	{
+		"kind": "cone",
+		"x": 720.0,
+		"y": 660.0
+	},
+	{
+		"kind": "cone",
+		"x": 1240.0,
+		"y": 490.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "rack",
+		"x": 310.0,
+		"y": 392.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "rack",
+		"x": 310.0,
+		"y": 588.0,
+		"yaw": 0.0
+	},
+	{
+		"kind": "cone",
+		"x": 600.0,
+		"y": 490.0
+	},
+	{
+		"kind": "cone",
+		"x": 660.0,
+		"y": 490.0
+	},
+	{
+		"h": 1.0,
+		"kind": "prop",
+		"model": "straight_cover_barrier",
+		"x": 860.0,
+		"y": 240.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.0,
+		"kind": "prop",
+		"model": "straight_cover_barrier",
+		"x": 860.0,
+		"y": 740.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.4,
+		"kind": "prop",
+		"model": "scrap_sports_equipment_pile",
+		"x": 1300.0,
+		"y": 380.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.4,
+		"kind": "prop",
+		"model": "scrap_sports_equipment_pile",
+		"x": 1300.0,
+		"y": 600.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 820.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 1060.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "maintenance_tool_cart",
+		"x": 600.0,
+		"y": 860.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.8,
+		"kind": "prop",
+		"model": "coolant_pump_station",
+		"x": 900.0,
+		"y": 865.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "cable_spool_cart",
+		"x": 1200.0,
+		"y": 860.0,
+		"yaw": 0.0
+	}
+]

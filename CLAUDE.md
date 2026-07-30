@@ -40,7 +40,10 @@ Circuit"** (away_1-3 + boss + the Finals district; S4 slot owner-reserved for a 
 **64 full-color ability icons** (v1.8.3), the **Wildlife Expanse workstream** (below), and the
 **world-expansion program** (P1A sky/camera + P1B backdrops v1.13.0; P2+P3 away_1 "Away Mile"
 composed + enlarged to 2600×950 v1.14.0; P4 Reclaimed Stadium climb — away_3_concourse/roof, the
-game's first stacked zones — + the P6§1 empty-zone sleep v1.15.0, `docs/world-expansion-p2-report.md`).
+game's first stacked zones — + the P6§1 empty-zone sleep v1.15.0; **P5 zone-distinction pass v1.16.0**
+— every zone gets its family's skyline (15 backdrops, 4 family languages) + gy2-5 decal motifs, and
+**`Protocol.VERSION` → 3** because a decal-data change means invisible walls on a stale client,
+`docs/world-expansion-p2-report.md` §11).
 *(The live world is now **18 zones** + instance templates; static zones with no players sleep —
 watch `asleep=N/M` in the `[health]` line.)*
 
@@ -65,7 +68,7 @@ the playtest feel-pass items listed in the plan doc. *(The 4-phase art pass A1�
 
 ## Layout
 - `shared/` — the **deterministic combat engine** (GameData, Sim, AI, Abilities, Combat, Geom, Rng)
-  + `World.gd` (the 16-zone world: MAPS/PORTALS/MOBS/OBSTACLES + `SERVICE_PADS` per-map service
+  + `World.gd` (the 18-zone world: MAPS/PORTALS/MOBS/OBSTACLES + `SERVICE_PADS` per-map service
   registry + gates). `GameData.gd` = content source of truth (8 classes + 33 mob defs, abilities,
   stats, venues, **`FORMAT_MODS`**, recipes, dyes).
 - `server/Server.gd` — the authoritative zone server (worlds, tick, snapshots, auth, persistence,

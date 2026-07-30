@@ -10,14 +10,19 @@ extends RefCounted
 ##     (purely additive optional fields the old client ignores do NOT need a bump);
 ##   • the semantics of an intent payload change (movement dict keys, ability sequencing);
 ##   • the authentication/handshake flow itself changes;
-##   • an item or progression read model changes incompatibly (what recv_* pushes mean).
+##   • an item or progression read model changes incompatibly (what recv_* pushes mean);
+##   • a SHARED WORLD DATA FILE the server derives collision from changes — i.e. any
+##     `data/decals/<map>.json` add/edit. The client never computes decal collision (the snapshot
+##     carries no obstacle list), so a client missing those records renders nothing where the
+##     server blocks: the player slides along invisible walls. Backdrops (`data/backdrops/*.json`)
+##     are render-only and do NOT need a bump.
 ## Matching deploy rule: server first, then clients — an old client against a new server gets a
 ## clean "please update" refusal instead of undefined RPC behavior.
 ##
 ## `BUILD` is a free-form build identifier carried in the hello for diagnostics; `hello()` leaves
 ## room for a capability list later — do NOT grow this into a negotiation framework.
 
-const VERSION := 2   # v2: Phase 0.5 networked cosmetic hop — new client→server submit_hop RPC + additive snapshot `hopT`
+const VERSION := 3   # v3: world-expansion P5 — data/decals/glitchyard_2..5.json give those zones their FIRST decal collision (21/25/22/22 circles); an old client would walk into invisible walls
 const BUILD := ""
 
 static func hello() -> Dictionary:

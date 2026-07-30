@@ -14,6 +14,7 @@ extends "res://tools/stab/stab_base.gd"
 ## Run: godot --headless --path . --script res://tools/stab_away.gd
 
 const Quests := preload("res://shared/Quests.gd")
+const GeomLib := preload("res://shared/Geom.gd")   # P5: camp-engageability LOS sampling
 
 func _init() -> void:
 	_run()
@@ -549,7 +550,12 @@ func _run() -> void:
 	ok(true, "pass-2: every pad, drop, spawn, camp + service point on every static map clears all collision circles")
 	# review: WALLS must block along their FULL rendered length (a single circle left ~75% phantom) —
 	# sample each panel-model decal's midpoint and quarter points; each must be inside SOME circle's LOS band
-	for mp1 in ["glitchyard_1", "arena", "away_3", "finals_2", "away_3_concourse", "away_3_roof"]:  # P4: layer walls/rails
+	# P5: every static map whose decal file carries DECAL_PANELS wall models is swept for phantom walls.
+	# Added the gy2-5 files (new P5 wall decals) + the pre-existing away_boss/finals_1 gap the audit found.
+	# P5 review: sample the true ENDS (frac ±1.0) against the real block radius (r + OBSTACLE_PAD), not
+	# ±0.7 against r+6 — the old bounds never touched the outer 30% of any wall, so "blocks full-length"
+	# was asserted but not demonstrated. (The walls do block: block r reaches ±145 vs a rendered ±139.5.)
+	for mp1 in ["glitchyard_1", "glitchyard_2", "glitchyard_3", "glitchyard_4", "glitchyard_5", "arena", "away_3", "away_boss", "finals_1", "finals_2", "away_3_concourse", "away_3_roof"]:
 		var circles1: Array = World.collision_from_decals(str(mp1))
 		for d1 in World._decals_source(str(mp1)):
 			if not (d1 is Dictionary) or str(d1.get("kind", "")) != "prop" or not World.DECAL_PANELS.has(str(d1.get("model", ""))):
@@ -558,17 +564,67 @@ func _run() -> void:
 			var dimp1: Dictionary = World.PROP_DIM[str(d1["model"])]
 			var half1: float = float(dimp1["long"]) / float(World.DECAL_PANELS[str(d1["model"])]) * h1 * 20.0 / 2.0
 			var yaw1 := float(d1.get("yaw", 0.0))
-			for frac in [-0.7, -0.35, 0.0, 0.35, 0.7]:
+			for frac in [-1.0, -0.7, -0.35, 0.0, 0.35, 0.7, 1.0]:
 				var sxp := float(d1["x"]) + cos(yaw1) * half1 * float(frac)
 				var syp := float(d1["y"]) + sin(yaw1) * half1 * float(frac)
 				var covered := false
 				for c2 in circles1:
-					if Vector2(sxp - float(c2["x"]), syp - float(c2["y"])).length() <= float(c2["r"]) + 6.0:
+					if Vector2(sxp - float(c2["x"]), syp - float(c2["y"])).length() <= float(c2["r"]) + World.OBSTACLE_PAD:
 						covered = true
 						break
 				if not covered:
 					ok(false, "pass-2: %s %s wall face at %.0f,%.0f (frac %.2f) is NOT covered — phantom wall" % [str(mp1), str(d1["model"]), sxp, syp, float(frac)])
 	ok(true, "pass-2: every wall-model decal blocks along its full rendered length (no phantom walls)")
+	# ---- P5 review: CONST-VERBATIM parity. data/decals/<map>.json SHADOWS World.DECALS[map] TOTALLY
+	# (_decals_source returns the file, it does not merge), and the server derives collision from it. So a
+	# file that drops or drifts a const record silently changes live geometry with every suite still green.
+	# Each shadowing file must reproduce its const list as an EXACT ORDERED PREFIX (adds go after).
+	# Scope = the gy files, which are authored as "const verbatim, then adds". data/decals/home.json is
+	# NOT in scope: it is a fully-authored builder-mode file (63 records, own ordering) that deliberately
+	# replaces HOME's const outright — the prefix rule does not apply to it.
+	for mp3 in [World.GY1, World.GY2, World.GY3, World.GY4, World.GY5]:
+		var consts: Array = World.DECALS.get(mp3, [])
+		if consts.is_empty():
+			continue
+		var filed: Array = World._decals_source(str(mp3))
+		ok(filed.size() >= consts.size(), "const-verbatim: %s file has >= its %d const records" % [str(mp3), consts.size()])
+		for ci in consts.size():
+			var want: Dictionary = consts[ci]
+			var got = filed[ci] if ci < filed.size() else null
+			var same := got is Dictionary
+			if same:
+				for k3 in want.keys():
+					if not got.has(k3) or str(got[k3]) != str(want[k3]):
+						same = false
+						break
+				if same and (got as Dictionary).size() != want.size():
+					same = false
+			ok(same, "const-verbatim: %s[%d] reproduces World.DECALS verbatim (%s)" % [str(mp3), ci, str(want.get("kind", "?"))])
+	# ---- P5 review: CAMP ENGAGEABILITY. The gy2-5 decal props join the world obstacle set, so they block
+	# shots + LOS (Sim/Geom read state.map.obstacles). Traversal was proven but COMBAT was not: a wall
+	# dropped beside a camp could make a ranged pull impossible. For every gy2-5 camp, sample a ring at the
+	# ranged band and require a healthy share of firing positions to hold LOS to the camp center.
+	for mp4 in [World.GY2, World.GY3, World.GY4, World.GY5]:
+		var ocirc: Array = World.circles_from(World.OBSTACLES.get(mp4, []))
+		ocirc.append_array(World.collision_from_decals(str(mp4)))
+		var fake := {"map": {"obstacles": ocirc}}
+		var dims: Dictionary = World.MAPS[mp4]
+		for camp in World.MOBS.get(mp4, []):
+			var cx := float(camp["x"])
+			var cy := float(camp["y"])
+			var seen := 0
+			var tried := 0
+			for step in 24:
+				var ang := TAU * float(step) / 24.0
+				var px := cx + cos(ang) * 250.0
+				var py := cy + sin(ang) * 250.0
+				if px < 20.0 or py < 20.0 or px > float(dims["w"]) - 20.0 or py > float(dims["h"]) - 20.0:
+					continue                              # off-map firing position — not a real option
+				tried += 1
+				if GeomLib.has_los(fake, {"x": px, "y": py}, {"x": cx, "y": cy}):
+					seen += 1
+			ok(tried > 0 and seen * 2 >= tried,
+				"engageable: %s camp %s (%.0f,%.0f) holds LOS from %d/%d ranged positions" % [str(mp4), str(camp.get("type", "?")), cx, cy, seen, tried])
 
 	# ================================================================ S5 — polish pass
 	# ---- 22. batch_006/007 props registered end-to-end ----

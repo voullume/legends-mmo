@@ -6572,6 +6572,8 @@ func _zone_name(map: String) -> String:
 		"glitchyard_3": return "Glitchyard · Impact Lanes"
 		"glitchyard_4": return "Glitchyard · Target Court"
 		"glitchyard_5": return "Glitchyard · Command Tower"
+		"glitchyard_boss": return "Glitchyard · Head Coach Arena"
+		"glitchyard_secret": return "Glitchyard · The Final Lesson"
 		"away_1": return "Wildlife Expanse · Overgrown Practice Field"
 		"away_2": return "Wildlife Expanse · Overrun Gauntlet"
 		"away_3": return "Wildlife Expanse · Reclaimed Stadium"

@@ -1,0 +1,135 @@
+[
+	{
+		"kind": "ring",
+		"r": 150.0,
+		"x": 1000.0,
+		"y": 550.0
+	},
+	{
+		"kind": "ring",
+		"r": 120.0,
+		"x": 1620.0,
+		"y": 550.0
+	},
+	{
+		"kind": "cone",
+		"x": 760.0,
+		"y": 360.0
+	},
+	{
+		"kind": "cone",
+		"x": 760.0,
+		"y": 740.0
+	},
+	{
+		"kind": "cone",
+		"x": 1320.0,
+		"y": 550.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "rack",
+		"x": 310.0,
+		"y": 452.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.6,
+		"kind": "prop",
+		"model": "rack",
+		"x": 310.0,
+		"y": 648.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.0,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 1810.0,
+		"y": 280.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.0,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 1810.0,
+		"y": 430.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.0,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 1810.0,
+		"y": 680.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 5.0,
+		"kind": "prop",
+		"model": "plaza_light_column",
+		"x": 1810.0,
+		"y": 820.0,
+		"yaw": 0.0
+	},
+	{
+		"kind": "cone",
+		"x": 1180.0,
+		"y": 500.0
+	},
+	{
+		"kind": "cone",
+		"x": 1180.0,
+		"y": 600.0
+	},
+	{
+		"h": 1.8,
+		"kind": "prop",
+		"model": "coolant_pump_station",
+		"x": 1240.0,
+		"y": 300.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 3.0,
+		"kind": "prop",
+		"model": "industrial_ventilation_unit",
+		"x": 1240.0,
+		"y": 820.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 860.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 4.0,
+		"kind": "prop",
+		"model": "glitchyard_wall",
+		"x": 1100.0,
+		"y": 80.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 2.2,
+		"kind": "prop",
+		"model": "maintenance_tool_cart",
+		"x": 700.0,
+		"y": 960.0,
+		"yaw": 0.0
+	},
+	{
+		"h": 1.4,
+		"kind": "prop",
+		"model": "scrap_sports_equipment_pile",
+		"x": 1000.0,
+		"y": 970.0,
+		"yaw": 0.0
+	}
+]
