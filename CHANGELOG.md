@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.16.0 — 2026-07-30
+
+- P5 zone-distinction pass: every zone gets its family's skyline (15 backdrops, 4 family languages) + gy2-5 decal motifs; Protocol v3 closes the decal-data client-skew (invisible walls)
+
+_(rolls up commits since the previous tag; base 3036008)_
+
 ## v1.15.0 — 2026-07-26
 
 - the Reclaimed Stadium climb (concourse + roof, the game's first stacked zones) + the empty-zone sleep (idle tick 20-49ms -> 1.9ms)
