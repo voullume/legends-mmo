@@ -104,5 +104,34 @@ func _init() -> void:
 		ok(idx_after == (idx_before + 1) % route.size() and zone_after == str(route[idx_after]),
 			"post-respawn immediate move is non-corrupting (idx+1, zone synced)")
 
+	# ---- owner toggle (2026-08-01): residents off for CPU, on for hard-content testing ----
+	# The risk is not the toggle, it is the TEARDOWN: a resident is cited by seven tables, its world's
+	# fighter list, and any party it was recruited into. A missed reference leaves a dangling fid that
+	# the director / RP4 scan / party roster would keep dereferencing.
+	ok(srv.residents_active(), "toggle: residents_active() true while the roster is spawned")
+	var n_before: int = srv._residents.size()
+	var bonded_fid := ""                              # bond one to a party first — the nastiest reference
+	for fid in srv._residents.keys():
+		bonded_fid = str(fid)
+		srv._res_party[fid] = 999                     # pretend peer 999 recruited it
+		break
+	srv._despawn_residents()
+	ok(not srv.residents_active() and srv._residents.is_empty(), "toggle: despawn empties the roster")
+	var leftover := 0                                 # no resident fighter may survive in ANY world
+	for mapname in srv._worlds:
+		for f in srv._worlds[mapname]["fighters"]:
+			if f.get("resident", false):
+				leftover += 1
+	ok(leftover == 0, "toggle: no resident fighter is left in any world (got %d)" % leftover)
+	ok(not srv._res_party.has(bonded_fid), "toggle: a BONDED resident is unbonded on despawn (no dangling party ref)")
+	var tables_clean: bool = srv._res_dir.is_empty() and srv._res_chat_next.is_empty() \
+		and srv._res_prog.is_empty() and srv._res_deaths.is_empty() and srv._res_report_next.is_empty()
+	ok(tables_clean, "toggle: every per-resident table is cleared (dir/chat/prog/deaths/report)")
+	srv._tick_residents(3.0)                          # the director must not choke on an empty roster
+	ok(true, "toggle: the director ticks cleanly with zero residents")
+	srv._spawn_residents()                            # ...and back on for content testing
+	ok(srv.residents_active() and srv._residents.size() == n_before,
+		"toggle: re-spawn restores the full roster (%d)" % n_before)
+
 	print("=== residents (RP0): %d passed, %d failed ===" % [pass_n, fail_n])
 	quit(1 if fail_n > 0 else 0)
