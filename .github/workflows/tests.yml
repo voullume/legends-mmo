@@ -13,6 +13,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Nightly drift guard. Nothing here deploys or touches the live project — it re-runs the same
+  # suites against main so a regression is caught even in a week with no pushes (e.g. while the
+  # owner is away and work is queued on branches). Check the Actions tab after time off.
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC daily
 
 env:
   GODOT_VERSION: 4.6.3-stable
@@ -50,12 +55,22 @@ jobs:
       - name: Run suites
         run: |
           set -u
+          # NOTE (2026-07-31): this list used to omit five of the suites CLAUDE.md calls the KEY
+          # suites — test_class_kits (the mob-def golden hash), stab_sleep, stab_basecamp,
+          # test_wildlife_normals, and bal_identity (run as its own step below). CI could therefore
+          # go green while the golden hash or the balance signature had drifted; those only got
+          # checked when someone ran them by hand. All are now wired in. Measured runtimes: every
+          # suite here is 0-3 s except stab_away; bal_identity is ~223 s, hence its own step.
+          # Deliberately NOT here: bal_p1 / bal_talents / bal_tune are TUNING harnesses (they
+          # measure win rates and print tables, they do not assert), so they would only add minutes.
           SUITES="stab_auth stab_authority stab_economy stab_econ_atomic stab_sessions stab_protocol stab_trust stab_hop stab_away \
+                  stab_status stab_sleep stab_basecamp stab_projectile_vfx \
                   smoke_builder_p0 smoke_builder_p1 smoke_builder_p2 \
                   test_instancing test_residents test_res_chat test_res_party test_res_reports \
+                  test_class_kits test_wildlife_normals test_wildlife_skink \
                   smoke_p2 smoke_p4 smoke_p5 test_heal_events test_procs \
                   smoke_prediction smoke_snapshot_meta smoke_collision \
-                  smoke_prop_loads \
+                  smoke_prop_loads smoke_rigged smoke_new_props \
                   hud_layout_test"
           FAILED=0
           for t in $SUITES; do
@@ -70,6 +85,28 @@ jobs:
             fi
           done
           exit $FAILED
+
+      # bal_identity is NOT a self-asserting suite: it runs the 56-pairing matrix, PRINTS an
+      # aggregate signature, and always exits 0. The comparison has always been manual ("run it on
+      # the branch and on main, check the signatures match" — CLAUDE.md). Dropping it into SUITES
+      # above would therefore be false comfort: it could never fail. Pinning the known-good
+      # signature here is what turns it into an actual guard, and gives it its own log line.
+      # The signature has been identical since the P2 world-expansion work (v1.14.0 -> v1.16.0).
+      # IF YOU DELIBERATELY CHANGE COMBAT BALANCE: update the pin below in the same commit and say
+      # why — same discipline as rebasing the mob-def golden. Never "fix" a red run by re-pinning
+      # without knowing what moved. (~223 s.)
+      - name: Player-sim byte identity (bal_identity)
+        run: |
+          set -u
+          out=$(timeout 600 ~/godot-bin/godot --headless --path . --script res://tools/bal_identity.gd 2>&1) || {
+            echo "::error::bal_identity did not complete"; printf '%s\n' "$out" | tail -30; exit 1; }
+          printf '%s\n' "$out" | grep -E 'IDENTITY|MISMATCH' || true
+          if ! printf '%s' "$out" | grep -q 'sig_w=158545831  sig_d=343688940'; then
+            echo "::error::PLAYER-SIM SIGNATURE CHANGED — expected matches=336 sig_w=158545831 sig_d=343688940"
+            printf '%s\n' "$out" | tail -30
+            exit 1
+          fi
+          echo "signature unchanged (336 / 158545831 / 343688940)"
 
   migration-check:
     runs-on: ubuntu-latest
