@@ -233,6 +233,15 @@ var _meta_hash := {}                  # dropped unreliable packet can't strand a
 var _meta_tick := {}                  # pid → last _snap_count at which META was sent (change-detected otherwise)
 var _health_t := 0.0
 var _tick_us_peak := 0                # peak server compute time per frame this minute (CPU headroom)
+# P6 telemetry (world-expansion Phase 6 wants avg/p95/worst tick, per-zone load, and snapshot bytes
+# BEFORE any optimization is chosen — the old line reported peak only, which cannot distinguish "one
+# unlucky frame" from "sustained pressure"). All of this is measured on the health cadence and costs
+# nothing per tick except one int append.
+var _tick_us_hist := PackedInt32Array()   # every frame's compute time this window → avg / p95 / worst
+var _snap_sample := false                 # arm ONE tick of snapshot-size sampling per health window
+var _snap_bytes_max := 0
+var _snap_bytes_sum := 0
+var _snap_bytes_n := 0
 
 static func _xp_to_next(level: int) -> int:
 	# gameplay-length P1(e): reshaped to ~the same 1→30 total (~86k XP) but FRONT-LOADED — early levels are cheaper
@@ -280,7 +289,12 @@ func init_worlds() -> void:
 			continue
 		_worlds[mapname] = _new_world(mapname)
 	_spawn_world_actors()                        # the home dummy + every combat zone's mob camps
-	_spawn_residents()                           # the AI residents (RP0)
+	# Owner toggle: LEGENDS_RESIDENTS=0 boots an empty world (no AI companions). Anything else — unset
+	# included — keeps the shipped behavior, so this can never silently depopulate a normal deploy.
+	if OS.get_environment("LEGENDS_RESIDENTS") == "0":
+		print("[zone] AI residents DISABLED (LEGENDS_RESIDENTS=0)")
+	else:
+		_spawn_residents()                       # the AI residents (RP0)
 
 # On boot, confirm the service_role key can actually write our inventory table (loot/equip).
 # Logs a clear ✓/✗ in `docker logs` (status only — NEVER the key itself). In PRODUCTION a missing or
@@ -605,6 +619,41 @@ func _spawn_residents() -> void:
 		_res_prog[fid] = {"last_dmg": 0.0, "stall_t": 0.0, "zone": ""}   # RP4: per-zone no-progress tracking
 		_res_deaths[fid] = {}                                 # RP4: per-zone death counts
 	print("[zone] %d AI residents spawned" % _residents.size())
+
+# Owner toggle (2026-08-01): residents exist to populate the world and to test harder content, but
+# they also cost CPU and — being real players as far as the sim is concerned — they keep their zones
+# awake work-wise. Turning them OFF is the first lever to pull if the server ever gets tight, so it
+# must be reversible at runtime, not a redeploy. Env `LEGENDS_RESIDENTS=0` starts without them.
+#
+# Teardown is the whole risk here: a resident is referenced by SEVEN tables plus its world's fighter
+# list plus any party it was recruited into. Missing one leaves a dangling fid that the director,
+# the RP4 stall scan, or a party roster would keep dereferencing.
+func _despawn_residents() -> void:
+	var n := _residents.size()
+	for fid in _residents.keys():
+		var f = _find(fid)
+		if f != null:                                 # pull it out of whatever world holds it
+			for mapname in _worlds:
+				var arr: Array = _worlds[mapname]["fighters"]
+				var idx := arr.find(f)
+				if idx >= 0:
+					arr.remove_at(idx)
+					break
+		_res_dir.erase(fid)
+		_res_party.erase(fid)                         # RP2: unbond — a party roster must not cite a gone fid
+		_res_chat_next.erase(fid)
+		_res_prog.erase(fid)                          # RP4 trackers
+		_res_deaths.erase(fid)
+		_res_report_next.erase(fid)
+		_spawn_pos.erase(fid)                         # respawn/engagement bookkeeping shared with mobs
+		_respawn.erase(fid)
+		_mob_engaged.erase(fid)
+	_residents.clear()
+	print("[zone] %d AI residents despawned (toggle off)" % n)
+
+# true when residents are currently in the world — the admin toggle reads this to decide direction
+func residents_active() -> bool:
+	return not _residents.is_empty()
 
 # RP3: a resident speaks a persona line to its zone (only if a player's there to hear it; cooldown-gated so it
 # reads as flavor, not spam). force skips the cooldown for discrete player-triggered moments (recruit). Purely
@@ -3279,7 +3328,11 @@ func _physics_process(delta: float) -> void:
 		_award_kills()                            # grant XP for mob kills before events are cleared
 		_tick_loot_rolls()                        # auto-resolve any timed-out party loot rolls
 		_broadcast()
-	_tick_us_peak = maxi(_tick_us_peak, int(Time.get_ticks_usec() - work_t0))
+		_snap_sample = false                      # cleared HERE, not per-frame: a tick with no broadcast
+		                                          # must not consume the armed sample (it would measure nothing)
+	var _work_us := int(Time.get_ticks_usec() - work_t0)
+	_tick_us_peak = maxi(_tick_us_peak, _work_us)
+	_tick_us_hist.append(_work_us)
 	_health_t += delta
 	if _health_t >= HEALTH_INTERVAL:
 		_health_t = 0.0
@@ -3304,9 +3357,42 @@ func _health_log() -> void:
 	var load := _proc_first_token("/proc/loadavg")
 	var free_mb := _proc_kb("/proc/meminfo", "MemAvailable:") / 1024
 	var rss_mb := _proc_kb("/proc/self/status", "VmRSS:") / 1024
-	print("[health] players=%d [%s]  load=%s (1 vCPU)  peak_tick=%.1fms/33ms  asleep=%d/%d  free_ram=%dMB  server_rss=%dMB  hops/min=%d" % [
-		players, zones, load, _tick_us_peak / 1000.0, _zone_asleep.size(), _worlds.size(), free_mb, rss_mb, _hop_n])
+	# P6 telemetry: avg / p95 / worst over EVERY frame this window. peak alone could not tell a single
+	# unlucky frame from sustained pressure, and Phase 6 forbids choosing an optimization without this.
+	var avg_ms := 0.0
+	var p95_ms := 0.0
+	if not _tick_us_hist.is_empty():
+		var tot := 0
+		for us in _tick_us_hist:
+			tot += us
+		avg_ms = float(tot) / float(_tick_us_hist.size()) / 1000.0
+		var sorted := _tick_us_hist.duplicate()
+		sorted.sort()
+		p95_ms = float(sorted[mini(int(float(sorted.size()) * 0.95), sorted.size() - 1)]) / 1000.0
+	var snap_txt := "-"
+	if _snap_bytes_n > 0:
+		snap_txt = "%dB avg/%dB max" % [_snap_bytes_sum / _snap_bytes_n, _snap_bytes_max]
+	print("[health] players=%d [%s]  load=%s (1 vCPU)  tick avg=%.1f p95=%.1f worst=%.1f /33ms  asleep=%d/%d  snap=%s  free_ram=%dMB  server_rss=%dMB  hops/min=%d" % [
+		players, zones, load, avg_ms, p95_ms, _tick_us_peak / 1000.0, _zone_asleep.size(), _worlds.size(), snap_txt, free_mb, rss_mb, _hop_n])
+	# Per-zone load, AWAKE zones only (asleep ones cost nothing and would drown the line). This is the
+	# "which zone is actually expensive" signal Phase 6 item 3 (spatial index) would need to justify itself:
+	# fighters f= and collision circles c= are the two O(n) drivers of separation/LOS/interest scans.
+	var busy := []
+	for mapname in _worlds:
+		if _zone_asleep.has(mapname):
+			continue
+		var w = _worlds[mapname]
+		var nf: int = (w["fighters"] as Array).size()
+		var nc: int = ((w["map"] as Dictionary)["obstacles"] as Array).size()
+		busy.append("%s f=%d c=%d" % [mapname, nf, nc])
+	if not busy.is_empty():
+		print("[health/zones] %s" % "  ".join(busy))
 	_tick_us_peak = 0
+	_tick_us_hist = PackedInt32Array()
+	_snap_bytes_max = 0
+	_snap_bytes_sum = 0
+	_snap_bytes_n = 0
+	_snap_sample = true                           # arm the next broadcast to measure snapshot size
 	_hop_n = 0
 
 func _proc_first_token(path: String) -> String:
@@ -4726,6 +4812,11 @@ func admin_cmd(pid: int, cmd: String, args: Dictionary) -> void:
 			w["fighters"] = keep
 		"reset_mobs":
 			_reset_mobs()
+		"residents":                              # owner toggle: AI companions off (CPU) / on (content testing)
+			if residents_active():
+				_despawn_residents()
+			else:
+				_spawn_residents()
 	print("[admin] %s ran '%s'" % [s["name"], cmd])
 
 # wipe every mob and re-spawn the original roster (combat camps + the home dummy) — fixes a map
@@ -4895,6 +4986,13 @@ func _broadcast() -> void:
 			snap["meta"] = meta
 			_meta_hash[pid] = mh
 			_meta_tick[pid] = _snap_count
+		# P6 telemetry: snapshot SIZE, sampled one tick per health window (never every tick — the
+		# var_to_bytes round-trip is exactly the per-tick cost this is meant to measure, not add).
+		if _snap_sample:
+			var sb := var_to_bytes(snap).size()
+			_snap_bytes_max = maxi(_snap_bytes_max, sb)
+			_snap_bytes_sum += sb
+			_snap_bytes_n += 1
 		net.receive_snapshot.rpc_id(pid, snap)
 	for mapname in _worlds:
 		_worlds[mapname]["events"].clear()
