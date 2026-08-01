@@ -106,6 +106,28 @@ the playtest feel-pass items listed in the plan doc. *(The 4-phase art pass A1�
   (force `team_size=5` to match live `ZONE_TEAM_SIZE`) and loop `Sim.sim_tick` to a winner; run a
   round-robin across seeds/maps to measure win rates, then tune `FORMAT_MODS[5]`.
 
+## 🔒 Player data — the one thing that cannot be rebuilt
+Code, assets and zones can always be re-derived from git. **Player progress cannot.** Levels, gear,
+credits and quests live only in Supabase, and the `characters_guard_*` triggers stop a *client* from
+rewriting progression but **explicitly allow `service_role` to change anything** — and the zone
+server, the Supabase MCP connection, and any agent holding `SUPABASE_SERVICE_KEY` are all
+service_role. There is no guard above that level, so the discipline has to be procedural:
+
+- **Snapshot before anything risky**: `python3 tools/backup_player_data.py snapshot` (read-only,
+  seconds, → gitignored `backups/`). Do this before any migration, any bulk write, any deploy that
+  touches persistence, and before handing the DB to another agent.
+- **`diff` is the "did something eat player data?" check**: `... diff backups/<stamp>` reports
+  per-table row deltas vs live and flags **ROWS LOST**. Run it after anything that touched the DB.
+- **NEVER run `UPDATE`/`DELETE`/`TRUNCATE` against player tables** (characters, inventory,
+  character_quests, character_cosmetics, progression, materials, leaderboards, economy_ops) —
+  not to "fix" a value, not to roll back a test, not to tidy up. Read-only SQL is fine.
+- **`restore` is owner-approved only.** It refuses without `--yes-restore-live-player-data` and a
+  typed confirmation. It upserts snapshot rows over live ones and never deletes newer characters.
+- **Automation must never write to player tables.** Scheduled/unattended work is verification only.
+  The nightly CI run and every suite are hermetic — they do not touch the live project.
+- **Anything that changes a player's progress needs explicit owner approval first**, including
+  "harmless" corrections. `docs/APPROVAL_QUEUE.md` is where such a proposal goes to wait.
+
 ## Conventions / gotchas
 - **Server-authoritative**: clients send intents, the server validates everything. Every client→server
   RPC that mutates state is **rate-limited + serialized** (`_chat_next`, `_equipping`/`_equip_next`,
