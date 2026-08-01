@@ -4,4 +4,12 @@
 *.import
 .env
 dist/
+
+# Player-data snapshots (tools/backup_player_data.py). Real user data — never commit these.
 backups/
+
+# Staging area for asset generation (Meshy/Blender batches, review renders, handoff PDFs).
+# NOT part of the game: .gdignore keeps Godot from importing it, nothing preloads from it, and the
+# export presets do not include it. Untracked so another agent can produce in here without touching
+# the repo we ship from. Files stay on disk; only git stops watching them.
+too_add_models/
