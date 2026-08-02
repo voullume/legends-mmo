@@ -4,6 +4,12 @@ Every deployed version of Legends MMO, newest first. Each `vX.Y.Z` has a matchin
 git tag and a `ghcr.io/voullume/legends-mmo:vX.Y.Z` image — exact saved copies of
 what shipped. Cut a new version with `deploy/release.sh [patch|minor|major] "note"`.
 
+## v1.17.0 — 2026-08-02
+
+- P6 telemetry (avg/p95/worst tick, per-zone load, snapshot bytes) + AI-resident toggle; warfrog/howler death pass-3; CI now runs the key suites with the balance signature pinned; player-data snapshot tooling; too_add_models untracked
+
+_(rolls up commits since the previous tag; base 307dabc)_
+
 ## v1.16.0 — 2026-07-30
 
 - P5 zone-distinction pass: every zone gets its family's skyline (15 backdrops, 4 family languages) + gy2-5 decal motifs; Protocol v3 closes the decal-data client-skew (invisible walls)
