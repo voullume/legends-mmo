@@ -20,6 +20,28 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
+### Open right now (2026-08-02, after the v1.17.0 batch)
+1. **PR #3 `p5-taste-tweaks` is PARKED, not merged** — gy2 tower 400 su closer, away_boss silhouette
+   spire, two backdrop masses pulled off the wall. Built, green, costs nothing sitting there. Merge
+   it whenever visuals come back around, or close it if the mapping pass supersedes it.
+2. **Death pass-3 for the remaining five wildlife mobs.** warfrog + howler shipped in v1.17.0. The
+   other five almost certainly carry the SAME bug (a spin about the body axis instead of a topple,
+   plus a vertical offset on an axis that does nothing) — skink, grazer, forager, magpie and the
+   splinterback are unaudited. The authoring + measured-grounding scripts port directly:
+   `too_add_models/anim_pass3_warfrog/`.
+3. **`too_add_models/` history purge.** It is untracked as of v1.17.0, but 318 MB remains in git
+   HISTORY. Reclaiming it needs a filter-repo rewrite + force-push that rewrites every commit and
+   tag. Only worth it if clone size actually bothers you.
+   ⚠ **Related hazard, learned the hard way:** untracking does NOT protect the files from git.
+   Checking out any commit from BEFORE the untracking (307dabc) restores the tracked copies, and
+   switching back deletes them again — all 253 files, including `.gdignore`, vanished from disk
+   during the merge and had to be restored. Without `.gdignore` Godot would try to import 4.6 GB.
+   **The durable fix is to move the staging directory OUTSIDE the repo** (e.g. `~/legends-staging/`)
+   so no git operation can reach it. Say the word.
+4. **Phase 6 (world-expansion perf) is ready to close or continue** — it is the last unbuilt phase.
+   v1.17.0 shipped the telemetry it demanded. If the numbers show headroom at real player counts,
+   the correct outcome is "measured, no ceiling, closed", which finishes the program.
+
 ### From P5 / v1.16.0 (shipped 2026-07-29 — these are tuning, not blockers)
 Evidence: `docs/world-expansion-p2-report.md` §11, captures `docs/world-expansion-p2-shots/AFTER_p5_*.png`.
 
