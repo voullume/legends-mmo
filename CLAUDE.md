@@ -114,8 +114,10 @@ server, the Supabase MCP connection, and any agent holding `SUPABASE_SERVICE_KEY
 service_role. There is no guard above that level, so the discipline has to be procedural:
 
 - **Snapshot before anything risky**: `python3 tools/backup_player_data.py snapshot` (read-only,
-  seconds, → gitignored `backups/`). Do this before any migration, any bulk write, any deploy that
-  touches persistence, and before handing the DB to another agent.
+  seconds, → gitignored `backups/`). Do this before any migration, any bulk write, and before
+  handing the DB to another agent. **Releases already do it for you** — `deploy/release.sh` takes a
+  snapshot automatically, so every shipped version has a restore point without anyone remembering
+  (non-fatal: it warns loudly but will not block shipping code if the DB is unreachable).
 - **`diff` is the "did something eat player data?" check**: `... diff backups/<stamp>` reports
   per-table row deltas vs live and flags **ROWS LOST**. Run it after anything that touched the DB.
 - **NEVER run `UPDATE`/`DELETE`/`TRUNCATE` against player tables** (characters, inventory,

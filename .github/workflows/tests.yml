@@ -23,6 +23,47 @@ env:
   GODOT_VERSION: 4.6.3-stable
 
 jobs:
+  # A decal file is SHARED WORLD GEOMETRY: the server derives collision from data/decals/<map>.json,
+  # the client does not (it never computes decal collision, and the snapshot carries no obstacle
+  # list). So a client without those records renders nothing where the server blocks — the player
+  # slides along invisible walls — and nothing forces them to update unless Protocol.VERSION moves.
+  # This shipped unnoticed once (v1.14.0: away_1.json 22->115 records, no bump) and was caught in
+  # P5 only because a review lens went looking. A comment in Protocol.gd was not enough; this makes
+  # it mechanical. Backdrops (data/backdrops/*.json) are render-only and deliberately exempt.
+  decal-protocol-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                      # need the merge base to diff against
+      - name: A decal change must carry a Protocol.VERSION bump
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -u
+          decals=$(git diff --name-only "$BASE"...HEAD -- 'data/decals/*.json' || true)
+          if [ -z "$decals" ]; then
+            echo "no data/decals/*.json change — guard not applicable"; exit 0
+          fi
+          echo "changed decal files:"; printf '  %s\n' $decals
+          if git diff "$BASE"...HEAD -- shared/Protocol.gd | grep -qE '^[+-]const VERSION'; then
+            echo "Protocol.VERSION changed in the same branch — OK"; exit 0
+          fi
+          echo "::error::Decal geometry changed without a Protocol.VERSION bump."
+          cat <<'MSG'
+
+          data/decals/<map>.json feeds SERVER collision. The client never computes decal collision
+          and the snapshot carries no obstacle list, so a client missing these records renders
+          nothing where the server blocks: the player walks into invisible walls, in whatever zone
+          you just edited, with nothing prompting them to update.
+
+          Fix: bump `const VERSION` in shared/Protocol.gd in this same branch, and note what changed.
+          (Backdrops under data/backdrops/ are render-only and exempt — this guard ignores them.)
+          MSG
+          exit 1
+
   godot-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
