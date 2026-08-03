@@ -12,7 +12,10 @@ extends RefCounted
 ##   • the authentication/handshake flow itself changes;
 ##   • an item or progression read model changes incompatibly (what recv_* pushes mean);
 ##   • a SHARED WORLD DATA FILE the server derives collision from changes — i.e. any
-##     `data/decals/<map>.json` add/edit. The client never computes decal collision (the snapshot
+##     `data/decals/<map>.json` add/edit — ENFORCED by the `decal-protocol-guard` CI job, which
+##     fails any PR that edits a decal file without moving VERSION in the same branch. The rule
+##     lived only in this comment once, and shipped broken twice.
+##     The client never computes decal collision (the snapshot
 ##     carries no obstacle list), so a client missing those records renders nothing where the
 ##     server blocks: the player slides along invisible walls. Backdrops (`data/backdrops/*.json`)
 ##     are render-only and do NOT need a bump.

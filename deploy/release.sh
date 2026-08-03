@@ -51,6 +51,25 @@ git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && { echo "ERROR: tag $TAG
 
 echo "==> Releasing $CUR -> $NEW  (tag $TAG)"
 
+# --- player-data save point -------------------------------------------------------------------
+# Every version gets a restore point, automatically. Player progress (levels, gear, credits, quests)
+# lives only in Supabase and is the one thing git cannot rebuild, so "take a snapshot before
+# anything risky" must not depend on someone remembering to type it — this is the chokepoint every
+# deploy already passes through. READ-ONLY and a few seconds; see tools/backup_player_data.py.
+# NON-FATAL by design: this script only tags and publishes, so a DB hiccup or a missing .env should
+# not block shipping code. It warns loudly instead, and you decide.
+if [ -f .env ] && command -v python3 >/dev/null 2>&1; then
+  echo "==> Player-data snapshot (restore point for $TAG)"
+  if python3 tools/backup_player_data.py snapshot 2>&1 | sed 's/^/    /'; then
+    :
+  else
+    echo "    ⚠ SNAPSHOT FAILED — you are about to ship $TAG with no fresh restore point."
+    echo "      Fix it, or continue knowingly: python3 tools/backup_player_data.py snapshot"
+  fi
+else
+  echo "    ⚠ no .env or python3 — skipping the player-data snapshot for $TAG"
+fi
+
 # --- write version back into project.godot ----------------------------------------------------
 # portable in-place edit (BSD/GNU sed)
 sed "s|^config/version=\"$CUR\"|config/version=\"$NEW\"|" "$PROJECT" > "$PROJECT.tmp" && mv "$PROJECT.tmp" "$PROJECT"
