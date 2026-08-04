@@ -20,13 +20,6 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
-### Official Maps — Phase 1: the Locale 1 graph (2026-08-04 — items 2–9 DECIDED, item 1 open)
-**`docs/locale1-graph.md` is the paper locale graph.** Items 2–9 of its §10 block were **approved
-2026-08-04** (recorded in the doc's §11 log). **Still open: item 1 only** — the zone set
-(names/archetypes/sizes), which the owner wants to *see* first. Evidence: the to-scale map artifact
-("Locale 1 — the zone set, to scale") + PR #8. Answering item 1 (approve / edit / approve
-provisionally and judge in the greybox) unlocks Phase 2.
-
 ### Open right now (2026-08-02, after the v1.17.0 batch)
 1. **PR #3 `p5-taste-tweaks` is PARKED, not merged** — gy2 tower 400 su closer, away_boss silhouette
    spire, two backdrop masses pulled off the wall. Built, green, costs nothing sitting there. Merge
@@ -91,6 +84,7 @@ Evidence: `docs/world-expansion-p2-report.md` §10 items 1–7.
 
 | Date | Item | Call |
 |---|---|---|
+| 2026-08-04 | **Official Maps Phase 1 — the Locale 1 graph** (all 9 items of `docs/locale1-graph.md` §10; item 1 via the to-scale map artifact) | **approved as drawn** — Phase 2 (greybox slice) unlocked |
 | 2026-07-29 | P5 gy2 tower / away_boss / 6 tints / gy3 barrier, at ship time | keep all as-is (still swappable — see above) |
 | 2026-07-29 | `Protocol.VERSION` → 3 for the P5 decal-data ship | yes — converts silent invisible walls into a clean update prompt |
 | 2026-07-26 | P4 capacity gate | option 1 — build the empty-zone sleep |

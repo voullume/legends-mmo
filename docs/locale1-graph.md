@@ -259,4 +259,5 @@ fast-travel for graduated characters.
 | Date | Item | Call |
 |---|---|---|
 | 2026-08-04 | Items **2–9** (topology+landmarks, naming, gate, old-route timing, base, instance policy+reservations, greybox slice scope, level gradient) | **APPROVED** by owner, as written |
-| 2026-08-04 | Item **1** (zone set — names, archetypes, sizes) | **PENDING** — owner needs to see it; a to-scale map artifact was produced ("Locale 1 — the zone set, to scale"). Options offered: approve as drawn / edit rows / approve provisionally and judge in the Phase 2 greybox (whose gate explicitly allows reshaping) |
+| 2026-08-04 | Item **1** (zone set — names, archetypes, sizes) | **APPROVED as drawn**, from the to-scale map artifact ("Locale 1 — the zone set, to scale") |
+| 2026-08-04 | **The Phase 1 gate** | **PASSED — all nine items approved. Phase 2 (the greybox slice) is unlocked**, scope per item 8: fields + pitch + lane + culvert + tower stand-in + the pitch-islet major cache |
