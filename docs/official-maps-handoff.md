@@ -309,13 +309,53 @@ This is the load-bearing content rule for Locale 1, and it gives exploration two
   genuinely control the fight. It reuses the existing cast/interrupt feel rather than inventing a system.
 - **The reward must beat the route.** If through-route loot is comparable, nobody detours twice.
 
-**Cache state — the one real decision:**
-- *(a) World-respawning* (rides the existing respawn queue, first-come). Cheap, no persistence work,
-  fine for a slice.
-- *(b) Per-character lockout with a cooldown.* More persistence work, but it is the version that
-  actually creates "a reason to come back" — with (a) a returning player often finds an empty room.
-- **Recommendation:** ship (a) in the greybox slice to prove the encounter, and target (b) for Locale 1,
-  since the owner's stated purpose for caches is exactly the return visit.
+#### Cache tiers and tuning (owner, 2026-08-03)
+
+Target: *"a group at the same level, but beatable by a very strategic solo player — not easy at all,
+and easier for higher-level players without being a walkthrough."* Two authoring recipes, both valid:
+**roughly double the mob count** of a route camp, or **fewer mobs at a higher level**, optionally with
+an elite.
+
+| Tier | Guard | Intended experience |
+|---|---|---|
+| **Minor cache** | route camp + 1–2 bodies | soloable at level with ordinary play |
+| **Major cache** (the valuable one) | ~2× a route camp, **or** −1 body at +2–3 levels with an elite | tuned as a group fight at level; soloable only by a strategic player; noticeably easier when out-levelled, never trivial |
+
+**⚠ The design consequence, and it is the important one:** "beatable by a *strategic* solo player"
+is a statement about **terrain**, not about numbers. On an open field there is no strategy available —
+the pack aggros as one blob and the fight is a pure stat check, which is exactly the "beatable only if
+over-levelled" outcome the owner does *not* want.
+
+So a major-cache arena must be **built to allow skilled play**:
+- **cover that breaks line of sight**, so a player can pull one mob instead of five (`DECAL_PANELS`
+  walls already block LOS as well as movement — the primitive exists)
+- **a chokepoint** on the approach, so positioning matters
+- **room to kite** without immediately leaving the 1600 su leash and resetting the fight
+- **staggered aggro spacing** — sub-clusters ~320 su apart, so the pack is *separable* by a careful
+  player and overwhelming to a careless one
+
+That single rule is what makes the difference between "hard because you are under-geared" and "hard
+until you work out how to take it." It should be a checklist item on every major cache.
+
+**Companion synergy worth noting:** "a party member helps but is not required" already has an answer
+in the game — recruitable AI residents. Major caches give residents a concrete purpose beyond flavour,
+and give a solo player a lever to pull when a fight is too much. That is a good loop, and free.
+
+**Cache state (owner, 2026-08-03): persistent, but it decays.**
+*"There should definitely be persistence but also not forever, so it does reset if nothing's happening
+for a while."*
+
+→ **Per-character lockout with an expiry.** Looting a cache locks it *for that character* for a set
+real-time period; after that it is lootable again. So it cannot be farmed in a loop, and returning
+after a while is rewarded — which is the entire stated purpose.
+
+- **Wall-clock, not tick-based** (zones sleep — the same constraint as everything else here).
+- Storage: a per-character map of `cache_id → last_looted_at`, alongside the existing quest state.
+- The guard pack respawns on the normal cadence regardless, so the *encounter* is always there even
+  when the reward is not — a returning player sees a live pack, not an empty room.
+- Expiry length is a tuning knob, not a design commitment: start around a day and adjust from play.
+- The greybox slice can stub this as world-respawning to prove the encounter; the lockout lands with
+  Locale 1.
 
 **The lore collectible is called TAPES** (owner, 2026-08-03). Deliberately **not** "pages": Playbook
 Pages are an existing endgame currency (quest rewards, Master-Key attunement, `s["pages"]`,
@@ -357,10 +397,17 @@ That is a single rotating value. It cannot break progression, it is trivially te
 concrete reason to look around before choosing a route — and it puts the AI residents on screen doing
 something that matters, which is the point.
 
-**The AI angle, in ascending ambition** (each is a separate later step, not v1):
-- residents *present* at the contested site → residents *clearing* it, so you arrive to a fight in
-  progress → a resident's activity *leaving a mark* (a camp cleared for a while, a shortcut opened) →
-  residents *competing* with the player on the ladder as they level
+**The AI angle, in ascending ambition:**
+1. residents *present* at the contested site
+2. residents *clearing* it, so you arrive to a fight already in progress
+3. a resident's activity *leaving a mark* — a camp stays cleared for a while, a shortcut opens
+4. residents *competing* with the player on the ladder as they level
+
+**Owner direction (2026-08-03): build whichever is easiest to scale up or down later.** So the
+deliverable is not a rung — it is **the dial**. Model resident involvement as a per-site data value
+(`involvement: 0..3`) that the rotation reads, with rung 1 as the shipped default. Adding rung 2 or 3
+then means writing a behaviour and raising a number, not restructuring the feature. If a rung turns
+out to feel wrong in play, it turns off by editing data rather than reverting code.
 
 ### 9.3 Death, bases, and stakes
 
@@ -381,8 +428,11 @@ Two things this buys beyond correctness:
 - **Somewhere to come back to.** A base per locale answers the "is there anything to return to?"
   question directly and gives travel a shape: out from the base, loop, back.
 
-Open sub-question: should the tutorial (L1–5) be gentler — respawn in place — so new players are not
-punished while learning? A per-zone flag on the registry would cover it.
+**Tutorial exemption (owner, 2026-08-03): yes.** The Glitchyard tutorial zones respawn **in place**,
+so a level-2 player learning the controls is never punished with a walk back. And the rule the owner
+stated matters beyond the tutorial: **once a player has left the tutorial, nothing should ever respawn
+them back into it.** The base registry must therefore never name a Glitchyard zone as an anchor for
+any zone outside it — a graduated character's anchor is Home or their locale base, always.
 
 ---
 
@@ -474,24 +524,28 @@ plan changes before a single finished asset is placed.
 | 2026-08-03 | **Lore collectibles are TAPES** — recorded media (game film, coach's tape, PA/press-box audio) carrying the history of what happened here and the characters worth knowing. Not authored yet, but maps reserve tape anchor sites now | Avoids the `pages` collision with the endgame currency; recorded media suits an abandoned sports complex and lets characters be *heard* |
 | 2026-08-03 | **World-state change is wanted, but bounded** — predefined, scheduled, legible, never touching access | "Not too random and crazy that it would mess things up"; it is also the best showcase for the AI residents |
 | 2026-08-03 | **Death respawns at the closest main base** (registry-based, not euclidean) | Gives real stakes and somewhere to come back to |
+| 2026-08-03 | **Major caches are tuned as group fights at level**, beatable by a strategic solo player, easier when out-levelled but never a walkthrough. Recipes: ~2x a route camp, or fewer bodies at +2-3 levels with an elite | The valuable reward should cost something real |
+| 2026-08-03 | **Cache lockout is per-character and EXPIRES** | "Persistence but not forever, so it resets if nothing's happening for a while" — cannot be farmed in a loop, rewards returning |
+| 2026-08-03 | **Tutorial respawns in place; nothing ever respawns a graduated player into the Glitchyard** | Learning players should not be punished with a walk back; the tutorial is left behind for good |
+| 2026-08-03 | **Resident world-state involvement ships as a DIAL (`involvement: 0..3`), default rung 1** | Owner asked for whatever is easiest to scale up or down later |
 
 ---
 
 ## 14. Open questions
 
-Most of the fun questions are now answered (§9.1–9.3, decision log). What remains:
+**All of the design questions are now answered** (§9.1–9.3 and the decision log). The region is
+solo-first with group-optional major caches, resolved implicitly by the cache tuning: a fight that a
+strategic solo player can win, that a second body makes comfortable, with recruitable residents as
+the lever in between.
 
-1. **Solo or group?** Drives camp sizing, guard-pack difficulty and how much gets instanced. A guarded
-   cache tuned for a solo player is a different encounter from one tuned for two. Given the resident
-   companions can be recruited, **solo-first with group-optional caches** seems likeliest — confirm.
-2. **Cache state: world-respawn or per-character lockout?** §9.1 recommends world-respawn for the
-   slice and per-character for Locale 1, since the return visit is the stated purpose. Confirm the
-   target, because it decides whether persistence work lands in Phase 4.
-3. **How hard is "harder than the through-route"?** Roughly: a route camp is 2–3 mobs at level; is a
-   guard pack 4–5 at level, 2–3 at +2 levels with an elite, or something a solo player is expected to
-   need a companion for? This single number shapes how Locale 1 reads.
-4. **Should the tutorial be exempt from base respawn?** Punishing a level-2 player with a walk back
-   while they are still learning may be the wrong first impression.
-5. **How much should residents carry?** Background colour, or a genuine social layer — naming you,
-   remembering you, competing on the ladder, turning up where you are headed. §9.2's ladder of
-   ambition is written; where on it do we stop for Locale 1?
+What remains is **implementation detail, to be settled when the phase is reached** rather than now:
+
+1. **Cache lockout duration.** Start around a day and tune from play. A knob, not a design decision.
+2. **Where cache lockout state lives** — a JSON column on `characters` beside the quest state, or its
+   own table. Decide when Phase 4 starts; the shape (`cache_id → last_looted_at`, wall-clock) is fixed.
+3. **The contested-site rotation cadence** — daily is the assumption; confirm against how often the
+   owner expects to play.
+4. **Tape distribution** — how many per locale, and whether any sit behind a guard rather than in a
+   quiet place. Deferred until tapes are actually authored; the anchor *sites* are reserved regardless.
+
+None of these block Phase 1 or Phase 2.
