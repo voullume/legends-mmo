@@ -20,6 +20,13 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
+### Official Maps — Phase 2: the greybox slice playtest (2026-08-04, NEW)
+**PR #9 (`locale1-greybox`) is the built slice** — four dev-locked `loc1_*` zones + the §9.1 major
+cache + the `--perf` harness; 406-assert suite green, full battery green, bal_identity byte-identical,
+adversarially reviewed (dupe + dev-lock holes closed). **Decision needed: the local playtest +
+the 5 gate questions in `docs/locale1-greybox-report.md`** ("one place? cache worth the detour?") —
+reshaping the graph here is the designed outcome. NOT deployed; merging keeps it inert (dev-lock).
+
 ### Open right now (2026-08-02, after the v1.17.0 batch)
 1. **PR #3 `p5-taste-tweaks` is PARKED, not merged** — gy2 tower 400 su closer, away_boss silhouette
    spire, two backdrop masses pulled off the wall. Built, green, costs nothing sitting there. Merge
