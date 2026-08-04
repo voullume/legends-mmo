@@ -291,7 +291,7 @@ getting, parked behind a pack that is harder than anything on the through-route.
 
 This is the load-bearing content rule for Locale 1, and it gives exploration two distinct flavours:
 
-| | **Guarded cache** | **Lore anchor** |
+| | **Guarded cache** | **Tape anchor** |
 |---|---|---|
 | Reward for | committing to a fight you could have walked past | going somewhere quiet and odd |
 | Placement | **never on the main route** — always ≥1 detour segment off it | quiet, off-route, low or no threat |
@@ -317,15 +317,21 @@ This is the load-bearing content rule for Locale 1, and it gives exploration two
 - **Recommendation:** ship (a) in the greybox slice to prove the encounter, and target (b) for Locale 1,
   since the owner's stated purpose for caches is exactly the return visit.
 
-**⚠ Naming collision — `pages` is already taken.** Playbook Pages are an existing endgame currency
-(quest rewards, Master-Key attunement, `s["pages"]`, `MASTER_KEY_PAGES`). The lore collectible needs a
-different name — *Records*, *Files*, *Tapes*, *Testimony*. Pick one before anything is authored, or
-the two will be permanently confusable in code and UI.
+**The lore collectible is called TAPES** (owner, 2026-08-03). Deliberately **not** "pages": Playbook
+Pages are an existing endgame currency (quest rewards, Master-Key attunement, `s["pages"]`,
+`MASTER_KEY_PAGES`), and reusing the word would make the two permanently confusable in code and UI.
 
-**What lore means for map design *now*, before the collectible exists:** reserve **lore anchor sites** —
-places that visibly *meant something*: a coach's office ruin, a crashed team bus, a groundskeeper's
-shed, a memorial bench, a locker wall. Even empty, they give a zone narrative texture; when the
-collectible lands it already has homes, and the maps will not need reworking to fit it.
+Tapes also fit the fiction better than pages would. An abandoned sporting complex is full of recorded
+media: game film, coach's scouting tape, PA and press-box recordings, training reviews, locker-room
+audio. That gives the collectible a natural in-world reason to exist, a natural set of places to be
+found, and a natural voice — someone *recorded* this, which is more intimate than a written page and
+lets characters be heard rather than described.
+
+**What this means for map design *now*, before a single tape is authored:** reserve **tape anchor
+sites** — places that visibly *meant something* and would plausibly hold a recording: a coach's office
+ruin, a press box, a crashed team bus, a groundskeeper's shed, a locker wall, a PA equipment stack
+(the new `speaker` prop is on-theme for exactly this). Even empty, these give a zone narrative
+texture; when tapes land they already have homes and the maps need no rework.
 
 ### 9.2 World-state change — bounded, legible, AI-driven
 
@@ -465,7 +471,7 @@ plan changes before a single finished asset is placed.
 | 2026-08-03 | **Defer** curve + cap + re-level into one later tuning pass | Cannot tune against content that does not exist |
 | 2026-08-03 | **v2:** graph → greybox slice → assets; shape palette replaces the uniform size rule; pockets shared by default; explicit instance policy; client budgets | External review; adopted with the pocket-instancing rule relaxed |
 | 2026-08-03 | **Guarded caches are the exploration pull for now** — loot chests behind packs harder than the through-route | Gathering and lore come later; caches carry the return visit until they land |
-| 2026-08-03 | **Lore collectibles will exist** — deeper history of what happened here, plus characters worth learning about. Not authored yet, but maps reserve anchor sites now | Knowing it is coming shapes the maps so they need no rework later |
+| 2026-08-03 | **Lore collectibles are TAPES** — recorded media (game film, coach's tape, PA/press-box audio) carrying the history of what happened here and the characters worth knowing. Not authored yet, but maps reserve tape anchor sites now | Avoids the `pages` collision with the endgame currency; recorded media suits an abandoned sports complex and lets characters be *heard* |
 | 2026-08-03 | **World-state change is wanted, but bounded** — predefined, scheduled, legible, never touching access | "Not too random and crazy that it would mess things up"; it is also the best showcase for the AI residents |
 | 2026-08-03 | **Death respawns at the closest main base** (registry-based, not euclidean) | Gives real stakes and somewhere to come back to |
 
@@ -481,13 +487,11 @@ Most of the fun questions are now answered (§9.1–9.3, decision log). What rem
 2. **Cache state: world-respawn or per-character lockout?** §9.1 recommends world-respawn for the
    slice and per-character for Locale 1, since the return visit is the stated purpose. Confirm the
    target, because it decides whether persistence work lands in Phase 4.
-3. **What is the lore collectible called?** Not `pages` — that name is taken by the endgame currency.
-   Needs deciding before anything is authored.
-4. **How hard is "harder than the through-route"?** Roughly: a route camp is 2–3 mobs at level; is a
+3. **How hard is "harder than the through-route"?** Roughly: a route camp is 2–3 mobs at level; is a
    guard pack 4–5 at level, 2–3 at +2 levels with an elite, or something a solo player is expected to
    need a companion for? This single number shapes how Locale 1 reads.
-5. **Should the tutorial be exempt from base respawn?** Punishing a level-2 player with a walk back
+4. **Should the tutorial be exempt from base respawn?** Punishing a level-2 player with a walk back
    while they are still learning may be the wrong first impression.
-6. **How much should residents carry?** Background colour, or a genuine social layer — naming you,
+5. **How much should residents carry?** Background colour, or a genuine social layer — naming you,
    remembering you, competing on the ladder, turning up where you are headed. §9.2's ladder of
    ambition is written; where on it do we stop for Locale 1?
