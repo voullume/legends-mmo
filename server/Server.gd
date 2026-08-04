@@ -1048,7 +1048,15 @@ func _tick_cache_channels() -> void:
 		if elapsed < int(ch["dur"]):
 			continue
 		_cache_channel.erase(pid)
-		_cache_down[str(ch["id"])] = now + CACHE_LOCKOUT_MS
+		var done_cid := str(ch["id"])
+		if now < int(_cache_down.get(done_cid, 0)):
+			# review find: a CONCURRENT channeler already claimed this cache — without this re-check,
+			# N players opening inside the same window each mint a guaranteed epic (loot inflation the
+			# moment the dev-lock opens). First completion wins; the rest hear "locked".
+			if net != null:
+				net.recv_cache_state.rpc_id(pid, "locked", int(_cache_down[done_cid]) - now)
+			continue
+		_cache_down[done_cid] = now + CACHE_LOCKOUT_MS
 		var slots: Array = LOOT_SLOTS.keys()
 		var slot: String = slots[_loot_rng.next_int(slots.size())]
 		_distribute_loot(pid, _make_item(slot, "epic", CACHE_ILVL), str(ch["map"]))
@@ -2269,7 +2277,12 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 			var gate := World.gate_for_map(str(gpf["map"]))
 			# gear_unknown: the inventory fetch failed transiently → item_power is 0-by-accident, not 0-by-fact.
 			# Skip ONLY the relocate (never bounce a geared player on a DB blip); pad USE still re-checks live.
-			if gate != "" and not _portal_unlocked(pid, gate) and not bool(_session[pid].get("gear_unknown", false)) and not bool(_session[pid].get("quests_unknown", false)):
+			# loc1_gate consumes neither gear nor quests (it is the admin flag), so the transient-fetch
+			# escape hatch below must not apply to it — a tampered last_map into the dev-locked greybox
+			# ALWAYS bounces (review find). The hatch stays for gates that DO read gear/quests
+			# (boss/finals/wild/secret) where a DB blip would otherwise false-bounce a legit player.
+			var strict := gate == "loc1_gate"
+			if gate != "" and not _portal_unlocked(pid, gate) and (strict or (not bool(_session[pid].get("gear_unknown", false)) and not bool(_session[pid].get("quests_unknown", false)))):
 				_relocate(gpf, _session[pid], World.HOME, World.HOME_SPAWN)
 	if not _session.has(pid):
 		return

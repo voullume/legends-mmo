@@ -352,9 +352,10 @@ const PORTALS := {
 		{"x": 3480.0, "y": 700.0,  "to": LOC1P, "tx": 250.0,  "ty": 700.0,  "gate": "loc1_gate", "label": "▶ Treeline Break"},
 		# the ALTERNATE route — the Service Lane (quiet by density, not level)
 		{"x": 3480.0, "y": 2100.0, "to": LOC1L, "tx": 250.0,  "ty": 350.0,  "gate": "loc1_gate", "label": "▶ Service Lane"},
-		# the culvert's fields-side mouth: sits on the entry plaza on purpose, and the L8 tube guard +
-		# wreck decals TELEGRAPH the threat (graph doc §3 ⚠ — a warned decision, not an ambush)
-		{"x": 800.0,  "y": 2500.0, "to": LOC1C, "tx": 220.0,  "ty": 550.0,  "gate": "loc1_gate", "label": "▶ Culvert Mouth"},
+		# the culvert's fields-side mouth: at the entry plaza's SOUTH RIM on purpose (the approved §10
+		# item-2 telegraph decision — the locale's highest-traffic L5 spot), with the L8 tube guard +
+		# warning decals TELEGRAPHING the threat (a warned decision, not an ambush)
+		{"x": 600.0,  "y": 1900.0, "to": LOC1C, "tx": 220.0,  "ty": 550.0,  "gate": "loc1_gate", "label": "▶ Culvert Mouth"},
 		# intra-map checkpoint collapsing the hub's return walk (the away_1 Field-Entrance precedent)
 		{"x": 3350.0, "y": 2600.0, "to": LOC1F, "tx": 400.0,  "ty": 1500.0, "gate": "loc1_gate", "label": "▲ Entry Plaza"},
 	],
@@ -369,7 +370,7 @@ const PORTALS := {
 		{"x": 2480.0, "y": 350.0,  "to": LOC1P, "tx": 400.0,  "ty": 2100.0, "gate": "loc1_gate", "label": "▶ Collapsed Gate"},
 	],
 	LOC1C: [
-		{"x": 120.0,  "y": 550.0,  "to": LOC1F, "tx": 900.0,  "ty": 2400.0, "gate": "loc1_gate", "label": "◀ Outfall — Entry Plaza"},
+		{"x": 120.0,  "y": 550.0,  "to": LOC1F, "tx": 700.0,  "ty": 2000.0, "gate": "loc1_gate", "label": "◀ Outfall — Entry Plaza"},
 		{"x": 880.0,  "y": 150.0,  "to": LOC1P, "tx": 450.0,  "ty": 1900.0, "gate": "loc1_gate", "label": "▶ Tube Mouth — Flooded Pitches"},
 	],
 }
@@ -940,8 +941,8 @@ const DECALS := {
 		{"kind": "ring", "x": 3350.0, "y": 2600.0, "r": 90.0},                                    # checkpoint shelter
 		{"kind": "cone", "x": 3400.0, "y": 640.0},  {"kind": "cone", "x": 3400.0, "y": 760.0},    # treeline break
 		{"kind": "cone", "x": 3400.0, "y": 2040.0}, {"kind": "cone", "x": 3400.0, "y": 2160.0},   # lane gap
-		{"kind": "ring", "x": 800.0,  "y": 2500.0, "r": 80.0},                                    # culvert mouth —
-		{"kind": "cone", "x": 740.0,  "y": 2440.0}, {"kind": "cone", "x": 860.0,  "y": 2440.0},   # the ⚠ telegraph
+		{"kind": "ring", "x": 600.0,  "y": 1900.0, "r": 80.0},                                    # culvert mouth —
+		{"kind": "cone", "x": 540.0,  "y": 1840.0}, {"kind": "cone", "x": 660.0,  "y": 1840.0},   # the ⚠ telegraph
 	],
 	LOC1P: [
 		# THE CACHE ARENA (§9.1): chest visible from outside the pack's 320 aggro through the wall gap
@@ -952,7 +953,10 @@ const DECALS := {
 		{"kind": "prop", "model": "glitchyard_wall", "x": 1500.0, "y": 700.0, "h": 2.9, "yaw": 0.0},
 		{"kind": "prop", "model": "glitchyard_wall", "x": 1950.0, "y": 700.0, "h": 2.9, "yaw": 0.0},
 		{"kind": "prop", "model": "glitchyard_wall", "x": 1450.0, "y": 400.0, "h": 2.9, "yaw": 1.5708},
-		# the Floodlight Tower footprint (visitable half of the landmark; the silhouette is backdrop data)
+		# the Floodlight Tower — the VISITABLE mass (review find: the backdrop silhouette alone left
+		# nothing overhead at the footprint; this in-zone column makes visible-before/visitable-after
+		# real. PROP_FOOTPRINT 1.6 × h20 → a r32 collision pillar, clear of every camp/drop by >48.)
+		{"kind": "prop", "model": "plaza_light_column", "x": 2400.0, "y": 1100.0, "h": 20.0, "yaw": 0.0},
 		{"kind": "ring", "x": 2400.0, "y": 1100.0, "r": 140.0},
 		{"kind": "cone", "x": 2260.0, "y": 1100.0}, {"kind": "cone", "x": 2540.0, "y": 1100.0},
 		{"kind": "cone", "x": 2400.0, "y": 960.0},  {"kind": "cone", "x": 2400.0, "y": 1240.0},

@@ -42,7 +42,11 @@ func _walk(pid: int, pad_x: float, pad_y: float) -> void:   # stand on a pad and
 # spin on the REAL clock (create_timer undershoots in the headless loop — a rate-limit window or the
 # channel duration must be measured against Time.get_ticks_msec, the same clock the server uses)
 func wait_until(ms_target: int) -> void:
+	var t_start := Time.get_ticks_msec()
 	while Time.get_ticks_msec() < ms_target:
+		if Time.get_ticks_msec() - t_start > 15000:
+			ok(false, "wait_until: 15 s cap hit (target %d) — a corrupted target, fail loud not exit-124" % ms_target)
+			return
 		await process_frame
 
 func _collision_for(map: String) -> Array:
@@ -50,13 +54,14 @@ func _collision_for(map: String) -> Array:
 	c.append_array(World.collision_from_decals(map))
 	return c
 
-# kill every pitch mob and reset the respawn clock — the channel tests need a quiet arena, and the
-# server live-ticks during awaits, so the 6 s respawn cadence would put the pack back mid-test
+# kill every pitch mob and reset THEIR respawn clocks (scoped — not a global clear) — the channel
+# tests need a quiet arena, and the 6 s respawn cadence would otherwise put the pack back mid-test
+# (a dead, unqueued mob re-queues at a fresh 6 s on the next driven tick, which outlives every sub-test)
 func _quiet_pitch() -> void:
 	for m in _mobs_in("loc1_pitch"):
 		m["alive"] = false
 		m["hp"] = 0.0
-	srv._respawn.clear()
+		srv._respawn.erase(m["id"])
 
 func _clears_collision(p: Vector2, circles: Array) -> bool:
 	for c in circles:
@@ -146,6 +151,12 @@ func _run() -> void:
 	ok(str(srv._session[8]["map"]) == "loc1_pitch", "restore: an admin resumes inside the greybox")
 	srv.drop_peer(8)
 	await settle()
+	# the S1 rule, asserted directly (review find: gate_for_map only reads the FIRST inbound pad, and
+	# the walks use an admin — so an interior pad could silently lose its gate key without this loop)
+	for src in World.PORTALS:
+		for p in World.PORTALS[src]:
+			if L1MAPS.has(str(p.get("to", ""))):
+				ok(str(p.get("gate", "")) == "loc1_gate", "S1: pad %s → %s carries loc1_gate" % [src, p["to"]])
 
 	# ---- 6. geometry sweeps (self-contained; the stab_away style, scoped to the loc1 maps) ----
 	for mp in L1MAPS:
@@ -158,6 +169,8 @@ func _run() -> void:
 				if p.has("to") and str(p["to"]) == mp:
 					arrivals.append(Vector2(float(p["tx"]), float(p["ty"])))
 		for a in arrivals:
+			ok(a.x >= 20.0 and a.y >= 20.0 and a.x <= float(dims["w"]) - 20.0 and a.y <= float(dims["h"]) - 20.0,
+				"%s: arrival (%.0f,%.0f) is in-bounds" % [mp, a.x, a.y])
 			ok(_clears_collision(a, circles), "%s: arrival (%.0f,%.0f) clears collision r+16" % [mp, a.x, a.y])
 			for row in World.MOBS.get(mp, []):
 				var d: float = a.distance_to(Vector2(float(row["x"]), float(row["y"])))
@@ -173,10 +186,21 @@ func _run() -> void:
 				if str(row.get("tier", "")) == "elite":
 					ok(pp.distance_to(Vector2(float(row["x"]), float(row["y"]))) >= 200.0,
 						"%s: pad '%s' is ≥200 from the elite (jukeable, not a mandatory hit)" % [mp, p.get("label", "?")])
-	# the GY5 return drop (fields → GY5) obeys GY5's own grammar too
+	# the GY5 return drop (fields → GY5) + the new pad obey GY5's own grammar too (incl. its shipped
+	# decal collision from data/decals/glitchyard_5.json)
+	var g5c := _collision_for("glitchyard_5")
+	ok(_clears_collision(Vector2(300.0, 1000.0), g5c), "gy5: the fields return drop clears collision r+16")
+	ok(_clears_collision(Vector2(700.0, 1000.0), g5c), "gy5: the loc1 pad clears collision r+16")
 	for row in World.MOBS.get(World.GY5, []):
 		var d5 := Vector2(300.0, 1000.0).distance_to(Vector2(float(row["x"]), float(row["y"])))
 		ok(d5 > 320.0, "gy5: the fields return drop is %d su from the %s camp (>320)" % [int(d5), row["class"]])
+		ok(Vector2(700.0, 1000.0).distance_to(Vector2(float(row["x"]), float(row["y"]))) > 320.0,
+			"gy5: the loc1 pad is out of aggro of the %s camp" % row["class"])
+	# backdrop data integrity (client-only files — nothing else headless touches them)
+	for mp in L1MAPS:
+		var btxt := FileAccess.get_file_as_string("res://data/backdrops/%s.json" % mp)
+		var barr = JSON.parse_string(btxt)
+		ok(barr is Array and (barr as Array).size() > 0, "backdrops: %s.json parses as a non-empty array" % mp)
 	# camp engageability: 24 firing positions on the 250 ranged ring, ≥50% must hold LOS
 	for mp in L1MAPS:
 		var ocirc := _collision_for(mp)
@@ -200,25 +224,62 @@ func _run() -> void:
 				"engageable: %s camp %s (%.0f,%.0f) holds LOS from %d/%d positions" % [mp, camp["class"], cx, cy, seen, tried])
 
 	# ---- 7. the §9.1 CACHE ARENA (the load-bearing content rule, mechanized) ----
-	var guards := []
+	# the interaction point, the visible chest, and this test's origin must all agree (review find:
+	# these were three independent literals that could drift apart with everything green)
+	var cc0: Dictionary = World.caches_for("loc1_pitch")[0]
+	ok(Vector2(float(cc0["x"]), float(cc0["y"])) == CACHE_XY, "cache: World.CACHES matches the arena origin under test")
+	ok(float(cc0["channel_s"]) == 2.5, "cache: the 2.5 s anti-kite channel is pinned in data")
+	var chest_found := false
+	for d in World.decals_for("loc1_pitch"):
+		if str(d.get("kind", "")) == "prop" and str(d.get("model", "")) == "championship_reward_chest" \
+				and CACHE_XY.distance_to(Vector2(float(d["x"]), float(d["y"]))) <= float(cc0["r"]):
+			chest_found = true
+	ok(chest_found, "cache: the visible chest decal sits at the CACHES point")
+	var guards := []                               # [{p, level, tier}] — levels matter (the prize stays defended)
 	for row in World.MOBS["loc1_pitch"]:
-		if CACHE_XY.distance_to(Vector2(float(row["x"]), float(row["y"]))) <= 450.0:
-			guards.append(Vector2(float(row["x"]), float(row["y"])))
+		var gp := Vector2(float(row["x"]), float(row["y"]))
+		if CACHE_XY.distance_to(gp) <= 450.0:
+			guards.append({"p": gp, "level": int(row["level"]), "tier": str(row["tier"])})
 	ok(guards.size() == 5, "cache: exactly 5 guards within 450 of the chest (got %d)" % guards.size())
-	# single-linkage clustering at 150 su → the two designed sub-clusters, centroids 280-380 apart
+	var pack_elites := 0
+	var min_lvl := 99
+	for g in guards:
+		if str(g["tier"]) == "elite":
+			pack_elites += 1
+		min_lvl = mini(min_lvl, int(g["level"]))
+	ok(pack_elites == 1, "cache: exactly one elite anchors the pack")
+	ok(min_lvl >= 9, "cache: no guard below L9 (a re-level to trivial fails here)")
+	# clustering at 150 su linkage, made order-proof with a merge-until-stable pass (review find)
 	var clusters := []
 	for g in guards:
 		var placed := false
 		for cl in clusters:
 			for m in cl:
-				if g.distance_to(m) < 150.0:
-					cl.append(g)
+				if (g["p"] as Vector2).distance_to(m) < 150.0:
+					cl.append(g["p"])
 					placed = true
 					break
 			if placed:
 				break
 		if not placed:
-			clusters.append([g])
+			clusters.append([g["p"]])
+	var merged := true
+	while merged:
+		merged = false
+		for i in range(clusters.size()):
+			for j in range(i + 1, clusters.size()):
+				var close := false
+				for a2 in clusters[i]:
+					for b2 in clusters[j]:
+						if (a2 as Vector2).distance_to(b2) < 150.0:
+							close = true
+				if close:
+					clusters[i].append_array(clusters[j])
+					clusters.remove_at(j)
+					merged = true
+					break
+			if merged:
+				break
 	ok(clusters.size() == 2, "cache: the pack forms exactly 2 sub-clusters (got %d)" % clusters.size())
 	if clusters.size() == 2:
 		var cen := []
@@ -232,9 +293,9 @@ func _run() -> void:
 	var walls := 0
 	for d in World.decals_for("loc1_pitch"):
 		if str(d.get("kind", "")) == "prop" and World.DECAL_PANELS.has(str(d.get("model", ""))) \
-				and CACHE_XY.distance_to(Vector2(float(d["x"]), float(d["y"]))) <= 500.0:
+				and CACHE_XY.distance_to(Vector2(float(d["x"]), float(d["y"]))) <= 560.0:
 			walls += 1
-	ok(walls >= 2, "cache: ≥2 LOS-blocking walls in the arena (got %d)" % walls)
+	ok(walls == 3, "cache: all three authored LOS walls are load-bearing (got %d)" % walls)
 	# the informed-commit rule: ≥1 point outside EVERY guard's 320 aggro that still SEES the chest
 	var pcirc := _collision_for("loc1_pitch")
 	var pfake := {"map": {"obstacles": pcirc}}
@@ -248,7 +309,7 @@ func _run() -> void:
 			continue
 		var safe := true
 		for g in guards:
-			if Vector2(px, py).distance_to(g) <= 320.0:
+			if Vector2(px, py).distance_to(g["p"]) <= 320.0:
 				safe = false
 				break
 		# aim at the chest's visible FACE, not its center — the chest prop carries its own (min-clamped r4)
@@ -258,7 +319,7 @@ func _run() -> void:
 			vis += 1
 	ok(vis >= 1, "cache: the chest is LOS-visible from %d safe ring points (see the prize BEFORE you commit)" % vis)
 	for g in guards:
-		ok(CACHE_XY.distance_to(g) <= 600.0, "cache: guard at (%.0f,%.0f) anchors within 600 of the chest (fight stays in leash room)" % [g.x, g.y])
+		ok(CACHE_XY.distance_to(g["p"]) <= 600.0, "cache: guard at (%.0f,%.0f) anchors within 600 of the chest (fight stays in leash room)" % [g["p"].x, g["p"].y])
 
 	# ---- 8. the cache CHANNEL mechanic (server-side, non-sim — bal_identity untouched) ----
 	# park the admin at the chest and clear the pitch mobs so the tests are deterministic (the guards
@@ -274,6 +335,9 @@ func _run() -> void:
 	_quiet_pitch()
 	srv.cache_open(2)
 	ok(srv._cache_channel.has(2), "channel: opens at the chest")
+	var s0: Array = fnet.calls("recv_cache_state", 2)
+	ok(s0.size() == 1 and str(s0[0]["args"][0]) == "start" and int(s0[0]["args"][1]) == 2500,
+		"channel: announces the 2.5 s duration (a near-zero channel_s regression fails here)")
 	for i in 10:
 		srv._physics_process(1.0 / 30.0)
 	ok(srv._cache_channel.has(2), "channel: survives undamaged sim ticks")
@@ -290,6 +354,8 @@ func _run() -> void:
 	af["x"] = float(af["x"]) + 30.0
 	srv._tick_cache_channels()
 	ok(not srv._cache_channel.has(2), "channel: moving >12 su BREAKS it")
+	srv.cache_open(2)                              # immediately inside the 500 ms window
+	ok(not srv._cache_channel.has(2), "rate limit: an immediate re-open is dropped (the house rule, asserted)")
 	af["x"] = 1700.0
 	af["y"] = 300.0
 	await wait_until(int(srv._cache_next.get(2, 0)) + 30)
@@ -300,10 +366,15 @@ func _run() -> void:
 	_quiet_pitch()
 	srv.cache_open(2)
 	ok(srv._cache_channel.has(2), "channel: opens for the clean run")
-	for i in 82:                                   # ~2.73 s of sim so the noDmgT track stays ahead of wall drift
-		srv._physics_process(1.0 / 30.0)
-	if srv._cache_channel.has(2):                  # spin to the real channel deadline, then resolve
-		await wait_until(int(srv._cache_channel[2]["t0"]) + 2550)
+	# drive the sim at REAL frame deltas (exactly like production) until the channel deadline — the
+	# noDmgT track then follows the wall clock with zero margin math, so this cannot flake on a slow
+	# CI machine (review find: the old fixed-82-call approach had a ~250 ms cliff)
+	var tp := Time.get_ticks_msec()
+	while srv._cache_channel.has(2) and Time.get_ticks_msec() < int(srv._cache_channel[2]["t0"]) + 2550:
+		await process_frame
+		var tn := Time.get_ticks_msec()
+		srv._physics_process(float(tn - tp) / 1000.0)
+		tp = tn
 	srv._tick_cache_channels()
 	ok(not srv._cache_channel.has(2), "channel: completes after channel_s undamaged")
 	var done_n := 0
@@ -312,6 +383,10 @@ func _run() -> void:
 			done_n += 1
 	ok(done_n == 1, "channel: exactly ONE 'done' (loot granted once)")
 	ok(srv._cache_down.has("loc1_pitch_islet"), "channel: the greybox world-relock is set")
+	await settle()                                 # _grant_item awaits the DB write before recv_loot
+	var lc: Array = fnet.calls("recv_loot", 2)
+	ok(lc.size() == 1 and str(lc[0]["args"][1]) == "epic", "cache loot: exactly one grant, EPIC rarity (the §9.1 reward rule)")
+	ok(int(srv.CACHE_ILVL) == 15, "cache loot: the ilvl-15 'beats the route' pin")
 	# d) locked: a second open refuses with the remaining time
 	await wait_until(int(srv._cache_next.get(2, 0)) + 30)
 	fnet.clear()
@@ -319,7 +394,7 @@ func _run() -> void:
 	srv.cache_open(2)
 	ok(not srv._cache_channel.has(2), "locked: no new channel while relocked")
 	var lk: Array = fnet.calls("recv_cache_state", 2)
-	ok(lk.size() == 1 and str(lk[0]["args"][0]) == "locked" and int(lk[0]["args"][1]) > 0,
-		"locked: the client heard 'locked' with the remaining ms")
+	ok(lk.size() == 1 and str(lk[0]["args"][0]) == "locked" and int(lk[0]["args"][1]) > 100000 and int(lk[0]["args"][1]) <= 120000,
+		"locked: the remaining ms is the actual lockout remainder (not a timestamp)")
 
 	finish("stab_locale1")

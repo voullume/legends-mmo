@@ -32,6 +32,9 @@ graph after this playtest is the designed outcome, not a failure.
   (cluster separability, wall presence, see-the-prize-first), and the channel lifecycle
   (complete / hit-break / move-break / lockout / loot-once).
 - `Protocol.VERSION` 3→4 (the new RPC pair). Mob-def golden untouched (all reused classes).
+- **Full verification:** all 37 CI suites green (incl. stab_away's world-wide sweeps over the new
+  zones, 233/233) and **`bal_identity` byte-identical** (sig_w=158545831 / sig_d=343688940 — the CI
+  pins; the cache channel provably never touched the sim).
 
 ## How to playtest (local, ~15 min)
 
@@ -54,6 +57,31 @@ graph after this playtest is the designed outcome, not a failure.
    just by levels?
 4. Traversal timings vs the graph doc §8 table (record what you actually walked).
 5. `--perf` numbers into the budgets doc; ratify the proposed ceilings.
+
+## Adversarial review (3 lenses, 24 findings — the material ones fixed)
+
+**Fixed:** the concurrent-channel loot dupe (N simultaneous channelers each minted an epic — the
+completion path now re-checks the relock, first finisher wins, the rest hear "locked"); the login
+escape-hatch hole (a transient gear/quest fetch failure no longer suppresses the dev-lock bounce —
+strict for `loc1_gate` only, since it consumes neither); the culvert's fields mouth moved to the
+entry plaza's south rim (600,1900) as the approved item-2 telegraph actually specified; the tower
+got a real visitable in-zone mass (r32 collision column) so visible-before/visitable-after is
+testable; `_cache_next`/`_cache_channel` joined the PID_DICTS cleanup contract; and the suite gained
+~40 asserts closing its own blind spots (S1 every-pad gate loop, CACHES↔chest↔test-origin pins,
+channel-duration + loot-quality + rate-limit + lockout-remainder asserts, guard-level floor,
+order-proof clustering, GY5-side pad grammar, backdrop JSON integrity, a wait_until cap, and a
+flake-proof production-delta clean-run driver).
+
+**Accepted for the greybox (owner-visible, revisit at Phase 4):**
+- Party roster shows a greybox zone NAME to a non-admin partied with an admin inside it (string
+  leak only; gone when the gate opens at 4.5).
+- "done" + the relock fire before the loot DB write resolves — on a failed save the player sees the
+  banner but gets nothing and the world stays locked ~2 min. Phase 4.0's per-character claim will be
+  transactional (claim only after the write lands).
+- A transient admins-table read failure at login bounces a resuming ADMIN home (F1 goto recovers;
+  non-admins unaffected).
+- The GY5 pad sits 328 su from the nearest camp — 8 su of margin over the 320 rule, now pinned by an
+  assert so it cannot silently shrink.
 
 ## Known greybox gaps (deliberate, land in Phase 4)
 
