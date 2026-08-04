@@ -284,6 +284,100 @@ cannot touch determinism.)
 **6. World-state POIs.** A gate that stays open, a pump that drains a pitch, a light that comes back
 on — small persistent changes prove the world reacts to players.
 
+### 9.1 The reward loop — guarded caches now, lore and gathering later
+
+Owner direction: gathering comes later; for now the pull is **mob placement plus loot chests worth
+getting, parked behind a pack that is harder than anything on the through-route.**
+
+This is the load-bearing content rule for Locale 1, and it gives exploration two distinct flavours:
+
+| | **Guarded cache** | **Lore anchor** |
+|---|---|---|
+| Reward for | committing to a fight you could have walked past | going somewhere quiet and odd |
+| Placement | **never on the main route** — always ≥1 detour segment off it | quiet, off-route, low or no threat |
+| Guard | a pack meaningfully harder than route camps | none |
+| Feel | risk → reward | curiosity → understanding |
+
+**Design rules for guarded caches:**
+- **You must be able to see the prize before you commit.** The chest should be visible from *outside*
+  the pack's aggro (320 su), so the decision is informed. That sight line is the hook; without it a
+  cache is just a surprise, and surprises do not pull players off a route.
+- **The guard is a pack, not a camp** — more bodies or a higher tier than the route's ordinary camps,
+  positioned so their aggro covers the approach.
+- **Opening has a cast time that breaks on damage.** This is the anti-skip rule: without it, players
+  kite the pack and grab the chest for free, and the encounter evaporates. With it, you must clear or
+  genuinely control the fight. It reuses the existing cast/interrupt feel rather than inventing a system.
+- **The reward must beat the route.** If through-route loot is comparable, nobody detours twice.
+
+**Cache state — the one real decision:**
+- *(a) World-respawning* (rides the existing respawn queue, first-come). Cheap, no persistence work,
+  fine for a slice.
+- *(b) Per-character lockout with a cooldown.* More persistence work, but it is the version that
+  actually creates "a reason to come back" — with (a) a returning player often finds an empty room.
+- **Recommendation:** ship (a) in the greybox slice to prove the encounter, and target (b) for Locale 1,
+  since the owner's stated purpose for caches is exactly the return visit.
+
+**⚠ Naming collision — `pages` is already taken.** Playbook Pages are an existing endgame currency
+(quest rewards, Master-Key attunement, `s["pages"]`, `MASTER_KEY_PAGES`). The lore collectible needs a
+different name — *Records*, *Files*, *Tapes*, *Testimony*. Pick one before anything is authored, or
+the two will be permanently confusable in code and UI.
+
+**What lore means for map design *now*, before the collectible exists:** reserve **lore anchor sites** —
+places that visibly *meant something*: a coach's office ruin, a crashed team bus, a groundskeeper's
+shed, a memorial bench, a locker wall. Even empty, they give a zone narrative texture; when the
+collectible lands it already has homes, and the maps will not need reworking to fit it.
+
+### 9.2 World-state change — bounded, legible, AI-driven
+
+Owner direction: changing over time is the most interesting way to show off the AI and keep the world
+un-stale, **but it must not be so random that it messes things up.**
+
+Five hard constraints, so it cannot:
+1. **Predefined states, never procedural.** N authored sites, K active at a time, rotating on a
+   schedule. Every possible combination is enumerable and therefore testable.
+2. **Wall-clock scheduled, not tick-driven.** Zones sleep; tick-driven change would stall exactly when
+   nobody is playing — the same trap as resident progression.
+3. **Flavour and opportunity only, never access.** Rotation must not touch portals, gates, quest
+   objectives or spawn points. Nothing rotating can strand a player or block progression.
+4. **Legible.** The player must be able to *tell* something changed and roughly why. Invisible
+   variation is indistinguishable from a static world; it costs the same and buys nothing.
+5. **Revertible.** State is data, and a suite asserts every combination is valid before it ships.
+
+**Proposed v1 — "the contested site" (one variable, maximum legibility):**
+One of ~6 predefined sites is active per day. The active site has a **reinforced pack**, a **better
+cache**, and **residents present and fighting**. Everything else in the locale is stable.
+
+That is a single rotating value. It cannot break progression, it is trivially testable, it gives a
+concrete reason to look around before choosing a route — and it puts the AI residents on screen doing
+something that matters, which is the point.
+
+**The AI angle, in ascending ambition** (each is a separate later step, not v1):
+- residents *present* at the contested site → residents *clearing* it, so you arrive to a fight in
+  progress → a resident's activity *leaving a mark* (a camp cleared for a while, a shortcut opened) →
+  residents *competing* with the player on the ladder as they level
+
+### 9.3 Death, bases, and stakes
+
+**Today:** a dead player revives **in place** at their zone-entry spawn point; only PvP zones send you
+to Home. Effectively there is no consequence to dying out in the world.
+
+**Owner direction: respawn at the closest main base.**
+
+Implementation shape: a **base registry** — each zone declares its home base, rather than computing
+euclidean "closest", which is meaningless across separate simulations. Bases would be Founders Commons
+(Home), Base Camp (wildlife), and **a new Locale 1 base**. `SERVICE_PADS` is the precedent for a
+per-map registry of this kind.
+
+Two things this buys beyond correctness:
+- **Real stakes.** The walk back is a soft penalty — enough to make wandering somewhere dangerous a
+  decision, without being punishing. That tension is part of what makes a world feel alive rather than
+  a theme park.
+- **Somewhere to come back to.** A base per locale answers the "is there anything to return to?"
+  question directly and gives travel a shape: out from the base, loop, back.
+
+Open sub-question: should the tutorial (L1–5) be gentler — respawn in place — so new players are not
+punished while learning? A per-zone flag on the registry would cover it.
+
 ---
 
 ## 10. Budgets — client cost is the underweighted risk
@@ -328,12 +422,12 @@ Everything before Phase 6 is built at provisional levels (`World.MOBS` row data 
 | # | Phase | Deliverable | Gate / verification |
 |---|---|---|---|
 | **1** | **Locale graph on paper** | Zone list with archetypes, the loop, shortcuts, landmark chain, instance policy applied per location, traversal budget | **Owner approves the graph before anything is built** |
-| **2** | **Greybox slice** | 2 surface zones + 1 alternate route + 1 pocket/layer + 1 return shortcut + a landmark visible before and visitable after, horizons matched across the seam. Primitive shapes only | Does it feel like **one place**? Traversal timings; client + server budgets from §10 established here |
+| **2** | **Greybox slice** | 2 surface zones + 1 alternate route + 1 pocket/layer + 1 return shortcut + a landmark visible before and visitable after, horizons matched across the seam, **and one guarded cache** (§9.1) to prove the risk→reward encounter. Primitive shapes only | Does it feel like **one place**? Is the cache worth the detour? Traversal timings; client + server budgets from §10 established here |
 | **3** | **Asset pass** | `speaker`, `tower`, `propcone` optimized + integrated, admin/builder-only, non-purchasable | `smoke_prop_loads`; footprint matches rendered mass; size table |
 | **4** | **Locale 1** | 5–7 surface zones + 2–3 pockets + 1 boss instance + 1 loop + 2 far-side shortcuts + 1 landmark chain | Full suite; geometry sweep; POI-budget audit against §7; per-zone budgets held |
 | **5** | **Tutorial rework** | Glitchyard → L1–5, teaching chain, guide resident, **visual shop tutorial** | A fresh character completes it unaided |
 | **6** | **The tuning pass** | XP curve + `LEVEL_CAP` 50 + world re-level together | Band-share table; `bal_identity` byte-identical; golden unchanged |
-| **7** | **Aliveness pass** | Ambient audio; resident activity + wall-clock progression; persistent discovery state | Subjective owner review + a "does it feel inhabited" playtest |
+| **7** | **Aliveness pass** | Ambient audio; resident activity + wall-clock progression; persistent discovery state; **the contested-site rotation (§9.2)**; **base-anchored respawn (§9.3)** | Subjective owner review + a "does it feel inhabited" playtest; a suite asserting every rotation state is valid and none blocks progression |
 | **8** | **Locales 2 and 3** | L12–19, L19–25 | As Phase 4 |
 | **9** | **Perf** | Spatial index / decal streaming **only if** budgets are breached | Preserve iteration order; re-prove `bal_identity` |
 
@@ -370,26 +464,30 @@ plan changes before a single finished asset is placed.
 | 2026-08-03 | Integrate `speaker`, `tower`, `propcone` — **admin/builder only, not purchasable**; quest board and the other six left alone | propcone is a *second* cone for variety, not a replacement |
 | 2026-08-03 | **Defer** curve + cap + re-level into one later tuning pass | Cannot tune against content that does not exist |
 | 2026-08-03 | **v2:** graph → greybox slice → assets; shape palette replaces the uniform size rule; pockets shared by default; explicit instance policy; client budgets | External review; adopted with the pocket-instancing rule relaxed |
+| 2026-08-03 | **Guarded caches are the exploration pull for now** — loot chests behind packs harder than the through-route | Gathering and lore come later; caches carry the return visit until they land |
+| 2026-08-03 | **Lore collectibles will exist** — deeper history of what happened here, plus characters worth learning about. Not authored yet, but maps reserve anchor sites now | Knowing it is coming shapes the maps so they need no rework later |
+| 2026-08-03 | **World-state change is wanted, but bounded** — predefined, scheduled, legible, never touching access | "Not too random and crazy that it would mess things up"; it is also the best showcase for the AI residents |
+| 2026-08-03 | **Death respawns at the closest main base** (registry-based, not euclidean) | Gives real stakes and somewhere to come back to |
 
 ---
 
-## 14. Open questions — mostly about *fun*
+## 14. Open questions
 
-Structure and performance are now well specified. What is still undefined is what a player **does**.
+Most of the fun questions are now answered (§9.1–9.3, decision log). What remains:
 
-1. **Is combat the only verb?** Right now a zone offers: fight camps, collect loot, walk to the next
-   zone. Exploration needs something to *do* that is not fighting — gathering, salvaging wrecks,
-   climbing for vantage, opening drainage, finding caches. Even one non-combat verb changes a locale
-   from a corridor of camps into a place. **What fits the fiction here?**
-2. **What is exploration's reward currency?** Gear and XP push players to the optimal farm route.
-   Cosmetics, shortcuts, lore, map knowledge, or account-persistent unlocks reward *going somewhere new*.
-3. **Should the world change over time** — rotating events, weather, day/night — or stay stable and
-   learnable? Stable is cheaper and more readable; change is what makes a place worth revisiting.
-4. **Solo or group?** This drives density, camp sizing and how much of the region is instanced. Given
-   the resident companions, a solo-first region with group-optional pockets seems likeliest.
-5. **What happens when a player dies out here?** Stakes are part of aliveness — a world with no
-   consequence for wandering somewhere dangerous is a theme park.
-6. **How much should residents carry?** They can be background colour, or a genuine social layer —
-   naming you, remembering you, competing on the ladder, showing up where you are headed.
-7. **Is there anything to come back *to*?** A camp, a base, a service point that becomes *yours* in
-   the locale gives travel a shape. The Locker Room precedent exists.
+1. **Solo or group?** Drives camp sizing, guard-pack difficulty and how much gets instanced. A guarded
+   cache tuned for a solo player is a different encounter from one tuned for two. Given the resident
+   companions can be recruited, **solo-first with group-optional caches** seems likeliest — confirm.
+2. **Cache state: world-respawn or per-character lockout?** §9.1 recommends world-respawn for the
+   slice and per-character for Locale 1, since the return visit is the stated purpose. Confirm the
+   target, because it decides whether persistence work lands in Phase 4.
+3. **What is the lore collectible called?** Not `pages` — that name is taken by the endgame currency.
+   Needs deciding before anything is authored.
+4. **How hard is "harder than the through-route"?** Roughly: a route camp is 2–3 mobs at level; is a
+   guard pack 4–5 at level, 2–3 at +2 levels with an elite, or something a solo player is expected to
+   need a companion for? This single number shapes how Locale 1 reads.
+5. **Should the tutorial be exempt from base respawn?** Punishing a level-2 player with a walk back
+   while they are still learning may be the wrong first impression.
+6. **How much should residents carry?** Background colour, or a genuine social layer — naming you,
+   remembering you, competing on the ladder, turning up where you are headed. §9.2's ladder of
+   ambition is written; where on it do we stop for Locale 1?
