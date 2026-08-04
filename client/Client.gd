@@ -249,6 +249,17 @@ var _env: Environment
 var _sky_mat: ProceduralSkyMaterial         # world-expansion P1A: BG_SKY replaces BG_COLOR — _theme_depth
                                             # themes THIS per biome (background_color is only a fallback now)
 var _theme_override := ""                   # dev-only --biome <map>: force the render theming (field/depth/sky)
+# ---- Official Maps Phase 2: the --perf client measurement harness (docs/locale1-budgets.md). Dev-only,
+# print-based; measures the §10 budget numbers: decal/backdrop rebuild cost (cold vs warm GLB cache),
+# the per-frame decal-sig stringify cost, FPS/draw-calls, and the zone-entry worst-frame hitch. ----
+var _perf_on := false
+var _perf_seen := {}                        # map → true once its decals rebuilt (cold/warm discriminator)
+var _perf_sig_us := 0                       # accumulated per-frame decal-sig cost (µs) over the window
+var _perf_sig_n := 0
+var _perf_win := 0.0                        # 5 s reporting window clock
+var _perf_entry_frames := 0                 # frames left in the zone-entry worst-frame watch
+var _perf_entry_worst := 0.0
+var _perf_entry_map := ""
                                             # for the screenshot matrix — never touches the sim or _state
 var _rim_sig := ""                          # map signature the rim was last built for
 var _arena_sig := ""
@@ -784,7 +795,11 @@ func _apply_field_theme() -> void:
 	_field.material_override = _make_field_material(map)
 	_theme_depth(map)                             # world-depth pass: horizon/apron/fog follow the biome
 	_build_rim(map)
+	var t_bd := Time.get_ticks_usec()
 	_render_backdrops(map)                        # P1B: unreachable skyline scenery rides the same once-per-map seam
+	if _perf_on:
+		print("[perf] backdrops map=%s n=%d rebuild_ms=%.1f" % [map, _backdrops_for(map).size(),
+			float(Time.get_ticks_usec() - t_bd) / 1000.0])
 
 # ---- world-depth pass (client-only; the sim stays flat — the raised rim sits OUTSIDE walkable bounds) ----
 # Per-biome palette: [horizon, apron(ground), hills, fog/bg, sky-top, sky-horizon]. Keeps each family's
@@ -1571,6 +1586,7 @@ func _build_world() -> void:
 	ci = cargs.find("--biome")                  # force the render THEME (field/depth/sky) of another map family
 	if ci >= 0 and ci + 1 < cargs.size():
 		_theme_override = str(cargs[ci + 1])
+	_perf_on = cargs.has("--perf")              # Official Maps Phase 2: client budget measurement (§10)
 	_update_cam()
 
 func _update_cam() -> void:
@@ -2076,7 +2092,36 @@ func _spawn(f: Dictionary) -> void:
 		_apply_dye(model, str(elook["tint"]))
 
 # ============================================================ main loop
+# --perf: called from NetClient on a zone change — watch the next ~60 frames for the entry hitch
+func _perf_note_zone_entry(map: String) -> void:
+	if not _perf_on:
+		return
+	_perf_entry_frames = 60
+	_perf_entry_worst = 0.0
+	_perf_entry_map = map
+
+func _perf_tick(delta: float) -> void:
+	if _perf_entry_frames > 0:
+		_perf_entry_worst = maxf(_perf_entry_worst, delta * 1000.0)
+		_perf_entry_frames -= 1
+		if _perf_entry_frames == 0:
+			print("[perf] zone-entry map=%s worst_frame_ms=%.1f" % [_perf_entry_map, _perf_entry_worst])
+	_perf_win += delta
+	if _perf_win < 5.0:
+		return
+	var sig_avg_ms := (float(_perf_sig_us) / maxf(1.0, float(_perf_sig_n))) / 1000.0
+	print("[perf] fps=%.0f draw_calls=%d prims=%d sig_avg_ms=%.3f (n=%d)" % [
+		Performance.get_monitor(Performance.TIME_FPS),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME)),
+		sig_avg_ms, _perf_sig_n])
+	_perf_win = 0.0
+	_perf_sig_us = 0
+	_perf_sig_n = 0
+
 func _process(delta: float) -> void:
+	if _perf_on:
+		_perf_tick(delta)
 	if _state.is_empty():
 		return
 	# 1) input → intent (before the tick, zero-lag)
@@ -2227,10 +2272,15 @@ func _render_decals() -> void:
 	var decals: Array = _state["decals"] if (mapn == World.LOCKER and _state.has("decals")) else _decals_for(mapn)
 	# P3 hardening: dims in the sig — decal world positions bake (x - aw/2)*SCALE at build time, so a
 	# dims change with a byte-identical record list must still re-anchor (obstacles/field already do this).
+	var t_sig := Time.get_ticks_usec()
 	var sig := "%dx%d|%s" % [int(_aw()), int(_ah()), JSON.stringify(decals)]
+	if _perf_on:                                 # the per-frame stringify cost — the hub-scale worry (§10)
+		_perf_sig_us += int(Time.get_ticks_usec() - t_sig)
+		_perf_sig_n += 1
 	if sig == _decals_sig:
 		return
 	_decals_sig = sig
+	var t_rb := Time.get_ticks_usec()
 	if _decal_root != null:
 		_decal_root.queue_free()
 		_decal_root = null
@@ -2273,6 +2323,11 @@ func _render_decals() -> void:
 				pi.position = pos + Vector3(0.0, -float(pe["min_y"]) * psc + float(d.get("oy", 0.0)), 0.0)   # oy = vertical lift (stacking)
 				pi.rotation.y = float(d.get("yaw", 0.0))
 				_decal_root.add_child(pi)
+	if _perf_on:
+		var cold := not _perf_seen.has(mapn)
+		_perf_seen[mapn] = true
+		print("[perf] decals map=%s n=%d rebuild_ms=%.1f cold=%s" % [mapn, decals.size(),
+			float(Time.get_ticks_usec() - t_rb) / 1000.0, str(cold)])
 
 # Draw the zone's cover obstacles (sent in the snapshot) as themed padded training barriers — navy pads
 # with a yellow safety stripe (away biome: wilds-reclaimed nature via WILD_PROP_SWAP below). They double as

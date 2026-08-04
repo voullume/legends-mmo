@@ -105,7 +105,7 @@ jobs:
           # Deliberately NOT here: bal_p1 / bal_talents / bal_tune are TUNING harnesses (they
           # measure win rates and print tables, they do not assert), so they would only add minutes.
           SUITES="stab_auth stab_authority stab_economy stab_econ_atomic stab_sessions stab_protocol stab_trust stab_hop stab_away \
-                  stab_status stab_sleep stab_basecamp stab_projectile_vfx \
+                  stab_status stab_sleep stab_basecamp stab_locale1 stab_projectile_vfx \
                   smoke_builder_p0 smoke_builder_p1 smoke_builder_p2 \
                   test_instancing test_residents test_res_chat test_res_party test_res_reports \
                   test_class_kits test_wildlife_normals test_wildlife_skink \

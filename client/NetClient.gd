@@ -169,6 +169,11 @@ var _camp_panel: Control = null
 var _camp_rows: VBoxContainer = null
 var _camp_status: Label = null
 var _near_camp := false
+var _near_cache := false                     # Official Maps Phase 2: standing at a guarded cache (World.CACHES)
+var _cache_bar_root: Control = null          # lazily-built channel bar (visible only while channeling)
+var _cache_bar: ProgressBar = null
+var _cache_t0 := 0                           # channel start (ms) — bar value is driven client-side
+var _cache_dur := 0                          # channel duration (ms); 0 = no live channel
 # Wardrobe (P4 cosmetics): a key-toggled dye panel (buy with credits + equip)
 var _wardrobe_panel: Control = null
 var _wardrobe_rows: VBoxContainer = null
@@ -3446,6 +3451,19 @@ func _update_camp_proximity() -> void:
 		_interact_clear("camp")
 	if not _near_camp and _camp_panel != null and _camp_panel.visible:
 		_camp_panel.visible = false                # walked away → close the selector
+	# Official Maps Phase 2: the guarded-cache prompt (the server re-validates proximity + lockout on open)
+	_near_cache = false
+	if pf != null:
+		for cc in World.caches_for(str(_state.get("map", ""))):
+			if Vector2(float(pf["x"]) - float(cc["x"]), float(pf["y"]) - float(cc["y"])).length() <= float(cc["r"]) + 24.0:
+				_near_cache = true
+				break
+	if _near_cache and _cache_dur == 0:
+		_interact_offer("cache", "R", "Open the cache")
+	else:
+		_interact_clear("cache")
+	if _cache_dur > 0 and _cache_bar != null:      # drive the channel bar (server confirms done/break)
+		_cache_bar.value = clampf(float(Time.get_ticks_msec() - _cache_t0) / float(_cache_dur), 0.0, 1.0) * 100.0
 
 # human-readable description of a proc at a given tier (P6) — from GameData.PROC_CATALOG
 func _proc_desc(proc_id: String, tier: int) -> String:
@@ -4940,7 +4958,7 @@ func _build_admin_panel() -> void:
 		["Character", [["Level +", "level_up", {}], ["Level -", "level_down", {}], ["+100 XP", "add_xp", {"amt": 100}], ["+500 Credits", "add_credits", {"amt": 500}]], 2],
 		["Items", [["Give Item", "give_item", {}], ["Clear Items", "clear_items", {}]], 2],
 		["Survival", [["God Mode", "god", {}], ["Heal", "heal", {}]], 2],
-		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}], ["AW1", "goto", {"map": "away_1"}], ["AW2", "goto", {"map": "away_2"}], ["AW3", "goto", {"map": "away_3"}], ["CONC", "goto", {"map": "away_3_concourse"}], ["ROOF", "goto", {"map": "away_3_roof"}], ["RIVAL", "goto", {"map": "away_boss"}], ["FIN1", "goto", {"map": "finals_1"}], ["FIN2", "goto", {"map": "finals_2"}]], 4],
+		["Teleport", [["Home", "goto", {"map": "home"}], ["Arena", "goto", {"map": "arena"}], ["GY1", "goto", {"map": "glitchyard_1"}], ["GY2", "goto", {"map": "glitchyard_2"}], ["GY3", "goto", {"map": "glitchyard_3"}], ["GY4", "goto", {"map": "glitchyard_4"}], ["GY5", "goto", {"map": "glitchyard_5"}], ["BOSS", "goto", {"map": "glitchyard_boss"}], ["AW1", "goto", {"map": "away_1"}], ["AW2", "goto", {"map": "away_2"}], ["AW3", "goto", {"map": "away_3"}], ["CONC", "goto", {"map": "away_3_concourse"}], ["ROOF", "goto", {"map": "away_3_roof"}], ["RIVAL", "goto", {"map": "away_boss"}], ["FIN1", "goto", {"map": "finals_1"}], ["FIN2", "goto", {"map": "finals_2"}], ["L1F", "goto", {"map": "loc1_fields"}], ["L1P", "goto", {"map": "loc1_pitch"}], ["L1L", "goto", {"map": "loc1_lane"}], ["L1C", "goto", {"map": "loc1_culvert"}]], 4],
 		["Mobs", [["Spawn Mob", "spawn_mob", {"level": 3}], ["Spawn Skink", "spawn_mob", {"class": "netvine_skink", "level": 3, "tier": "minion"}], ["Clear Mobs", "clear_mobs", {}], ["Reset Mobs", "reset_mobs", {}]], 3],
 		# owner toggle: AI companions OFF frees the CPU they spend, ON populates the world for
 		# hard-content testing. Server-side despawn/respawn — no restart, no redeploy.
@@ -5959,6 +5977,45 @@ func _ip_module_preview(on: bool) -> void:
 	_ip_preview = on
 	_ip_render()
 
+# ---- Official Maps Phase 2: the guarded-cache channel (server-driven lifecycle; §9.1) ----
+func _ensure_cache_bar() -> void:
+	if _cache_bar_root != null:
+		return
+	_cache_bar_root = CenterContainer.new()
+	_cache_bar_root.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_cache_bar_root.offset_top = -200.0
+	_cache_bar_root.offset_bottom = -184.0
+	_cache_bar_root.visible = false
+	_hud.add_child(_cache_bar_root)
+	_cache_bar = ProgressBar.new()
+	_cache_bar.min_value = 0.0
+	_cache_bar.max_value = 100.0
+	_cache_bar.show_percentage = false
+	_cache_bar.custom_minimum_size = Vector2(240, 14)
+	_cache_bar_root.add_child(_cache_bar)
+
+func recv_cache_state(state: String, ms: int) -> void:
+	match state:
+		"start":
+			_ensure_cache_bar()
+			_cache_t0 = Time.get_ticks_msec()
+			_cache_dur = ms
+			_cache_bar.value = 0.0
+			_cache_bar_root.visible = true
+		"break":
+			_cache_dur = 0
+			if _cache_bar_root != null:
+				_cache_bar_root.visible = false
+			_toast("[b]INTERRUPTED[/b]\nThe cache seals itself — clear or control the guards.", Palette.SB_ORANGE)
+		"done":
+			_cache_dur = 0
+			if _cache_bar_root != null:
+				_cache_bar_root.visible = false
+			AudioManager.play_sfx("loot")
+			_show_banner("Cache Opened", "The prize is yours", "", Palette.SB_LIME)
+		"locked":
+			_toast("Sealed — recently looted. Try again in ~%d min." % int(ceil(float(ms) / 60000.0)), Palette.SB_ORANGE)
+
 # ---- Minimap (P9 audit → build): a schematic top-down of EXACTLY what the snapshot carries.
 # The server interest-filters fighters before they ever reach the client, so drawing
 # `_state.fighters` verbatim reveals NOTHING beyond what nameplates already show — the
@@ -6233,6 +6290,7 @@ func receive_snapshot(snap: Dictionary) -> void:
 		_last_map = map
 		_pred_on = false                         # reseed local-player prediction at the new zone's spawn (no cross-zone snap)
 		AudioManager.play_music(map)
+		_perf_note_zone_entry(map)               # --perf: watch the next ~60 frames for the entry hitch (§10)
 		if map == World.LOCKER:                  # Builder Mode: onboarding "how to build" popup on entering your Locker Room
 			_on_enter_locker()
 	var lpf = _find_fighter(_player_id)           # level-up fanfare + P4 flash/toast
@@ -6486,6 +6544,10 @@ func _unhandled_input(e: InputEvent) -> void:
 			_toggle_meter()                 # the §4a DPS/HPS meter — usable anywhere
 			get_viewport().set_input_as_handled()
 			return
+		elif e.keycode == KEY_R and not _chatting and _near_cache:
+			net.cache_open.rpc_id(1)        # guarded cache: server validates + runs the channel (§9.1)
+			get_viewport().set_input_as_handled()
+			return
 		elif e.keycode == KEY_G and not _chatting:
 			_toggle_wardrobe()              # the Wardrobe (cosmetic dyes) — usable anywhere
 			get_viewport().set_input_as_handled()
@@ -6585,6 +6647,10 @@ func _zone_name(map: String) -> String:
 		"away_boss": return "Wildlife Expanse · Howler's Sideline"
 		"finals_1": return "The Finals · Contenders' Quarter"
 		"finals_2": return "The Finals · Champions' Gate"
+		"loc1_fields": return "Locale 1 · Overgrown Practice Fields"
+		"loc1_pitch": return "Locale 1 · Flooded Pitches"
+		"loc1_lane": return "Locale 1 · Service Lane"
+		"loc1_culvert": return "Locale 1 · The Culvert"
 		"arena": return "Arena"
 		"camp": return "Camp Circuit · Proving Room"
 		"camp_b": return "Camp Circuit · The Gauntlet"

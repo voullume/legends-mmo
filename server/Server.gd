@@ -108,7 +108,7 @@ const BOSS_GATE_IP := 800                         # AND at least this aggregate 
 const WILD_GATE_EPOCH := "2026-07-21T06:00:00"    # W6: characters created before this entered under the old L8 away_gate — grandfathered past wild_gate (the ABILITY_GATE_EPOCH pattern)
 const FINALS_GATE_LEVEL := 17                     # Phase 8 S3: the Finals district — level AND gear, deliberately NOT the raid kill
 const FINALS_GATE_IP := 800                       # (same bar as boss_ready: the away chain's graduation gear IS the Finals ticket)
-const HIDDEN_GATES := ["secret_key", "all_quests"]   # gated portals HIDDEN in the snapshot; boss_ready stays VISIBLE-but-locked (a known goal, not a surprise)
+const HIDDEN_GATES := ["secret_key", "all_quests", "loc1_gate"]   # gated portals HIDDEN in the snapshot; boss_ready stays VISIBLE-but-locked (a known goal, not a surprise). loc1_gate: the Locale 1 greybox DEV-LOCK — unhide when Locale 1 ships (docs/locale1-graph.md §9)
 const GATE_PROMPT_COOLDOWN_MS := 4000             # one "sealed pad" prompt per this interval while loitering on a locked gated pad
 const RESIDENT_ASSIST_RANGE := 280.0  # a resident's kill credits a player within this range of the mob
 const RESIDENT_ENGAGED_S := 6.0       # "engaged" = took a hit within this many seconds (a real participant)
@@ -974,6 +974,87 @@ func _maybe_teardown_instance(key: String) -> void:
 	print("[zone] instance %s torn down" % key)
 
 # ---- Camp Circuit entry (RPC-driven so the client picks an Intensity tier) + clear/unlock (P1) ----
+# ---- Official Maps Phase 2: guarded-cache opening (docs/official-maps-handoff.md §9.1) ----
+# A server-side CHANNEL, deliberately OUTSIDE the deterministic sim: f["casting"] is never touched, so
+# bal_identity is safe by construction. Break rules: any hit (the engine's noDmgT — which resets on ANY
+# hit, even a fully-absorbed one — dips below its start-baseline + elapsed track), moving > CACHE_MOVE_SU,
+# dying, or leaving the zone. Loot rides the ordinary economy path (_make_item + _distribute_loot on the
+# wall-clock _loot_rng — never the sim rng). The lockout here is the GREYBOX stub: a per-WORLD relock so
+# the encounter can be replayed in minutes; Phase 4 replaces it with the per-character
+# progression.cache_claims expiry (the handoff's real design).
+const CACHE_MOVE_SU := 12.0
+const CACHE_LOCKOUT_MS := 120000
+const CACHE_ILVL := 15                            # guaranteed-epic prize = the guard elite's own drop math
+                                                  # (L10 + elite 5) — above every route minion drop, below
+                                                  # the Base Camp T2 shop band (17): "beats the route"
+var _cache_next := {}                             # pid → earliest next cache_open (the _camp_next pattern)
+var _cache_channel := {}                          # pid → live channel {id, map, t0, x0, y0, base, dur}
+var _cache_down := {}                             # cache_id → ms when lootable again (greybox relock)
+
+# client → server: begin opening the cache you are standing at. Server-validated + rate-limited.
+func cache_open(pid: int) -> void:
+	if not _session.has(pid):
+		return
+	var now := Time.get_ticks_msec()
+	if now < int(_cache_next.get(pid, 0)):
+		return
+	_cache_next[pid] = now + 500
+	if _cache_channel.has(pid):
+		return
+	var mapn := str(_session[pid]["map"])
+	var f = _find(_session[pid]["fid"])
+	if f == null or not bool(f.get("alive", false)):
+		return
+	for c in World.caches_for(_template(mapn)):
+		if Vector2(f["x"] - float(c["x"]), f["y"] - float(c["y"])).length() > float(c["r"]) + 24.0:
+			continue
+		var cid := str(c["id"])
+		if now < int(_cache_down.get(cid, 0)):
+			if net != null:
+				net.recv_cache_state.rpc_id(pid, "locked", int(_cache_down[cid]) - now)
+			return
+		var dur := int(float(c["channel_s"]) * 1000.0)
+		_cache_channel[pid] = {"id": cid, "map": mapn, "t0": now, "x0": float(f["x"]), "y0": float(f["y"]),
+			"base": float(f.get("noDmgT", 0.0)), "dur": dur}
+		if net != null:
+			net.recv_cache_state.rpc_id(pid, "start", dur)
+		return
+
+# advance/resolve live cache channels (called once per sub-step, after portals have moved players)
+func _tick_cache_channels() -> void:
+	if _cache_channel.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	for pid in _cache_channel.keys():
+		var ch: Dictionary = _cache_channel[pid]
+		var s = _session.get(pid, null)
+		var f = _find(s["fid"]) if s != null else null
+		var elapsed := now - int(ch["t0"])
+		var broke := false
+		if s == null or f == null or not bool(f.get("alive", false)) or str(s["map"]) != str(ch["map"]):
+			broke = true
+		elif float(f.get("noDmgT", 0.0)) + 0.25 < float(ch["base"]) + float(elapsed) / 1000.0:
+			broke = true                          # hit mid-channel: noDmgT fell below its expected track.
+			# The 0.25 s slack absorbs sim-vs-wall drift (frame jitter + the catch-up `_acc = 0.0` reset
+			# under load) — a real hit RESETS noDmgT to ~0, dropping it far below the track, so detection
+			# is unaffected; only sub-250ms drift is forgiven.
+		elif Vector2(float(f["x"]) - float(ch["x0"]), float(f["y"]) - float(ch["y0"])).length() > CACHE_MOVE_SU:
+			broke = true
+		if broke:
+			_cache_channel.erase(pid)
+			if s != null and net != null:
+				net.recv_cache_state.rpc_id(pid, "break", 0)
+			continue
+		if elapsed < int(ch["dur"]):
+			continue
+		_cache_channel.erase(pid)
+		_cache_down[str(ch["id"])] = now + CACHE_LOCKOUT_MS
+		var slots: Array = LOOT_SLOTS.keys()
+		var slot: String = slots[_loot_rng.next_int(slots.size())]
+		_distribute_loot(pid, _make_item(slot, "epic", CACHE_ILVL), str(ch["map"]))
+		if net != null:
+			net.recv_cache_state.rpc_id(pid, "done", 0)
+
 var _camp_next := {}                              # pid → earliest next enter_camp (light rate-limit)
 
 # is the player standing at the home Camp entry pad? (mirrors _at_questgiver; entry is gated on this server-side)
@@ -2055,6 +2136,8 @@ func _on_peer_disconnected(pid: int) -> void:
 	_bounty_busy.erase(pid)
 	_bounty_next.erase(pid)
 	_camp_next.erase(pid)
+	_cache_next.erase(pid)
+	_cache_channel.erase(pid)
 	_key_busy.erase(pid)
 	_key_next.erase(pid)
 	_cos_busy.erase(pid)
@@ -2166,6 +2249,17 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 	await _maybe_award_season(pid)                    # gameplay-length P7d: lazy weekly-Champion cosmetic (needs cos_owned + last_season loaded above)
 	await _apply_equipment(pid)                       # re-derive stats from saved equipment
 	await _load_quests(pid)                           # load + push the player's quest progress
+	if _session.has(pid):                             # admin powers, gated on the service-role admins table.
+		# Official Maps Phase 2: fetched BEFORE the gate re-validation below — loc1_gate's dev-lock is
+		# admin-keyed, so an admin who logged out inside the greybox must have the flag set when the
+		# restored map is re-checked (else every admin resume bounces HOME).
+		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
+		if not _session.has(pid):                     # the peer may drop during the admin lookup — bail
+			return                                    # (was an unguarded _session[pid] → script error)
+		_session[pid]["admin"] = is_admin
+		if is_admin and net != null:
+			net.recv_admin.rpc_id(pid, true)
+			print("[zone] %s authenticated as ADMIN" % ch.get("name", "?"))
 	# GATE RE-VALIDATION: _spawn_player restores last_map (client-writable position columns) BEFORE quests/key
 	# are known, so re-check the restored map against its entry gate now that they're loaded — a client that
 	# PATCHed last_map to a gated zone (or a pre-P2 logout inside it) is sent HOME instead of spawning past the gate.
@@ -2177,14 +2271,6 @@ func authenticate(pid: int, access: String, hello: Dictionary = {}) -> void:
 			# Skip ONLY the relocate (never bounce a geared player on a DB blip); pad USE still re-checks live.
 			if gate != "" and not _portal_unlocked(pid, gate) and not bool(_session[pid].get("gear_unknown", false)) and not bool(_session[pid].get("quests_unknown", false)):
 				_relocate(gpf, _session[pid], World.HOME, World.HOME_SPAWN)
-	if _session.has(pid):                             # admin powers, gated on the service-role admins table
-		var is_admin: bool = await supa.is_admin_as(str(ch.get("user_id", "")))
-		if not _session.has(pid):                     # the peer may drop during the admin lookup — bail
-			return                                    # (was an unguarded _session[pid] → script error)
-		_session[pid]["admin"] = is_admin
-		if is_admin and net != null:
-			net.recv_admin.rpc_id(pid, true)
-			print("[zone] %s authenticated as ADMIN" % ch.get("name", "?"))
 	if not _session.has(pid):
 		return
 	print("[zone] %s (%s, lvl %d) joined as %s in '%s' — now %d player(s)" % [ch.get("name", "?"), ch.get("class", "?"), lvl, fid, _session[pid]["map"], _peers.size()])
@@ -3312,6 +3398,7 @@ func _physics_process(delta: float) -> void:
 				_zone_asleep[mn] = true
 		_advance_respawns(SIM_DT)                 # respawn countdown runs once per tick (not per world)
 		_check_portals()                          # move players between worlds after the sims resolve
+		_tick_cache_channels()                    # guarded-cache channels: break/complete (after portals)
 		_tick_drills()                            # Two-Minute Drill: advance waves / end runs (P5)
 		_apply_godmode()                          # keep god-mode players invulnerable (after damage resolves)
 		_acc -= SIM_DT
@@ -3608,6 +3695,13 @@ func _portal_unlocked(pid: int, gate: String) -> bool:
 			if bool(ws.get("wild_ungated", false)) and int(ws.get("level", 1)) >= 8:
 				return true
 			return bool(((ws.get("quests", {}) as Dictionary).get("gy5_command", {}) as Dictionary).get("completed", false))
+		"loc1_gate":                             # Official Maps Phase 2 DEV-LOCK: the Locale 1 greybox is
+			# admin-only until the Locale 1 release flips this to the gy5_command check (docs/locale1-graph.md
+			# §9/§10-4 — deliberately NARROWER than wild_gate: no grandfather branch). Combined with
+			# HIDDEN_GATES membership + the S1 every-pad rule, merged greybox batches are inert on any
+			# interim release, and a tampered last_map / login-restore re-validation bounces non-admins HOME.
+			var l1 = _session.get(pid, {})
+			return bool(l1.get("admin", false))
 		"finals_gate":                           # Phase 8 S3: the Finals — level + gear, NEVER the raid kill (a stalled raid must not block the capstone)
 			var fs = _session.get(pid, {})
 			return int(fs.get("level", 1)) >= FINALS_GATE_LEVEL and int(fs.get("item_power", 0)) >= FINALS_GATE_IP
