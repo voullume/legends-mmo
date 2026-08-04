@@ -20,6 +20,12 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
+### Official Maps — Phase 1: the Locale 1 graph (2026-08-04, NEW)
+**`docs/locale1-graph.md` is the paper locale graph** (zone set, topology, seams, POI/traversal
+budgets, cache + tape reservations) per the handoff's Phase 1. Nothing is built. **Decision needed:
+the 8-item block in that doc's §10** — one sitting unlocks Phase 2 (the greybox slice). Evidence:
+the doc itself + PR `locale1-graph`.
+
 ### Open right now (2026-08-02, after the v1.17.0 batch)
 1. **PR #3 `p5-taste-tweaks` is PARKED, not merged** — gy2 tower 400 su closer, away_boss silhouette
    spire, two backdrop masses pulled off the wall. Built, green, costs nothing sitting there. Merge
