@@ -36,12 +36,14 @@ graph after this playtest is the designed outcome, not a failure.
   zones, 233/233) and **`bal_identity` byte-identical** (sig_w=158545831 / sig_d=343688940 — the CI
   pins; the cache channel provably never touched the sim).
 
-## How to playtest (local, ~15 min)
+## How to playtest (local, ~15 min — ONE command)
 
-1. `SUPABASE_SERVICE_KEY=... godot --headless -- --server` (this branch), then launch the client
-   from the editor with `--online 127.0.0.1 --perf` and log in as **admin@legends.dev**.
-2. F1 → Teleport → **GY5**, walk to the south edge → the "▶ The Practice Fields" pad (visible to
-   admins only).
+1. On this branch: **`./play.sh dev --perf`** — it boots the headless server (reads your `.env`
+   key), opens the client already pointed at it, and shuts the server down when you close the
+   window. Log in as **admin@legends.dev**. *(Launching the client alone, or from the editor
+   without run args, lands in the offline sandbox — the paused practice field.)*
+2. F1 → Teleport → **L1F** drops you straight into the fields (or GY5 and walk the south-edge
+   "▶ The Practice Fields" pad — visible to admins only — for the full arrival).
 3. **The walk:** fields entry → east across the hub (is it *big*?) → treeline break → pitch → find
    the tower ring → the cache islet (north) → try the cache at-level (F1 set level ~9): pull the
    pack as a blob once (should hurt), then try separating the clusters around the walls → open the

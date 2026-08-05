@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Legends MMO launcher.  Usage:
 #   ./play.sh            single-player: log in -> your character -> local world  (easiest)
-#   ./play.sh dev        MAP EDITING: headless server + ONE client, in one command (auto-launches both)
+#   ./play.sh dev [args] MAP EDITING/PLAYTEST: headless server + ONE client, in one command.
+#                        Extra args reach the client — e.g. `./play.sh dev --perf` for the §10 numbers.
 #   ./play.sh zone       multiplayer demo: headless server + two player windows
 #   ./play.sh server     just the dedicated zone server (headless, no window)
 #   ./play.sh online [ip] one player joining a LOCAL zone (default 127.0.0.1, no encryption)
@@ -41,12 +42,17 @@ case "${1:-local}" in
     preflight ;;
   dev)
     preflight || exit 1
-    echo "starting headless zone server…"
-    "$GODOT" --headless --path "$DIR" -- --server & SRV=$!
-    trap 'kill $SRV 2>/dev/null' EXIT
-    sleep 2
-    echo "opening your window — log in (legends_smoke1@testmail.dev / Testpass1234!), press F3 for coords"
-    "$GODOT" --path "$DIR" -- --online 127.0.0.1
+    shift || true                                  # everything after `dev` goes to the CLIENT (e.g. --perf)
+    if ss -uln 2>/dev/null | grep -q ":7777 "; then
+      echo "a zone server is already listening on 7777 — reusing it (kill it first for a fresh boot)"
+    else
+      echo "starting headless zone server…"
+      "$GODOT" --headless --path "$DIR" -- --server & SRV=$!
+      trap 'kill $SRV 2>/dev/null' EXIT
+      sleep 2
+    fi
+    echo "opening your window — log in, press F3 for coords (greybox: use admin@legends.dev; F1 → L1F teleports)"
+    "$GODOT" --path "$DIR" -- --online 127.0.0.1 "$@"
     ;;
   server)
     preflight || exit 1
