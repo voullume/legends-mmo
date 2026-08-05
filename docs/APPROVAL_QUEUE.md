@@ -20,15 +20,6 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
-### Official Maps — Phase 3 BLOCKED: the Meshy plan (2026-08-05)
-The three Phase-3 props (`speaker`/`tower`/`propcone`) do not exist in staging and must be
-GENERATED — but Meshy now returns **402: "Task creation on the free plan is no longer supported"**
-even with **5,600 credits banked**. Only you can fix the account: upgrade at
-meshy.ai/settings/subscription (any paid tier presumably re-unlocks the banked credits — enough for
-~100+ props). Alternatives if you'd rather not: (a) CC0 kit stand-ins for tower/speaker (needs your
-approval per the sourced-assets rule), or (b) skip Phase 3 for now — Phase 4.1 can proceed with the
-greybox stand-ins and the bespoke props land whenever the account is unblocked. **Say which.**
-
 ### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
 The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at
 least more for the packs."* The packs half is DONE (cache guards 6→40 s, per-row `respawnS`).
@@ -100,6 +91,7 @@ Evidence: `docs/world-expansion-p2-report.md` §10 items 1–7.
 
 | Date | Item | Call |
 |---|---|---|
+| 2026-08-05 | **Official Maps Phase 3 — the asset pass** (Meshy 402: free-plan task creation disabled, 5,600 credits banked but unusable) | **SKIP for now** — Phase 4 proceeds with the greybox/kit stand-ins; the bespoke speaker/tower/propcone land whenever the Meshy plan is upgraded (task #9 holds the resume notes) |
 | 2026-08-05 | **Official Maps Phase 2 — the greybox slice playtest** (PR #9) | **QUALIFIED PASS** — "feels better for sure", cache "pretty good"; same-day fixes: pack respawn 40 s, portal-pillar fade, perf-hook bug; Phase 4 carries elevation/density/checkpoint-disguise/arena-room/size-revisit (see the greybox report) |
 | 2026-08-04 | **Official Maps Phase 1 — the Locale 1 graph** (all 9 items of `docs/locale1-graph.md` §10; item 1 via the to-scale map artifact) | **approved as drawn** — Phase 2 (greybox slice) unlocked |
 | 2026-07-29 | P5 gy2 tower / away_boss / 6 tints / gy3 barrier, at ship time | keep all as-is (still swappable — see above) |
