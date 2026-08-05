@@ -20,6 +20,15 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
+### Official Maps — Phase 3 BLOCKED: the Meshy plan (2026-08-05)
+The three Phase-3 props (`speaker`/`tower`/`propcone`) do not exist in staging and must be
+GENERATED — but Meshy now returns **402: "Task creation on the free plan is no longer supported"**
+even with **5,600 credits banked**. Only you can fix the account: upgrade at
+meshy.ai/settings/subscription (any paid tier presumably re-unlocks the banked credits — enough for
+~100+ props). Alternatives if you'd rather not: (a) CC0 kit stand-ins for tower/speaker (needs your
+approval per the sourced-assets rule), or (b) skip Phase 3 for now — Phase 4.1 can proceed with the
+greybox stand-ins and the bespoke props land whenever the account is unblocked. **Say which.**
+
 ### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
 The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at
 least more for the packs."* The packs half is DONE (cache guards 6→40 s, per-row `respawnS`).
