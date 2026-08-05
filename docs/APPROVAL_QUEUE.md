@@ -20,12 +20,12 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
-### Official Maps — Phase 2: the greybox slice playtest (2026-08-04, NEW)
-**PR #9 (`locale1-greybox`) is the built slice** — four dev-locked `loc1_*` zones + the §9.1 major
-cache + the `--perf` harness; 406-assert suite green, full battery green, bal_identity byte-identical,
-adversarially reviewed (dupe + dev-lock holes closed). **Decision needed: the local playtest +
-the 5 gate questions in `docs/locale1-greybox-report.md`** ("one place? cache worth the detour?") —
-reshaping the graph here is the designed outcome. NOT deployed; merging keeps it inert (dev-lock).
+### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
+The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at
+least more for the packs."* The packs half is DONE (cache guards 6→40 s, per-row `respawnS`).
+**Decision needed: also raise the GLOBAL `MOB_RESPAWN_DELAY` (6 s → ~10–12 s)?** That touches every
+camp in the live game (farm rates, quest pacing, bounties) — a one-constant change, but a real
+balance call. Say a number or "leave it".
 
 ### Open right now (2026-08-02, after the v1.17.0 batch)
 1. **PR #3 `p5-taste-tweaks` is PARKED, not merged** — gy2 tower 400 su closer, away_boss silhouette
@@ -91,6 +91,7 @@ Evidence: `docs/world-expansion-p2-report.md` §10 items 1–7.
 
 | Date | Item | Call |
 |---|---|---|
+| 2026-08-05 | **Official Maps Phase 2 — the greybox slice playtest** (PR #9) | **QUALIFIED PASS** — "feels better for sure", cache "pretty good"; same-day fixes: pack respawn 40 s, portal-pillar fade, perf-hook bug; Phase 4 carries elevation/density/checkpoint-disguise/arena-room/size-revisit (see the greybox report) |
 | 2026-08-04 | **Official Maps Phase 1 — the Locale 1 graph** (all 9 items of `docs/locale1-graph.md` §10; item 1 via the to-scale map artifact) | **approved as drawn** — Phase 2 (greybox slice) unlocked |
 | 2026-07-29 | P5 gy2 tower / away_boss / 6 tints / gy3 barrier, at ship time | keep all as-is (still swappable — see above) |
 | 2026-07-29 | `Protocol.VERSION` → 3 for the P5 decal-data ship | yes — converts silent invisible walls into a clean update prompt |

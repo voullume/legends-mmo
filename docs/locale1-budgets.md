@@ -27,19 +27,26 @@ greybox (launch the client with `--perf` → `[perf]` lines on stdout).
 
 Circle counts: `World.circles_from(World.OBSTACLES[map]).size() + World.collision_from_decals(map).size()`.
 
-## Measured numbers (fill during the owner playtest)
+## Measured numbers (owner playtest 2026-08-05, RX 5700 XT)
 
-| Zone | cold rebuild ms | warm rebuild ms | entry worst-frame ms | FPS (dense spot) | sig_avg_ms |
-|---|---|---|---|---|---|
-| loc1_fields | | | | | |
-| loc1_pitch | | | | | |
-| loc1_lane | | | | | |
-| loc1_culvert | | | | | |
-
-| Server | tick avg | p95 | worst | snap B avg/max |
+| Zone | cold decal rebuild ms | warm ms | backdrops cold/warm ms | entry worst-frame / FPS / sig |
 |---|---|---|---|---|
-| party clustered (pitch cache fight) | | | | |
-| party spread (4 zones) | | | | |
+| loc1_fields | 1.5 | 1.5–2.1 | 138.0 / 0.5 | *(pending — the reporter hook was dead online; fixed, re-measure next run)* |
+| loc1_pitch | 221.5 | 1.8–4.7 | 3.2 / 0.5 |〃 |
+| loc1_lane | 0.8 | 0.9–2.0 | 0.3 / 0.2 | 〃 |
+| loc1_culvert | 0.8 | 0.7–1.8 | 0.2 / 0.1 | 〃 |
+| *(references)* home 2343 cold (login GLB warm-up) · gy5 561 · finals_2 583 · away_1 300 — all warm ≤ 7 | | | |
+
+Cold spikes are the process-lifetime GLB cache filling on FIRST visit (mostly at login on home);
+warm revisits are 1–7 ms everywhere — well under every ceiling. One engine warning to carry:
+`Sending 4840 bytes unreliably above MTU (1392)` fired once at login on home (full-roster snapshot)
+— pre-existing class, watch it in Phase 4 when hub populations grow.
+
+| Server (single player touring) | tick avg | p95 | worst | snap B avg/max |
+|---|---|---|---|---|
+| loc1 zones occupied | 0.7–2.3 ms | 2.8–8.4 | 6.1–16.9 | 928–2872 |
+
+All inside the proposed ceilings. Clustered-vs-spread party runs still owed (needs 2+ players).
 
 ## Proposed ceilings (ratified at the Phase 2 gate, enforced per zone from Phase 4 on)
 

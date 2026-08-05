@@ -1,5 +1,18 @@
 # Locale 1 greybox slice — build report + the owner playtest (Official Maps Phase 2)
 
+**PLAYTEST OUTCOME (owner, 2026-08-05): QUALIFIED PASS.** "Feels better for sure"; the cache is
+"pretty good" and the intended pull-3-then-3 play emerged naturally. Same-day fixes on the branch:
+**guard-pack respawn 6→40 s** (per-row `respawnS` — route camps keep 6 s), **portal pillars now fade
+out past ~680 su** (labels already did — zones stop reading as "walk to the beacon on the far wall"),
+and the `--perf` FPS/zone-entry reporter bug fixed (it never ran online). **Phase 4 carries, from
+the owner's answers:** an elevation/terrain treatment + more obstacles for the one-place feel; the
+fields checkpoint pad reads as a jarring teleport (disguise or replace); more POIs + portals hidden
+behind mapping; arena breathing room at the cache; "maybe a little too small still" — revisit zone
+size AFTER density lands, not before. **New owner decision queued:** slowing the GLOBAL mob respawn
+(6 s → ~10–12 s, whole game) — the pack fix covers "at least the packs"; the global knob is a
+live-balance call. *(The "hub" in these docs = the two big zones themselves, archetype jargon — the
+locale's BASE with shop/forge is deliberately not built until Phase 4.1.)*
+
 **Status: BUILT, on branch `locale1-greybox` — NOT deployed.** Everything is primitive shapes by
 design; the gate question is *"does it feel like one continuous place, and is the cache worth the
 detour?"* — not how it looks. Per the handoff: **Phases 1 and 2 are the whole bet** — reshaping the

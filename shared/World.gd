@@ -464,11 +464,13 @@ const MOBS := {
 		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 2760.0, "y": 600.0},
 		# THE MAJOR CACHE PACK (§9.1) — two sub-clusters ~340 apart, SEPARABLE by a careful pull and a
 		# blob-wipe for a careless one; the wall pair below breaks LOS; the chest ring telegraphs the prize.
-		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 1560.0, "y": 520.0},   # cluster A (west)
-		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 1620.0, "y": 560.0},
-		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 1900.0, "y": 480.0},   # cluster B (east)
-		{"class": "tacklehorn_grazer", "level": 9,  "tier": "minion", "x": 1960.0, "y": 520.0},
-		{"class": "scrapmask_forager", "level": 9,  "tier": "minion", "x": 1930.0, "y": 580.0},
+		# respawnS 40 (owner playtest 2026-08-05): the intended solo play is pull-3-then-3 — the first
+		# cluster must not respawn while you fight the second (route camps keep the global 6 s).
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 1560.0, "y": 520.0, "respawnS": 40.0},   # cluster A (west)
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 1620.0, "y": 560.0, "respawnS": 40.0},
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 1900.0, "y": 480.0, "respawnS": 40.0},   # cluster B (east)
+		{"class": "tacklehorn_grazer", "level": 9,  "tier": "minion", "x": 1960.0, "y": 520.0, "respawnS": 40.0},
+		{"class": "scrapmask_forager", "level": 9,  "tier": "minion", "x": 1930.0, "y": 580.0, "respawnS": 40.0},
 	],
 	LOC1L: [  # Service Lane, L7-9 — quiet by DENSITY (3 small camps in a corridor), not by level
 		{"class": "whistle_cone",      "level": 7, "tier": "minion", "x": 700.0,  "y": 190.0},   # gatehouse

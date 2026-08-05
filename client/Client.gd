@@ -2120,8 +2120,6 @@ func _perf_tick(delta: float) -> void:
 	_perf_sig_n = 0
 
 func _process(delta: float) -> void:
-	if _perf_on:
-		_perf_tick(delta)
 	if _state.is_empty():
 		return
 	# 1) input → intent (before the tick, zero-lag)
@@ -2157,6 +2155,8 @@ func _process(delta: float) -> void:
 # Render the current _state — shared by the LOCAL sandbox and the networked client (which
 # fills _state from server snapshots instead of ticking the sim locally).
 func _render_world(delta: float) -> void:
+	if _perf_on:                                   # HERE, not _process — NetClient overrides _process
+		_perf_tick(delta)                          # without super(), so the reporter never ran online
 	_sync_projectiles()
 	_sync_charges()                          # cast wind-up cues for styles that have one (Golden Goal)
 	_update_fx(delta)
@@ -2498,7 +2498,8 @@ func _render_portals() -> void:
 		pillar.material_override = mat
 		pillar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		pillar.position = pos + Vector3(0.0, 1.5, 0.0)
-		_portal_root.add_child(pillar)
+		pillar.set_meta("pad_pillar", true)          # owner playtest: pillars fade out at range (labels
+		_portal_root.add_child(pillar)               # already do) — no more portals visible map-wide
 		_portal_root.add_child(WorldUI.pad_label(str(p.get("label", "Portal")),
 			Color(0.65, 0.92, 1.0), pos + Vector3(0.0, 3.7, 0.0)))
 
@@ -2530,6 +2531,16 @@ func _update_world_label_fade(delta: float) -> void:
 				# a Hybrid-Cutout service-pad marker (icon Sprite3D + text Label3D) — fade both children
 				var m := ch as Node3D
 				WorldUI.fade_pad_marker(m, WorldUI.pad_fade(cpos.distance_to(m.global_position)) * _wfade)
+			elif ch is MeshInstance3D and (ch as MeshInstance3D).has_meta("pad_pillar"):
+				# the glowing portal pillar itself: full within ~400 su, GONE past ~680 — unlike the
+				# labels (which keep a wayfinding floor), a distant pillar fades to nothing, so zones
+				# stop reading as "walk toward the beacon on the far wall" (owner playtest 2026-08-05)
+				var pm := ch as MeshInstance3D
+				var kp := clampf(1.0 - (cpos.distance_to(pm.global_position) - 20.0) / 14.0, 0.0, 1.0) * _wfade
+				var pmat := pm.material_override as StandardMaterial3D
+				if pmat != null:
+					pmat.albedo_color.a = 0.32 * kp
+					pmat.emission_energy_multiplier = 1.6 * kp
 
 # nameplate-text fade (per fighter, from _update_ui). Bars stay — they scale with the world.
 func _plate_fade(world_pos: Vector3) -> float:

@@ -508,6 +508,8 @@ func _spawn_world_actors() -> void:
 			var f = _find(fid)
 			f["mobLevel"] = int(m["level"])
 			f["mobTier"] = str(m["tier"])
+			if m.has("respawnS"):                    # per-row respawn override (guard packs respawn slow)
+				f["respawnS"] = float(m["respawnS"])
 			_scale_mob(f)
 			if GameData.CLASSES.get(str(m["class"]), {}).get("isCore", false):
 				f["isCore"] = true                   # destructible power core: no loot/XP, gates the boss ult, respawns
@@ -3558,7 +3560,9 @@ func _tick_world(w: Dictionary, mapname: String) -> void:
 				# cadence). Bosses default to the 30-min world-event cadence, minions to 6 s, as shipped.
 				var _bdef: Dictionary = GameData.CLASSES.get(str(f["classId"]), {})
 				var _rdefault: float = BOSS_RESPAWN_DELAY if _bdef.get("phased", false) else MOB_RESPAWN_DELAY
-				_respawn[f["id"]] = float(_bdef.get("respawnS", _rdefault))
+				# Phase 2 playtest: a per-ROW respawnS (stamped from World.MOBS) outranks the per-def one —
+				# guard packs respawn slowly so methodical 3-then-3 play isn't punished mid-clear
+				_respawn[f["id"]] = float(f.get("respawnS", _bdef.get("respawnS", _rdefault)))
 			else:
 				var _dmeta: Dictionary = _instances.get(mapname, {})
 				if bool(_dmeta.get("active", false)) and str(_dmeta.get("mode", "")) == "drill":

@@ -249,6 +249,10 @@ func _run() -> void:
 		min_lvl = mini(min_lvl, int(g["level"]))
 	ok(pack_elites == 1, "cache: exactly one elite anchors the pack")
 	ok(min_lvl >= 9, "cache: no guard below L9 (a re-level to trivial fails here)")
+	for row in World.MOBS["loc1_pitch"]:
+		if CACHE_XY.distance_to(Vector2(float(row["x"]), float(row["y"]))) <= 450.0:
+			ok(float(row.get("respawnS", 0.0)) >= 30.0,
+				"cache: the guard row carries a slow respawn (pull-3-then-3 stays possible — owner 2026-08-05)")
 	# clustering at 150 su linkage, made order-proof with a merge-until-stable pass (review find)
 	var clusters := []
 	for g in guards:
