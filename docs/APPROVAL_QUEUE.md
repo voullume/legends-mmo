@@ -20,6 +20,12 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
+### Official Maps — Phase 4.1 look/feel checkpoint (2026-08-05, PR #10)
+The Base is built (tier-1 services + quest chain + two residents) and the loc1 zones now wear their
+own palette/ground. **Checkpoint: `./play.sh dev` → F1 → L1B** — does the Base read as somewhere to
+come back to, and does the mossy-olive look sell the gradient? Answer unblocks 4.2 (your
+elevation/density/checkpoint-disguise feedback becomes the next batch).
+
 ### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
 The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at
 least more for the packs."* The packs half is DONE (cache guards 6→40 s, per-row `respawnS`).
