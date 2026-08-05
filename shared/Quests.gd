@@ -305,6 +305,32 @@ const QUESTS := {
 		"rewards": {"xp": 3200, "credits": 1600, "tokens": 45,
 			"item": {"name": "Gallery Keeper's Guard", "rarity": "epic", "slot": "off_hand", "bonus_stat": "PRE", "bonus_amt": 107, "ilvl": 26, "item_power": 133}},
 	},
+	# ---- Official Maps Phase 4.1: the Locale 1 chain (given at the Base's quest giver #3; provisional
+	# L5-12 rewards — Phase 6 re-bands xp/ilvl). GOVERNANCE: LOC1_ORDER below is append-only, nothing
+	# may EVER gate on its completion, and future boss/gate quests must be CLASS-keyed, never
+	# map-keyed — an instance's victim.map is the instance KEY, so a map matcher silently never credits.
+	"loc1_fields_sweep": {
+		"name": "Field Day",
+		"desc": "The Overgrown Practice Fields crawl with rogue equipment. Clear 6 of it.",
+		"min_level": 5, "prereq": "",
+		"objective": {"type": "kill", "match": {"map": "loc1_fields"}, "count": 6},
+		"rewards": {"xp": 200, "credits": 100, "tokens": 15},
+	},
+	"loc1_fields_brute": {
+		"name": "Rust and Ruin",
+		"desc": "A Tackle Brute has claimed the fields' east end, by the lane gates. Put it down.",
+		"min_level": 6, "prereq": "loc1_fields_sweep",
+		"objective": {"type": "kill", "match": {"map": "loc1_fields", "tier": "elite"}, "count": 1},
+		"rewards": {"xp": 320, "credits": 150, "tokens": 20,
+			"item": {"name": "Groundskeeper's Charm", "rarity": "rare", "slot": "trinket", "bonus_stat": "END", "bonus_amt": 13}},
+	},
+	"loc1_pitch_waders": {
+		"name": "Into the Reeds",
+		"desc": "Past the treeline the pitches have flooded — and something lives there now. Cull 6.",
+		"min_level": 7, "prereq": "loc1_fields_brute",
+		"objective": {"type": "kill", "match": {"map": "loc1_pitch"}, "count": 6},
+		"rewards": {"xp": 450, "credits": 200, "tokens": 22},
+	},
 }
 
 # stable display/iteration order (also the chain order). ORDER is the SECRET-BOSS GATE list (the server's
@@ -331,6 +357,11 @@ const WILD_ORDER := ["wild1_stake", "wild2_grazers", "wild3_rallywings", "wild4_
 # NOTHING may ever gate on FINALS_ORDER completion — gate on individual quest ids if ever needed).
 const FINALS_ORDER := ["finals1_contenders", "finals1_machines", "finals2_gate", "finals2_gallery"]
 
+# Official Maps Phase 4.1: the Locale 1 chain — SAME GOVERNANCE as AWAY_ORDER (append-only; NOTHING
+# may ever gate on LOC1_ORDER completion — gate on individual quest ids, and keep boss quests
+# CLASS-keyed per the instance-crediting rule).
+const LOC1_ORDER := ["loc1_fields_sweep", "loc1_fields_brute", "loc1_pitch_waders"]
+
 static func order() -> Array:
 	return ORDER
 
@@ -338,7 +369,7 @@ static func order() -> Array:
 # then the mid-level spine) — for the CLIENT log/tracker/giver only. The server keeps using ORDER for
 # the gate and get_quest()/kill_matches() for progress.
 static func display_order() -> Array:
-	return ORDER + AWAY_ORDER + WILD_ORDER + FINALS_ORDER + MIDGAME_ORDER
+	return ORDER + LOC1_ORDER + AWAY_ORDER + WILD_ORDER + FINALS_ORDER + MIDGAME_ORDER
 
 static func get_quest(qid: String) -> Variant:
 	return QUESTS.get(qid, null)

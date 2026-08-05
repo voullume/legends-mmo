@@ -1,0 +1,6 @@
+[
+	{"model": "chimney-medium", "x": -500.0, "y": 250.0, "h": 28.0, "yaw": 0.1, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "tree_default", "x": 300.0, "y": -300.0, "h": 12.0, "yaw": 0.4, "oy": -0.2},
+	{"model": "tree_pineRoundC", "x": 800.0, "y": -320.0, "h": 14.0, "yaw": 1.2, "oy": -0.2},
+	{"model": "tree_thin", "x": 1450.0, "y": 400.0, "h": 10.0, "yaw": 2.1, "oy": -0.2}
+]
