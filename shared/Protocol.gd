@@ -25,7 +25,9 @@ extends RefCounted
 ## `BUILD` is a free-form build identifier carried in the hello for diagnostics; `hello()` leaves
 ## room for a capability list later — do NOT grow this into a negotiation framework.
 
-const VERSION := 3   # v3: world-expansion P5 — data/decals/glitchyard_2..5.json give those zones their FIRST decal collision (21/25/22/22 circles); an old client would walk into invisible walls
+const VERSION := 4   # v4: Locale 1 greybox — the cache_open/recv_cache_state RPC pair (new @rpc methods
+                     # change the peer RPC config) + four new loc1_* zones in shared World.gd. (v3:
+                     # world-expansion P5 — data/decals/glitchyard_2..5.json first decal collision)
 const BUILD := ""
 
 static func hello() -> Dictionary:

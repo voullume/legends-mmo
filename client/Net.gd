@@ -212,6 +212,19 @@ func craft_master_key() -> void:
 	if server != null:
 		server.craft_master_key(multiplayer.get_remote_sender_id())
 
+# ---- Official Maps Phase 2: guarded-cache opening (server-validated channel; §9.1) ----
+@rpc("any_peer", "call_remote", "reliable")
+func cache_open() -> void:
+	if server != null:
+		server.cache_open(multiplayer.get_remote_sender_id())
+
+# server → client: channel lifecycle. state ∈ start/break/done/locked; ms = channel duration on
+# "start", lockout remaining on "locked", 0 otherwise.
+@rpc("authority", "call_remote", "reliable")
+func recv_cache_state(state: String, ms: int) -> void:
+	if client != null:
+		client.recv_cache_state(state, ms)
+
 @rpc("authority", "call_remote", "reliable")
 func recv_key_crafted(ok: bool) -> void:
 	if client != null:

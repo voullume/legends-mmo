@@ -1,0 +1,14 @@
+[
+	{"model": "chimney-medium", "x": -700.0, "y": 1100.0, "h": 46.0, "yaw": 0.0, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "building-n", "x": -750.0, "y": 1400.0, "h": 30.0, "yaw": 0.2, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "chimney-small", "x": -650.0, "y": 1700.0, "h": 34.0, "yaw": 0.4, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "plaza_light_column", "x": 4400.0, "y": 300.0, "h": 64.0, "yaw": 0.0, "oy": -0.2, "tint": "#617F70"},
+	{"model": "detail-tank", "x": 4350.0, "y": 420.0, "h": 16.0, "yaw": 0.3, "oy": -0.2, "tint": "#617F70"},
+	{"model": "stadium", "x": 5400.0, "y": 900.0, "h": 26.0, "yaw": 0.3, "oy": -0.2, "tint": "#3C4A3C"},
+	{"model": "tree_default", "x": 600.0, "y": -420.0, "h": 14.0, "yaw": 0.0, "oy": -0.2},
+	{"model": "tree_pineRoundC", "x": 1500.0, "y": -450.0, "h": 16.0, "yaw": 0.8, "oy": -0.2},
+	{"model": "tree_default", "x": 2400.0, "y": -430.0, "h": 18.0, "yaw": 1.6, "oy": -0.2},
+	{"model": "tree_pineRoundC", "x": 3200.0, "y": -460.0, "h": 20.0, "yaw": 2.4, "oy": -0.2},
+	{"model": "tree_thin", "x": 1200.0, "y": 3220.0, "h": 12.0, "yaw": 0.5, "oy": -0.2},
+	{"model": "tree_default", "x": 2600.0, "y": 3260.0, "h": 14.0, "yaw": 1.1, "oy": -0.2}
+]

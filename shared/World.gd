@@ -39,6 +39,12 @@ const CAMP_B := "camp_b"                     # Circuit v2 rotating room "The Gau
 const CAMP_C := "camp_c"                     # Circuit v2 rotating room "The Scrimmage" (support-comp, focus-fire)
 const DRILL := "drill"                      # the instanced Two-Minute Drill (endless wave survival → leaderboard)
 const LOCKER := "locker_room"               # Builder Mode: the private per-CHARACTER Locker Room (safe, no combat)
+# Official Maps Phase 2 (docs/locale1-graph.md — GREYBOX slice, dev-locked behind loc1_gate until the
+# Locale 1 release): the first four Locale 1 zones. loc1_ prefix picks the (future) client theme family.
+const LOC1F := "loc1_fields"                # Overgrown Practice Fields — broad hub (the scale statement)
+const LOC1P := "loc1_pitch"                 # Flooded Pitches — broad hub #2 (tower landmark + the major cache)
+const LOC1L := "loc1_lane"                  # Service Lane — bent long-reveal alternate route
+const LOC1C := "loc1_culvert"               # The Culvert — pocket + the cross-zone return shortcut
 const INSTANCE_MAPS := ["camp", "camp_b", "camp_c", "drill", "locker_room"]    # templates that are instance-only (skipped by static-world boot)
 
 static func is_instance_template(map: String) -> bool:
@@ -68,6 +74,10 @@ const CAMP_B_SPAWN := Vector2(180, 440)      # Circuit v2 "The Gauntlet" — arr
 const CAMP_C_SPAWN := Vector2(180, 470)      # Circuit v2 "The Scrimmage" — arrive far west
 const DRILL_SPAWN := Vector2(600, 400)       # Two-Minute Drill: spawn in the arena center (waves close in)
 const LOCKER_SPAWN := Vector2(350, 380)      # Locker Room: arrive lower-center, facing into your room (clear of the west exit pad)
+const LOC1F_SPAWN := Vector2(300, 1400)      # fields: the GY5 pad drops you at the west entry plaza (>320 from every camp)
+const LOC1P_SPAWN := Vector2(250, 1200)      # pitch: west-mid arrival band, clear of the route camps and the cache pack
+const LOC1L_SPAWN := Vector2(150, 350)       # lane: west mouth
+const LOC1C_SPAWN := Vector2(180, 550)       # culvert: the fields-side (west) mouth
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
@@ -108,6 +118,13 @@ const MAPS := {
 	# W7: the Base Camp — 1200 wide so the global resident spawn offsets (up to +520 east of spawn)
 	# stay in-bounds (the scout-flagged trap). NOT away-prefixed: the id picks the turf/green theme.
 	BASECAMP: {"type": "safe", "w": 1200, "h": 640, "regen": 0.12, "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": BASECAMP_SPAWN},
+	# Official Maps Phase 2 — the Locale 1 GREYBOX slice (provisional levels; combat profile matches the
+	# chain zones). The two hubs carry the h≥2400 depth floor (docs/official-maps-handoff.md §6); the lane
+	# and culvert sit deliberately below it — the cramped-contrast is the point.
+	LOC1F: {"type": "combat", "w": 3600, "h": 2800, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1F_SPAWN},
+	LOC1P: {"type": "combat", "w": 3200, "h": 2400, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1P_SPAWN},
+	LOC1L: {"type": "combat", "w": 2600, "h": 700,  "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1L_SPAWN},
+	LOC1C: {"type": "combat", "w": 1000, "h": 700,  "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1C_SPAWN},
 }
 
 const DUMMY_POS := Vector2(1240, 790)         # the training dummy (home only)
@@ -136,6 +153,18 @@ const SERVICE_PADS := {
 }
 static func service_pad(map: String, key: String):
 	return (SERVICE_PADS.get(map, {}) as Dictionary).get(key, null)
+
+# Official Maps §9.1 — guarded loot caches, per map. BOTH sides read this (the SERVICE_PADS pattern):
+# the server validates cache_open proximity + runs the channel; the client renders the chest prompt.
+# The chest itself is a DECALS prop at the same coords; the guard pack is authored in MOBS beside it.
+# Greybox ships ONE major cache (the pitch islet); minors land with Locale 1 (Phase 4).
+const CACHES := {
+	LOC1P: [
+		{"id": "loc1_pitch_islet", "x": 1700.0, "y": 260.0, "r": 60.0, "channel_s": 2.5, "tier": "major"},
+	],
+}
+static func caches_for(map: String) -> Array:
+	return CACHES.get(map, [])
 
 # Portal pads per world: within PORTAL_RADIUS of {x,y} → teleport to world `to` at (tx,ty).
 # Zone graph:  Home ↔ Arena,  Home → Glitchyard 1 ↔ 2 ↔ 3 ↔ 4 ↔ 5  (a linear chain; you arrive west, the
@@ -194,6 +223,11 @@ const PORTALS := {
 		# Arrival (240,860) sits on away_1's empty south edge: 369 from the nearest skink camp, clear of
 		# every pad (nearest 120 — the return pad; > PORTAL_RADIUS 42). Carries wild_gate like every pad into the biome (the S1 rule).
 		{"x": 1900.0, "y": 750.0,  "to": AWAY1, "tx": 240.0,  "ty": 860.0, "gate": "wild_gate", "label": "▶ Wildlife Expanse"},
+		# Official Maps Phase 2: the Locale 1 attach pad — SOUTH edge (the complex sprawls south of the
+		# Command Tower). Pad clears every GY5 camp by >320 ((700,1000): 328 from the nearest @500,740).
+		# loc1_gate is DEV-LOCKED (admin-only + HIDDEN_GATES) until the Locale 1 release flips it to the
+		# gy5_command check — docs/locale1-graph.md §9.
+		{"x": 700.0,  "y": 1000.0, "to": LOC1F, "tx": 300.0,  "ty": 1400.0, "gate": "loc1_gate", "label": "▶ The Practice Fields"},
 	],
 	GY_BOSS: [
 		# back to GY5, dropping clear of the drill camp (@1620,550, > AGGRO 320). The boss is central, far from
@@ -306,6 +340,39 @@ const PORTALS := {
 	LOCKER: [
 		{"x": 80.0,   "y": 380.0,  "to": HOME, "tx": 900.0,  "ty": 780.0, "label": "◀ Leave Locker Room"},
 	],
+	# ---- Official Maps Phase 2: the Locale 1 GREYBOX slice (docs/locale1-graph.md §10 item 8) ----
+	# The S1 rule, locale-wide: EVERY pad whose destination is a loc1 zone carries loc1_gate — including
+	# the intra-map fields checkpoint and the back-pads between loc1 zones — so gate_for_map derives the
+	# gate for all four zones and a tampered last_map can never restore into the locale (and the dev-lock
+	# keeps merged batches inert on any interim release). Drops audited >320 from every camp row, clear of
+	# collision; the geometry sweep lives in tools/stab_locale1.gd.
+	LOC1F: [
+		{"x": 120.0,  "y": 1400.0, "to": GY5,   "tx": 300.0,  "ty": 1000.0, "label": "◀ Command Tower"},
+		# the MAIN seam east (stands in for the future fields→lots→pitch leg; becomes the treeline break)
+		{"x": 3480.0, "y": 700.0,  "to": LOC1P, "tx": 250.0,  "ty": 700.0,  "gate": "loc1_gate", "label": "▶ Treeline Break"},
+		# the ALTERNATE route — the Service Lane (quiet by density, not level)
+		{"x": 3480.0, "y": 2100.0, "to": LOC1L, "tx": 250.0,  "ty": 350.0,  "gate": "loc1_gate", "label": "▶ Service Lane"},
+		# the culvert's fields-side mouth: at the entry plaza's SOUTH RIM on purpose (the approved §10
+		# item-2 telegraph decision — the locale's highest-traffic L5 spot), with the L8 tube guard +
+		# warning decals TELEGRAPHING the threat (a warned decision, not an ambush)
+		{"x": 600.0,  "y": 1900.0, "to": LOC1C, "tx": 220.0,  "ty": 550.0,  "gate": "loc1_gate", "label": "▶ Culvert Mouth"},
+		# intra-map checkpoint collapsing the hub's return walk (the away_1 Field-Entrance precedent)
+		{"x": 3350.0, "y": 2600.0, "to": LOC1F, "tx": 400.0,  "ty": 1500.0, "gate": "loc1_gate", "label": "▲ Entry Plaza"},
+	],
+	LOC1P: [
+		{"x": 120.0,  "y": 700.0,  "to": LOC1F, "tx": 3300.0, "ty": 700.0,  "gate": "loc1_gate", "label": "◀ Treeline Break"},
+		{"x": 120.0,  "y": 2100.0, "to": LOC1L, "tx": 2350.0, "ty": 350.0,  "gate": "loc1_gate", "label": "◀ Service Lane"},
+		# the culvert's pitch-side (west) mouth — the return shortcut home
+		{"x": 300.0,  "y": 1900.0, "to": LOC1C, "tx": 800.0,  "ty": 180.0,  "gate": "loc1_gate", "label": "▶ Drainage Culvert"},
+	],
+	LOC1L: [
+		{"x": 120.0,  "y": 350.0,  "to": LOC1F, "tx": 3300.0, "ty": 2100.0, "gate": "loc1_gate", "label": "◀ Practice Fields"},
+		{"x": 2480.0, "y": 350.0,  "to": LOC1P, "tx": 400.0,  "ty": 2100.0, "gate": "loc1_gate", "label": "▶ Collapsed Gate"},
+	],
+	LOC1C: [
+		{"x": 120.0,  "y": 550.0,  "to": LOC1F, "tx": 700.0,  "ty": 2000.0, "gate": "loc1_gate", "label": "◀ Outfall — Entry Plaza"},
+		{"x": 880.0,  "y": 150.0,  "to": LOC1P, "tx": 450.0,  "ty": 1900.0, "gate": "loc1_gate", "label": "▶ Tube Mouth — Flooded Pitches"},
+	],
 }
 
 # Mob camps per combat world, spread so engaging one doesn't pull the next (> AGGRO_RANGE apart, with a
@@ -366,6 +433,57 @@ const MOBS := {
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 700.0, "y": 690.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 360.0},
 		{"class": "power_core",       "level": 7,  "tier": "minion", "x": 900.0, "y": 580.0},
+	],
+	# ---- Official Maps Phase 2: Locale 1 greybox camps (PROVISIONAL levels — Phase 6 re-levels rows).
+	# The decay→nature gradient told in roster form: GY equipment classes west, wildlife classes east.
+	# Camp pairs sit ~120 apart (joint pull); different camps >320 apart. All reused classes — the
+	# mob-def golden hash is untouched.
+	LOC1F: [  # Overgrown Practice Fields, L5-7 — equipment rotting where it stood
+		{"class": "cone_swarmer",   "level": 5, "tier": "minion", "x": 1100.0, "y": 1140.0},
+		{"class": "foam_dummy",     "level": 5, "tier": "minion", "x": 1100.0, "y": 1260.0},
+		{"class": "spring_cone",    "level": 5, "tier": "minion", "x": 1600.0, "y": 440.0},
+		{"class": "cone_swarmer",   "level": 5, "tier": "minion", "x": 1600.0, "y": 560.0},
+		{"class": "foam_dummy",     "level": 6, "tier": "minion", "x": 2540.0, "y": 350.0},   # shed-ruin camp (the Phase-4 minor-cache site)
+		{"class": "shooting_dummy", "level": 6, "tier": "minion", "x": 2660.0, "y": 350.0},
+		{"class": "whistle_cone",   "level": 6, "tier": "minion", "x": 1700.0, "y": 2140.0},
+		{"class": "chalk_liner",    "level": 6, "tier": "minion", "x": 1700.0, "y": 2260.0},
+		{"class": "shooting_dummy", "level": 6, "tier": "minion", "x": 2440.0, "y": 1000.0},  # treeline camp
+		{"class": "spring_cone",    "level": 7, "tier": "minion", "x": 2560.0, "y": 1000.0},
+		{"class": "tackle_brute",   "level": 7, "tier": "elite",  "x": 3000.0, "y": 1800.0},  # 424+ from the SE drop; 566 from the SE pad
+	],
+	LOC1P: [  # Flooded Pitches, L8-10 — nature has the east; the cache pack guards the north islet
+		{"class": "netvine_skink",     "level": 8,  "tier": "minion", "x": 700.0,  "y": 740.0},
+		{"class": "netvine_skink",     "level": 8,  "tier": "minion", "x": 700.0,  "y": 860.0},
+		{"class": "tacklehorn_grazer", "level": 8,  "tier": "minion", "x": 900.0,  "y": 1440.0},
+		{"class": "scrapmask_forager", "level": 8,  "tier": "minion", "x": 900.0,  "y": 1560.0},
+		{"class": "tacklehorn_grazer", "level": 9,  "tier": "minion", "x": 1600.0, "y": 1740.0},
+		{"class": "scrapmask_forager", "level": 9,  "tier": "minion", "x": 1600.0, "y": 1860.0},
+		{"class": "rallywing_magpie",  "level": 9,  "tier": "minion", "x": 2340.0, "y": 1600.0},  # tower camp
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 2460.0, "y": 1600.0},  # tower warden
+		{"class": "rallywing_magpie",  "level": 9,  "tier": "minion", "x": 2640.0, "y": 600.0},
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 2760.0, "y": 600.0},
+		# THE MAJOR CACHE PACK (§9.1) — two sub-clusters ~340 apart, SEPARABLE by a careful pull and a
+		# blob-wipe for a careless one; the wall pair below breaks LOS; the chest ring telegraphs the prize.
+		# respawnS 40 (owner playtest 2026-08-05): the intended solo play is pull-3-then-3 — the first
+		# cluster must not respawn while you fight the second (route camps keep the global 6 s).
+		{"class": "tacklehorn_grazer", "level": 10, "tier": "elite",  "x": 1560.0, "y": 520.0, "respawnS": 40.0},   # cluster A (west)
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 1620.0, "y": 560.0, "respawnS": 40.0},
+		{"class": "netvine_skink",     "level": 9,  "tier": "minion", "x": 1900.0, "y": 480.0, "respawnS": 40.0},   # cluster B (east)
+		{"class": "tacklehorn_grazer", "level": 9,  "tier": "minion", "x": 1960.0, "y": 520.0, "respawnS": 40.0},
+		{"class": "scrapmask_forager", "level": 9,  "tier": "minion", "x": 1930.0, "y": 580.0, "respawnS": 40.0},
+	],
+	LOC1L: [  # Service Lane, L7-9 — quiet by DENSITY (3 small camps in a corridor), not by level
+		{"class": "whistle_cone",      "level": 7, "tier": "minion", "x": 700.0,  "y": 190.0},   # gatehouse
+		{"class": "cone_swarmer",      "level": 7, "tier": "minion", "x": 700.0,  "y": 310.0},
+		{"class": "netvine_skink",     "level": 8, "tier": "minion", "x": 1240.0, "y": 400.0},   # mid ambush
+		{"class": "netvine_skink",     "level": 8, "tier": "minion", "x": 1360.0, "y": 400.0},
+		{"class": "tacklehorn_grazer", "level": 8, "tier": "minion", "x": 1960.0, "y": 390.0},
+		{"class": "scrapmask_forager", "level": 9, "tier": "minion", "x": 2040.0, "y": 510.0},
+	],
+	LOC1C: [  # The Culvert, L8 — the NW-bend guard pair: VISIBLE from the fields-side mouth (the
+		# telegraph) but >400 from both arrival points, so walking in is a warned decision.
+		{"class": "netvine_skink", "level": 8, "tier": "minion", "x": 160.0, "y": 140.0},
+		{"class": "netvine_skink", "level": 8, "tier": "minion", "x": 240.0, "y": 110.0},
 	],
 	# Phase 8 — the Away Circuit camps (docs/phase8-away-circuit-plan.md). Same grammar as the GY chain:
 	# lane-pair camps west→east with a level gradient, elites anchoring the east by the forward pad.
@@ -716,6 +834,28 @@ const OBSTACLES := {
 		{"x": 760.0,  "y": 340.0, "prop": "barrier", "len": 110.0, "yaw": 1.5708}, {"x": 760.0, "y": 640.0, "prop": "barrier", "len": 110.0, "yaw": 1.5708},
 		{"x": 1360.0, "y": 340.0, "prop": "bag", "len": 36.0, "yaw": 0.0}, {"x": 1360.0, "y": 640.0, "prop": "bag", "len": 36.0, "yaw": 0.0},
 	],
+	# Official Maps Phase 2 — Locale 1 greybox cover. SPARSE on the hubs by design (§10: prop density
+	# falls as zones grow); the lane's two staggered walls make the corridor's S-bend.
+	LOC1F: [
+		{"x": 1400.0, "y": 800.0,  "prop": "barrier", "len": 240.0, "yaw": 0.0},
+		{"x": 2000.0, "y": 1700.0, "prop": "rack",    "len": 200.0, "yaw": 1.5708},
+		{"x": 2950.0, "y": 1650.0, "prop": "bag",     "len": 60.0,  "yaw": 0.0},
+		{"x": 3060.0, "y": 1930.0, "prop": "bag",     "len": 60.0,  "yaw": 0.0},
+	],
+	LOC1P: [
+		{"x": 1200.0, "y": 1100.0, "prop": "barrier", "len": 240.0, "yaw": 0.0},
+		{"x": 2100.0, "y": 2000.0, "prop": "rack",    "len": 200.0, "yaw": 0.0},
+		{"x": 2500.0, "y": 1000.0, "prop": "bag",     "len": 60.0,  "yaw": 0.0},
+	],
+	LOC1L: [  # the S-bend: north wall at x800, south wall at x1700 — the corridor snakes
+		{"x": 800.0,  "y": 180.0, "prop": "barrier", "len": 300.0, "yaw": 1.5708},
+		{"x": 1700.0, "y": 520.0, "prop": "barrier", "len": 300.0, "yaw": 1.5708},
+		{"x": 1250.0, "y": 250.0, "prop": "rack",    "len": 160.0, "yaw": 0.0},
+	],
+	LOC1C: [  # the L-bend wall + wreck pillar — the tube is never a straight sightline
+		{"x": 420.0, "y": 300.0, "prop": "barrier", "len": 280.0, "yaw": 1.5708},
+		{"x": 650.0, "y": 450.0, "prop": "bag",     "len": 60.0,  "yaw": 0.0},
+	],
 }
 
 # the gate protecting ENTRY to `map` (scans portals leading to it), or "" if ungated. Lets the server
@@ -791,6 +931,53 @@ const DECALS := {
 	CAMP_C: [
 		{"kind": "ring", "x": 1000.0, "y": 480.0, "r": 150.0}, {"kind": "ring", "x": 1440.0, "y": 480.0, "r": 100.0},
 		{"kind": "cone", "x": 540.0, "y": 340.0}, {"kind": "cone", "x": 540.0, "y": 640.0},
+	],
+	# ---- Official Maps Phase 2: Locale 1 GREYBOX decals — deliberately const-only (no data/decals JSON,
+	# so no decal-guard churn while the slice iterates; the Phase 4 art pass moves these to files). Rings
+	# and cones are pure client primitives with NO collision; the three glitchyard_wall records are the
+	# §9.1 cache arena's LOS cover and DO collide (DECAL_PANELS row expansion) — that is the point.
+	LOC1F: [
+		{"kind": "ring", "x": 300.0,  "y": 1400.0, "r": 130.0},                                   # entry plaza
+		{"kind": "cone", "x": 200.0,  "y": 1330.0}, {"kind": "cone", "x": 200.0,  "y": 1470.0},
+		{"kind": "ring", "x": 2600.0, "y": 350.0,  "r": 110.0},                                   # shed-ruin camp
+		{"kind": "ring", "x": 3350.0, "y": 2600.0, "r": 90.0},                                    # checkpoint shelter
+		{"kind": "cone", "x": 3400.0, "y": 640.0},  {"kind": "cone", "x": 3400.0, "y": 760.0},    # treeline break
+		{"kind": "cone", "x": 3400.0, "y": 2040.0}, {"kind": "cone", "x": 3400.0, "y": 2160.0},   # lane gap
+		{"kind": "ring", "x": 600.0,  "y": 1900.0, "r": 80.0},                                    # culvert mouth —
+		{"kind": "cone", "x": 540.0,  "y": 1840.0}, {"kind": "cone", "x": 660.0,  "y": 1840.0},   # the ⚠ telegraph
+	],
+	LOC1P: [
+		# THE CACHE ARENA (§9.1): chest visible from outside the pack's 320 aggro through the wall gap
+		# (the chokepoint); walls A/B flank the approach at y700, wall C guards the west flank. Verified
+		# by tools/stab_locale1.gd (LOS ring + cluster spacing + wall presence).
+		{"kind": "ring", "x": 1700.0, "y": 260.0, "r": 60.0},                                     # the prize ring
+		{"kind": "prop", "model": "championship_reward_chest", "x": 1700.0, "y": 260.0, "h": 1.4, "yaw": 3.14},
+		{"kind": "prop", "model": "glitchyard_wall", "x": 1500.0, "y": 700.0, "h": 2.9, "yaw": 0.0},
+		{"kind": "prop", "model": "glitchyard_wall", "x": 1950.0, "y": 700.0, "h": 2.9, "yaw": 0.0},
+		{"kind": "prop", "model": "glitchyard_wall", "x": 1450.0, "y": 400.0, "h": 2.9, "yaw": 1.5708},
+		# the Floodlight Tower — the VISITABLE mass (review find: the backdrop silhouette alone left
+		# nothing overhead at the footprint; this in-zone column makes visible-before/visitable-after
+		# real. PROP_FOOTPRINT 1.6 × h20 → a r32 collision pillar, clear of every camp/drop by >48.)
+		{"kind": "prop", "model": "plaza_light_column", "x": 2400.0, "y": 1100.0, "h": 20.0, "yaw": 0.0},
+		{"kind": "ring", "x": 2400.0, "y": 1100.0, "r": 140.0},
+		{"kind": "cone", "x": 2260.0, "y": 1100.0}, {"kind": "cone", "x": 2540.0, "y": 1100.0},
+		{"kind": "cone", "x": 2400.0, "y": 960.0},  {"kind": "cone", "x": 2400.0, "y": 1240.0},
+		{"kind": "cone", "x": 200.0,  "y": 640.0},  {"kind": "cone", "x": 200.0,  "y": 760.0},    # treeline back
+		{"kind": "cone", "x": 200.0,  "y": 2040.0}, {"kind": "cone", "x": 200.0,  "y": 2160.0},   # lane back
+		{"kind": "ring", "x": 300.0,  "y": 1900.0, "r": 80.0},                                    # culvert mouth
+		{"kind": "cone", "x": 380.0,  "y": 1840.0}, {"kind": "cone", "x": 380.0,  "y": 1960.0},
+	],
+	LOC1L: [
+		{"kind": "ring", "x": 800.0,  "y": 500.0, "r": 90.0},                                     # south-gap shelter
+		{"kind": "ring", "x": 1700.0, "y": 250.0, "r": 90.0},                                     # north-gap shelter
+		{"kind": "cone", "x": 250.0,  "y": 290.0}, {"kind": "cone", "x": 250.0,  "y": 410.0},
+		{"kind": "cone", "x": 2350.0, "y": 290.0}, {"kind": "cone", "x": 2350.0, "y": 410.0},
+	],
+	LOC1C: [
+		{"kind": "ring", "x": 500.0, "y": 550.0, "r": 80.0},                                      # junction chamber (tape anchor)
+		{"kind": "cone", "x": 460.0, "y": 620.0}, {"kind": "cone", "x": 540.0, "y": 620.0},
+		{"kind": "cone", "x": 650.0, "y": 380.0}, {"kind": "cone", "x": 700.0, "y": 450.0},       # wreck dressing
+		{"kind": "cone", "x": 160.0, "y": 480.0}, {"kind": "cone", "x": 280.0, "y": 480.0},       # west-mouth warning
 	],
 }
 
