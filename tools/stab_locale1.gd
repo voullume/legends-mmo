@@ -64,6 +64,16 @@ func _quiet_pitch() -> void:
 		m["hp"] = 0.0
 		srv._respawn.erase(m["id"])
 
+func _rec_eq(a, b) -> bool:                     # order-insensitive KEY compare, exact per-value
+	if not (a is Dictionary and b is Dictionary):
+		return false
+	if (a as Dictionary).size() != (b as Dictionary).size():
+		return false
+	for k in a:
+		if not (b as Dictionary).has(k) or JSON.stringify(a[k]) != JSON.stringify((b as Dictionary)[k]):
+			return false
+	return true
+
 func _clears_collision(p: Vector2, circles: Array) -> bool:
 	for c in circles:
 		if p.distance_to(Vector2(float(c["x"]), float(c["y"]))) < float(c["r"]) + 16.0:
@@ -211,6 +221,23 @@ func _run() -> void:
 		var btxt := FileAccess.get_file_as_string("res://data/backdrops/%s.json" % mp)
 		var barr = JSON.parse_string(btxt)
 		ok(barr is Array and (barr as Array).size() > 0, "backdrops: %s.json parses as a non-empty array" % mp)
+	# the DEPTH-pass decal files: each const-backed zone's JSON must reproduce World.DECALS as an
+	# exact ordered prefix (the file SHADOWS the const — it IS the collision source), and stay under
+	# the §10 density cap. (Guarded on existence so the suite also passes pre-dressing.)
+	for mp in L1MAPS:
+		var dpath := "res://data/decals/%s.json" % mp
+		if not FileAccess.file_exists(dpath):
+			continue
+		var darr = JSON.parse_string(FileAccess.get_file_as_string(dpath))
+		ok(darr is Array and (darr as Array).size() <= 300, "decals: %s.json parses, ≤300 records (got %s)" % [mp, str((darr as Array).size() if darr is Array else "-")])
+		var cst: Array = World.DECALS.get(mp, [])
+		var okp: bool = darr is Array and (darr as Array).size() >= cst.size()
+		if okp:
+			for i in range(cst.size()):
+				if not _rec_eq(cst[i], (darr as Array)[i]):
+					okp = false
+					break
+		ok(okp, "decals: %s.json reproduces the DECALS const as an exact ordered prefix" % mp)
 	# camp engageability: 24 firing positions on the 250 ranged ring, ≥50% must hold LOS
 	for mp in L1MAPS:
 		var ocirc := _collision_for(mp)

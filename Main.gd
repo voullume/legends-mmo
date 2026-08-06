@@ -22,6 +22,7 @@ const NetClientScript := preload("res://client/NetClient.gd")
 const AccountScript := preload("res://client/Account.gd")
 const SupaScript := preload("res://client/Supabase.gd")
 const NetTrust := preload("res://shared/NetTrust.gd")
+const WorldData := preload("res://shared/World.gd")
 const SERVER_PORT := 7777
 const PUBLIC_HOST := "159.89.132.86"   # exported/distributed builds connect straight here (double-click → online, DTLS)
 
@@ -62,6 +63,11 @@ func _ready() -> void:
 			var acct := AccountScript.new()
 			acct.entered.connect(func(supa, character): _enter_online(supa, character, ip, port, dtls))
 			add_child(acct)
+	elif "--capture" in args:
+		# dev-only ART-PASS capture: render any map's real client geometry (ground/decals/obstacles/
+		# portals/backdrops/sky) with NO server and NO login — pair with --shot/--shot-delay.
+		# Optional: --at <x,y> (sim-space focus, default zone center), --cam <dist,pitch,yaw>.
+		_enter_capture(args)
 	elif "--practice" in args:
 		print("[boot] PRACTICE sandbox (local, no account)")
 		add_child(ClientScript.new())
@@ -98,6 +104,37 @@ func _make_zone_server(port: int, dtls: bool, bind_ip := "") -> void:
 	if not server.start(port, dtls, bind_ip):     # refused (port, or the P4 trust policy) → exit non-zero
 		push_error("[boot] zone server failed to start — exiting")
 		get_tree().quit(1)
+
+func _enter_capture(args: Array) -> void:
+	var mapn := _arg_value(args, "--capture", "home")
+	var dims: Dictionary = WorldData.MAPS.get(mapn, {})
+	if dims.is_empty():
+		print("[capture] unknown map: %s" % mapn)
+		get_tree().quit(1)
+		return
+	print("[boot] CAPTURE — offline zone render: %s" % mapn)
+	var w := float(dims["w"])
+	var h := float(dims["h"])
+	var client = (preload("res://client/CaptureClient.gd") as GDScript).new()
+	add_child(client)
+	client.set_process(false)                     # we drive rendering; the sandbox sim stays parked
+	for ch in client.get_children():              # world only — hide any sandbox UI/HUD layers
+		if ch is CanvasLayer or ch is Control:
+			(ch as Node).set("visible", false)
+	var at := _arg_value(args, "--at", "").split(",")
+	var fx := float(at[0]) if at.size() == 2 else w / 2.0
+	var fy := float(at[1]) if at.size() == 2 else h / 2.0
+	var cam := _arg_value(args, "--cam", "").split(",")
+	client._state = {"map": mapn, "arenaW": w, "arenaH": h, "fighters": [], "projectiles": [],
+		"zones": [], "events": [], "t": 0.0, "pvp": false, "portals": WorldData.portals_for(mapn)}
+	client._focus = Vector3((fx - w / 2.0) * client.SCALE, 0.0, (fy - h / 2.0) * client.SCALE)
+	client._dist = float(cam[0]) if cam.size() == 3 else 55.0
+	client._pitch = float(cam[1]) if cam.size() == 3 else 0.55
+	client._yaw = float(cam[2]) if cam.size() == 3 else 0.6
+	get_tree().process_frame.connect(func():
+		if is_instance_valid(client):
+			client._render_world(1.0 / 60.0)
+			client._update_cam())
 
 func _enter_online(supa, character, ip: String, port := SERVER_PORT, dtls := false) -> void:
 	var net := NetScript.new()

@@ -1,6 +1,14 @@
 [
-	{"model": "tree_default", "x": 500.0, "y": -350.0, "h": 12.0, "yaw": 0.0, "oy": -0.2},
-	{"model": "tree_thin", "x": 1400.0, "y": -380.0, "h": 10.0, "yaw": 0.9, "oy": -0.2},
-	{"model": "tree_default", "x": 2100.0, "y": 1050.0, "h": 12.0, "yaw": 1.5, "oy": -0.2},
-	{"model": "plaza_light_column", "x": 3300.0, "y": 200.0, "h": 40.0, "yaw": 0.0, "oy": -0.2, "tint": "#617F70"}
+	{"model": "tree_default", "x": 420.0, "y": -340.0, "h": 14.0, "yaw": 0.0, "oy": -0.2},
+	{"model": "tree_thin", "x": 1050.0, "y": -370.0, "h": 14.0, "yaw": 0.9, "oy": -0.2},
+	{"model": "tree_default", "x": 1650.0, "y": -360.0, "h": 16.0, "yaw": 1.5, "oy": -0.2},
+	{"model": "tree_pineRoundC", "x": 2200.0, "y": -400.0, "h": 18.0, "yaw": 0.7, "oy": -0.2},
+	{"model": "tree_default", "x": 2560.0, "y": -380.0, "h": 20.0, "yaw": 2.3, "oy": -0.2},
+	{"model": "tree_thin", "x": 900.0, "y": 1040.0, "h": 14.0, "yaw": 0.5, "oy": -0.2},
+	{"model": "chimney-small", "x": -640.0, "y": 90.0, "h": 32.0, "yaw": 0.3, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "chimney-medium", "x": -720.0, "y": 240.0, "h": 42.0, "yaw": 0.0, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "building-n", "x": -800.0, "y": 470.0, "h": 28.0, "yaw": 0.15, "oy": -0.2, "tint": "#4A3B28"},
+	{"model": "plaza_light_column", "x": 3300.0, "y": 200.0, "h": 56.0, "yaw": 0.0, "oy": -0.2, "tint": "#617F70"},
+	{"model": "detail-tank", "x": 3240.0, "y": 330.0, "h": 16.0, "yaw": 0.4, "oy": -0.2, "tint": "#617F70"},
+	{"model": "stadium", "x": 4300.0, "y": 420.0, "h": 24.0, "yaw": 0.25, "oy": -0.2, "tint": "#3C4A3C"}
 ]

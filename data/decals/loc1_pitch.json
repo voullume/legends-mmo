@@ -1,0 +1,2356 @@
+[
+ {
+  "kind": "ring",
+  "x": 1700.0,
+  "y": 260.0,
+  "r": 60.0
+ },
+ {
+  "kind": "prop",
+  "model": "championship_reward_chest",
+  "x": 1700.0,
+  "y": 260.0,
+  "h": 1.4,
+  "yaw": 3.14
+ },
+ {
+  "kind": "prop",
+  "model": "glitchyard_wall",
+  "x": 1500.0,
+  "y": 700.0,
+  "h": 2.9,
+  "yaw": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "glitchyard_wall",
+  "x": 1950.0,
+  "y": 700.0,
+  "h": 2.9,
+  "yaw": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "glitchyard_wall",
+  "x": 1450.0,
+  "y": 400.0,
+  "h": 2.9,
+  "yaw": 1.5708
+ },
+ {
+  "kind": "prop",
+  "model": "plaza_light_column",
+  "x": 2400.0,
+  "y": 1100.0,
+  "h": 20.0,
+  "yaw": 0.0
+ },
+ {
+  "kind": "ring",
+  "x": 2400.0,
+  "y": 1100.0,
+  "r": 140.0
+ },
+ {
+  "kind": "cone",
+  "x": 2260.0,
+  "y": 1100.0
+ },
+ {
+  "kind": "cone",
+  "x": 2540.0,
+  "y": 1100.0
+ },
+ {
+  "kind": "cone",
+  "x": 2400.0,
+  "y": 960.0
+ },
+ {
+  "kind": "cone",
+  "x": 2400.0,
+  "y": 1240.0
+ },
+ {
+  "kind": "cone",
+  "x": 200.0,
+  "y": 640.0
+ },
+ {
+  "kind": "cone",
+  "x": 200.0,
+  "y": 760.0
+ },
+ {
+  "kind": "cone",
+  "x": 200.0,
+  "y": 2040.0
+ },
+ {
+  "kind": "cone",
+  "x": 200.0,
+  "y": 2160.0
+ },
+ {
+  "kind": "ring",
+  "x": 300.0,
+  "y": 1900.0,
+  "r": 80.0
+ },
+ {
+  "kind": "cone",
+  "x": 380.0,
+  "y": 1840.0
+ },
+ {
+  "kind": "cone",
+  "x": 380.0,
+  "y": 1960.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 420.0,
+  "y": 75.0,
+  "h": 3.4,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 640.0,
+  "y": 60.0,
+  "h": 3.6,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 880.0,
+  "y": 90.0,
+  "h": 3.2,
+  "yaw": 3.7
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 1090.0,
+  "y": 70.0,
+  "h": 3.0,
+  "yaw": 2.3
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 760.0,
+  "y": 110.0,
+  "h": 1.1,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1250.0,
+  "y": 85.0,
+  "h": 3.3,
+  "yaw": 5.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2250.0,
+  "y": 70.0,
+  "h": 3.4,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2480.0,
+  "y": 95.0,
+  "h": 3.5,
+  "yaw": 2.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2700.0,
+  "y": 60.0,
+  "h": 3.2,
+  "yaw": 4.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2930.0,
+  "y": 85.0,
+  "h": 3.7,
+  "yaw": 1.4
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 2580.0,
+  "y": 120.0,
+  "h": 1.0,
+  "yaw": 3.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 3080.0,
+  "y": 110.0,
+  "h": 3.1,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 3070.0,
+  "y": 300.0,
+  "h": 3.6,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 3100.0,
+  "y": 420.0,
+  "h": 3.3,
+  "yaw": 1.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 3060.0,
+  "y": 545.0,
+  "h": 3.8,
+  "yaw": 3.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 3095.0,
+  "y": 665.0,
+  "h": 3.4,
+  "yaw": 4.2
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 3065.0,
+  "y": 790.0,
+  "h": 3.0,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 3100.0,
+  "y": 910.0,
+  "h": 3.6,
+  "yaw": 2.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 3070.0,
+  "y": 1030.0,
+  "h": 3.5,
+  "yaw": 5.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 3080.0,
+  "y": 1290.0,
+  "h": 3.5,
+  "yaw": 5.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 3060.0,
+  "y": 1420.0,
+  "h": 3.7,
+  "yaw": 0.2
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 3100.0,
+  "y": 1545.0,
+  "h": 3.2,
+  "yaw": 1.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 3070.0,
+  "y": 1670.0,
+  "h": 3.6,
+  "yaw": 2.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 3100.0,
+  "y": 1795.0,
+  "h": 3.4,
+  "yaw": 4.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 3065.0,
+  "y": 1920.0,
+  "h": 3.1,
+  "yaw": 5.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 3090.0,
+  "y": 2045.0,
+  "h": 3.5,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 3070.0,
+  "y": 975.0,
+  "h": 1.2,
+  "yaw": 1.1
+ },
+ {
+  "kind": "cone",
+  "x": 3080.0,
+  "y": 1165.0
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 3080.0,
+  "y": 1360.0,
+  "h": 0.9,
+  "yaw": 2.0
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 3095.0,
+  "y": 1740.0,
+  "h": 1.3,
+  "yaw": 3.3
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 480.0,
+  "y": 2310.0,
+  "h": 3.4,
+  "yaw": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 615.0,
+  "y": 2290.0,
+  "h": 3.6,
+  "yaw": 0.83
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 745.0,
+  "y": 2330.0,
+  "h": 3.8,
+  "yaw": 1.66
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 875.0,
+  "y": 2295.0,
+  "h": 3.2,
+  "yaw": 2.4899999999999998
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1005.0,
+  "y": 2320.0,
+  "h": 3.5,
+  "yaw": 3.32
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 1135.0,
+  "y": 2290.0,
+  "h": 3.0,
+  "yaw": 4.1499999999999995
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1265.0,
+  "y": 2325.0,
+  "h": 3.6,
+  "yaw": 4.9799999999999995
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1395.0,
+  "y": 2300.0,
+  "h": 3.3,
+  "yaw": 5.81
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 1525.0,
+  "y": 2335.0,
+  "h": 3.7,
+  "yaw": 0.35999999999999943
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1655.0,
+  "y": 2295.0,
+  "h": 3.4,
+  "yaw": 1.1899999999999995
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1785.0,
+  "y": 2320.0,
+  "h": 3.6,
+  "yaw": 2.0199999999999987
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 1915.0,
+  "y": 2290.0,
+  "h": 3.1,
+  "yaw": 2.8499999999999988
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2045.0,
+  "y": 2330.0,
+  "h": 3.5,
+  "yaw": 3.679999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2175.0,
+  "y": 2300.0,
+  "h": 3.2,
+  "yaw": 4.509999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2305.0,
+  "y": 2335.0,
+  "h": 3.8,
+  "yaw": 5.339999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2435.0,
+  "y": 2295.0,
+  "h": 3.3,
+  "yaw": 6.169999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2565.0,
+  "y": 2325.0,
+  "h": 3.6,
+  "yaw": 0.7199999999999989
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 2695.0,
+  "y": 2290.0,
+  "h": 3.0,
+  "yaw": 1.549999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2825.0,
+  "y": 2330.0,
+  "h": 3.4,
+  "yaw": 2.379999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2955.0,
+  "y": 2300.0,
+  "h": 3.5,
+  "yaw": 3.209999999999999
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 545.0,
+  "y": 2350.0,
+  "h": 1.0,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 1330.0,
+  "y": 2352.0,
+  "h": 1.2,
+  "yaw": 1.7
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 1980.0,
+  "y": 2350.0,
+  "h": 0.9,
+  "yaw": 2.9
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 2760.0,
+  "y": 2350.0,
+  "h": 1.2,
+  "yaw": 4.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 860.0,
+  "y": 1100.0,
+  "h": 3.0,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 925.0,
+  "y": 1065.0,
+  "h": 2.75,
+  "yaw": 2.1
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 990.0,
+  "y": 1032.0,
+  "h": 3.0,
+  "yaw": 3.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1060.0,
+  "y": 1015.0,
+  "h": 2.75,
+  "yaw": 5.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 1130.0,
+  "y": 1005.0,
+  "h": 3.0,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 1200.0,
+  "y": 1000.0,
+  "h": 2.75,
+  "yaw": 1.8
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 1270.0,
+  "y": 1005.0,
+  "h": 3.0,
+  "yaw": 3.2
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1340.0,
+  "y": 1015.0,
+  "h": 2.75,
+  "yaw": 4.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 1560.0,
+  "y": 1030.0,
+  "h": 3.0,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 1630.0,
+  "y": 1050.0,
+  "h": 2.75,
+  "yaw": 2.5
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 1700.0,
+  "y": 1075.0,
+  "h": 3.0,
+  "yaw": 4.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1765.0,
+  "y": 1100.0,
+  "h": 2.75,
+  "yaw": 5.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 872.0,
+  "y": 1090.0,
+  "h": 2.92,
+  "yaw": 1.3,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 978.0,
+  "y": 1043.0,
+  "h": 3.26,
+  "yaw": 2.8,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1143.0,
+  "y": 1012.0,
+  "h": 3.06,
+  "yaw": 4.3,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1258.0,
+  "y": 1013.0,
+  "h": 3.17,
+  "yaw": 5.8,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1572.0,
+  "y": 1040.0,
+  "h": 3.34,
+  "yaw": 0.6,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1712.0,
+  "y": 1082.0,
+  "h": 3.32,
+  "yaw": 2.0,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 900.0,
+  "y": 1145.0,
+  "h": 1.1,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1030.0,
+  "y": 1070.0,
+  "h": 1.0,
+  "yaw": 2.2
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 1180.0,
+  "y": 1045.0,
+  "h": 0.9,
+  "yaw": 3.5
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1310.0,
+  "y": 1058.0,
+  "h": 1.2,
+  "yaw": 4.9
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 1610.0,
+  "y": 1090.0,
+  "h": 1.0,
+  "yaw": 0.3
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1740.0,
+  "y": 1140.0,
+  "h": 1.1,
+  "yaw": 1.7
+ },
+ {
+  "kind": "cone",
+  "x": 1450.0,
+  "y": 1030.0
+ },
+ {
+  "kind": "ring",
+  "x": 1050.0,
+  "y": 1350.0,
+  "r": 150.0
+ },
+ {
+  "kind": "ring",
+  "x": 1900.0,
+  "y": 1450.0,
+  "r": 160.0
+ },
+ {
+  "kind": "ring",
+  "x": 2680.0,
+  "y": 1930.0,
+  "r": 130.0
+ },
+ {
+  "kind": "ring",
+  "x": 620.0,
+  "y": 1290.0,
+  "r": 110.0
+ },
+ {
+  "kind": "ring",
+  "x": 820.0,
+  "y": 560.0,
+  "r": 100.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1130.0,
+  "y": 1240.0,
+  "h": 1.1,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1195.0,
+  "y": 1330.0,
+  "h": 0.9,
+  "yaw": 1.6
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1155.0,
+  "y": 1430.0,
+  "h": 1.2,
+  "yaw": 2.8
+ },
+ {
+  "kind": "prop",
+  "model": "flower_yellowB",
+  "x": 1070.0,
+  "y": 1220.0,
+  "h": 0.8,
+  "yaw": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 960.0,
+  "y": 1245.0,
+  "h": 1.0,
+  "yaw": 4.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 905.0,
+  "y": 1330.0,
+  "h": 1.1,
+  "yaw": 5.2
+ },
+ {
+  "kind": "prop",
+  "model": "flower_redA",
+  "x": 1010.0,
+  "y": 1470.0,
+  "h": 0.8,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1120.0,
+  "y": 1490.0,
+  "h": 1.0,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1760.0,
+  "y": 1390.0,
+  "h": 1.1,
+  "yaw": 0.2
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1810.0,
+  "y": 1500.0,
+  "h": 1.0,
+  "yaw": 1.4
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1900.0,
+  "y": 1560.0,
+  "h": 1.2,
+  "yaw": 2.6
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2010.0,
+  "y": 1530.0,
+  "h": 0.9,
+  "yaw": 3.8
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2050.0,
+  "y": 1420.0,
+  "h": 1.1,
+  "yaw": 5.0
+ },
+ {
+  "kind": "prop",
+  "model": "flower_yellowB",
+  "x": 1985.0,
+  "y": 1350.0,
+  "h": 0.7,
+  "yaw": 0.3
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1880.0,
+  "y": 1330.0,
+  "h": 1.0,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "flower_redA",
+  "x": 1745.0,
+  "y": 1470.0,
+  "h": 0.8,
+  "yaw": 2.1
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2570.0,
+  "y": 1860.0,
+  "h": 1.1,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2620.0,
+  "y": 2010.0,
+  "h": 1.0,
+  "yaw": 1.7
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2755.0,
+  "y": 2020.0,
+  "h": 1.2,
+  "yaw": 2.9
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2800.0,
+  "y": 1890.0,
+  "h": 0.9,
+  "yaw": 4.1
+ },
+ {
+  "kind": "prop",
+  "model": "flower_yellowB",
+  "x": 2700.0,
+  "y": 1810.0,
+  "h": 0.8,
+  "yaw": 1.2
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2645.0,
+  "y": 1770.0,
+  "h": 1.0,
+  "yaw": 5.3
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 540.0,
+  "y": 1215.0,
+  "h": 1.0,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 585.0,
+  "y": 1370.0,
+  "h": 1.1,
+  "yaw": 2.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 690.0,
+  "y": 1345.0,
+  "h": 0.9,
+  "yaw": 3.2
+ },
+ {
+  "kind": "prop",
+  "model": "flower_redA",
+  "x": 700.0,
+  "y": 1245.0,
+  "h": 0.8,
+  "yaw": 4.4
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 655.0,
+  "y": 1180.0,
+  "h": 1.2,
+  "yaw": 5.6
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 760.0,
+  "y": 530.0,
+  "h": 1.0,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 880.0,
+  "y": 610.0,
+  "h": 1.1,
+  "yaw": 2.2
+ },
+ {
+  "kind": "prop",
+  "model": "flower_yellowB",
+  "x": 830.0,
+  "y": 480.0,
+  "h": 0.7,
+  "yaw": 3.1
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 900.0,
+  "y": 500.0,
+  "h": 0.9,
+  "yaw": 3.4
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1420.0,
+  "y": 300.0,
+  "h": 1.0,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1520.0,
+  "y": 180.0,
+  "h": 0.9,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1980.0,
+  "y": 240.0,
+  "h": 1.1,
+  "yaw": 3.1
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2080.0,
+  "y": 420.0,
+  "h": 1.0,
+  "yaw": 4.3
+ },
+ {
+  "kind": "prop",
+  "model": "flower_yellowB",
+  "x": 1600.0,
+  "y": 220.0,
+  "h": 0.7,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1830.0,
+  "y": 640.0,
+  "h": 1.0,
+  "yaw": 5.5
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1440.0,
+  "y": 600.0,
+  "h": 1.1,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "coolant_pump_station",
+  "x": 2255.0,
+  "y": 985.0,
+  "h": 1.8,
+  "yaw": 1.6
+ },
+ {
+  "kind": "prop",
+  "model": "industrial_ventilation_unit",
+  "x": 2560.0,
+  "y": 1215.0,
+  "h": 1.6,
+  "yaw": 3.2
+ },
+ {
+  "kind": "prop",
+  "model": "cable_spool_cart",
+  "x": 2280.0,
+  "y": 1230.0,
+  "h": 1.5,
+  "yaw": 4.7
+ },
+ {
+  "kind": "prop",
+  "model": "maintenance_tool_cart",
+  "x": 2545.0,
+  "y": 955.0,
+  "h": 1.4,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "scrap_sports_equipment_pile",
+  "x": 2330.0,
+  "y": 965.0,
+  "h": 1.8,
+  "yaw": 2.4
+ },
+ {
+  "kind": "prop",
+  "model": "equipment_transport_crate",
+  "x": 2610.0,
+  "y": 1080.0,
+  "h": 1.3,
+  "yaw": 5.1
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2350.0,
+  "y": 1030.0,
+  "h": 1.0,
+  "yaw": 1.2
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2470.0,
+  "y": 1180.0,
+  "h": 1.1,
+  "yaw": 2.5
+ },
+ {
+  "kind": "prop",
+  "model": "flower_yellowB",
+  "x": 2320.0,
+  "y": 1160.0,
+  "h": 0.7,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "boundary_pylon",
+  "x": 1120.0,
+  "y": 1540.0,
+  "h": 1.6,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "boundary_pylon",
+  "x": 1190.0,
+  "y": 1585.0,
+  "h": 1.5,
+  "yaw": 2.3
+ },
+ {
+  "kind": "prop",
+  "model": "player_bench",
+  "x": 1150.0,
+  "y": 1625.0,
+  "h": 1.0,
+  "yaw": 2.6
+ },
+ {
+  "kind": "prop",
+  "model": "equipment_transport_crate",
+  "x": 1085.0,
+  "y": 1590.0,
+  "h": 1.2,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1160.0,
+  "y": 1560.0,
+  "h": 1.1,
+  "yaw": 3.9
+ },
+ {
+  "kind": "prop",
+  "model": "boundary_pylon",
+  "x": 2020.0,
+  "y": 1735.0,
+  "h": 1.6,
+  "yaw": 1.1
+ },
+ {
+  "kind": "prop",
+  "model": "boundary_pylon",
+  "x": 2090.0,
+  "y": 1765.0,
+  "h": 1.5,
+  "yaw": 4.4
+ },
+ {
+  "kind": "prop",
+  "model": "player_bench",
+  "x": 2050.0,
+  "y": 1810.0,
+  "h": 1.0,
+  "yaw": 5.8
+ },
+ {
+  "kind": "prop",
+  "model": "scrap_sports_equipment_pile",
+  "x": 2135.0,
+  "y": 1730.0,
+  "h": 1.5,
+  "yaw": 1.3
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2065.0,
+  "y": 1745.0,
+  "h": 1.0,
+  "yaw": 2.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 380.0,
+  "y": 575.0,
+  "h": 3.2,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 398.0,
+  "y": 825.0,
+  "h": 2.5,
+  "yaw": 2.3
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 390.0,
+  "y": 700.0,
+  "h": 1.2,
+  "yaw": 3.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 352.0,
+  "y": 470.0,
+  "h": 1.75,
+  "yaw": 5.2
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 430.0,
+  "y": 640.0,
+  "h": 1.1,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 425.0,
+  "y": 770.0,
+  "h": 1.0,
+  "yaw": 1.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 560.0,
+  "y": 1990.0,
+  "h": 2.75,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 585.0,
+  "y": 2210.0,
+  "h": 2.5,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 600.0,
+  "y": 2100.0,
+  "h": 3.0,
+  "yaw": 3.3
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 650.0,
+  "y": 2040.0,
+  "h": 1.1,
+  "yaw": 4.6
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 640.0,
+  "y": 2170.0,
+  "h": 1.0,
+  "yaw": 5.9
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 530.0,
+  "y": 2085.0,
+  "h": 0.9,
+  "yaw": 0.2
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 248.0,
+  "y": 1772.0,
+  "h": 2.5,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 150.0,
+  "y": 1782.0,
+  "h": 2.25,
+  "yaw": 2.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 242.0,
+  "y": 2028.0,
+  "h": 2.5,
+  "yaw": 3.5
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 85.0,
+  "y": 1885.0,
+  "h": 2.25,
+  "yaw": 4.9
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 300.0,
+  "y": 1770.0,
+  "h": 1.1,
+  "yaw": 1.1
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 215.0,
+  "y": 2000.0,
+  "h": 1.0,
+  "yaw": 2.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 560.0,
+  "y": 960.0,
+  "h": 3.4,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 480.0,
+  "y": 1040.0,
+  "h": 3.0,
+  "yaw": 2.1
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 620.0,
+  "y": 1030.0,
+  "h": 1.2,
+  "yaw": 3.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1450.0,
+  "y": 2010.0,
+  "h": 3.5,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1540.0,
+  "y": 2090.0,
+  "h": 3.3,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 1370.0,
+  "y": 2110.0,
+  "h": 3.6,
+  "yaw": 3.2
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 1470.0,
+  "y": 2140.0,
+  "h": 1.0,
+  "yaw": 4.5
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1510.0,
+  "y": 2020.0,
+  "h": 1.1,
+  "yaw": 5.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 2080.0,
+  "y": 1280.0,
+  "h": 3.0,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2135.0,
+  "y": 1325.0,
+  "h": 2.75,
+  "yaw": 2.4
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 2185.0,
+  "y": 1375.0,
+  "h": 3.0,
+  "yaw": 3.9
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2215.0,
+  "y": 1440.0,
+  "h": 2.75,
+  "yaw": 5.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 2225.0,
+  "y": 1500.0,
+  "h": 2.75,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2190.0,
+  "y": 1575.0,
+  "h": 3.0,
+  "yaw": 2.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2135.0,
+  "y": 1640.0,
+  "h": 2.75,
+  "yaw": 3.4
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 2092.0,
+  "y": 1292.0,
+  "h": 2.83,
+  "yaw": 1.5,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 2198.0,
+  "y": 1387.0,
+  "h": 3.36,
+  "yaw": 4.4,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 2178.0,
+  "y": 1585.0,
+  "h": 2.73,
+  "yaw": 5.9,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2150.0,
+  "y": 1290.0,
+  "h": 1.1,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 2245.0,
+  "y": 1470.0,
+  "h": 1.0,
+  "yaw": 2.1
+ },
+ {
+  "kind": "cone",
+  "x": 2085.0,
+  "y": 1710.0
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 1450.0,
+  "y": 1500.0,
+  "h": 3.0,
+  "yaw": 1.2
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1510.0,
+  "y": 1548.0,
+  "h": 2.5,
+  "yaw": 2.7
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 1478.0,
+  "y": 1442.0,
+  "h": 3.0,
+  "yaw": 4.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1462.0,
+  "y": 1512.0,
+  "h": 3.05,
+  "yaw": 5.5,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 1415.0,
+  "y": 1555.0,
+  "h": 1.1,
+  "yaw": 0.9
+ },
+ {
+  "kind": "cone",
+  "x": 1450.0,
+  "y": 1350.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 682.0,
+  "y": 1352.0,
+  "h": 2.75,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 735.0,
+  "y": 1430.0,
+  "h": 3.0,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 630.0,
+  "y": 1150.0,
+  "h": 3.0,
+  "yaw": 3.3
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 725.0,
+  "y": 1360.0,
+  "h": 1.1,
+  "yaw": 4.7
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 790.0,
+  "y": 1180.0,
+  "h": 3.4,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 855.0,
+  "y": 1252.0,
+  "h": 3.2,
+  "yaw": 2.2
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 880.0,
+  "y": 1292.0,
+  "h": 3.3,
+  "yaw": 3.6
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 762.0,
+  "y": 1262.0,
+  "h": 1.1,
+  "yaw": 5.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 940.0,
+  "y": 1758.0,
+  "h": 3.4,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 912.0,
+  "y": 1852.0,
+  "h": 2.75,
+  "yaw": 2.3
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 952.0,
+  "y": 1948.0,
+  "h": 3.3,
+  "yaw": 3.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 908.0,
+  "y": 2052.0,
+  "h": 3.0,
+  "yaw": 5.2
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 935.0,
+  "y": 2148.0,
+  "h": 3.5,
+  "yaw": 0.3
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 965.0,
+  "y": 1855.0,
+  "h": 0.9,
+  "yaw": 1.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 921.0,
+  "y": 2040.0,
+  "h": 3.02,
+  "yaw": 4.6,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1240.0,
+  "y": 1660.0,
+  "h": 3.4,
+  "yaw": 1.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1310.0,
+  "y": 1722.0,
+  "h": 3.2,
+  "yaw": 2.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 1368.0,
+  "y": 1794.0,
+  "h": 3.6,
+  "yaw": 4.3
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 1272.0,
+  "y": 1748.0,
+  "h": 1.2,
+  "yaw": 5.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1980.0,
+  "y": 1948.0,
+  "h": 2.75,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 1922.0,
+  "y": 1990.0,
+  "h": 3.0,
+  "yaw": 2.2
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 2180.0,
+  "y": 1802.0,
+  "h": 2.75,
+  "yaw": 3.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2352.0,
+  "y": 1815.0,
+  "h": 3.0,
+  "yaw": 5.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1934.0,
+  "y": 1978.0,
+  "h": 2.77,
+  "yaw": 0.4,
+  "oy": 0.0
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bush",
+  "x": 2205.0,
+  "y": 1840.0,
+  "h": 1.0,
+  "yaw": 3.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 1758.0,
+  "y": 1878.0,
+  "h": 2.75,
+  "yaw": 4.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1700.0,
+  "y": 1990.0,
+  "h": 3.4,
+  "yaw": 1.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1180.0,
+  "y": 190.0,
+  "h": 3.3,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1255.0,
+  "y": 310.0,
+  "h": 3.4,
+  "yaw": 2.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 1300.0,
+  "y": 520.0,
+  "h": 3.5,
+  "yaw": 3.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1270.0,
+  "y": 700.0,
+  "h": 3.3,
+  "yaw": 4.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1292.0,
+  "y": 928.0,
+  "h": 3.6,
+  "yaw": 0.2
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 1225.0,
+  "y": 420.0,
+  "h": 1.2,
+  "yaw": 1.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 900.0,
+  "y": 620.0,
+  "h": 3.4,
+  "yaw": 1.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1010.0,
+  "y": 810.0,
+  "h": 3.3,
+  "yaw": 2.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 250.0,
+  "y": 90.0,
+  "h": 3.4,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 235.0,
+  "y": 310.0,
+  "h": 3.0,
+  "yaw": 1.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2200.0,
+  "y": 250.0,
+  "h": 3.4,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2250.0,
+  "y": 410.0,
+  "h": 3.4,
+  "yaw": 2.3
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2230.0,
+  "y": 615.0,
+  "h": 3.2,
+  "yaw": 3.7
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2285.0,
+  "y": 545.0,
+  "h": 3.3,
+  "yaw": 5.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2560.0,
+  "y": 180.0,
+  "h": 3.4,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2600.0,
+  "y": 430.0,
+  "h": 3.4,
+  "yaw": 2.0
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 2445.0,
+  "y": 710.0,
+  "h": 3.1,
+  "yaw": 3.4
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2560.0,
+  "y": 800.0,
+  "h": 3.5,
+  "yaw": 4.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2672.0,
+  "y": 880.0,
+  "h": 3.4,
+  "yaw": 0.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2960.0,
+  "y": 990.0,
+  "h": 3.3,
+  "yaw": 1.5
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 2600.0,
+  "y": 260.0,
+  "h": 1.2,
+  "yaw": 5.7
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 2760.0,
+  "y": 1262.0,
+  "h": 3.3,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2842.0,
+  "y": 1332.0,
+  "h": 3.5,
+  "yaw": 2.2
+ },
+ {
+  "kind": "prop",
+  "model": "plant_bushLarge",
+  "x": 2790.0,
+  "y": 1372.0,
+  "h": 1.2,
+  "yaw": 3.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2985.0,
+  "y": 1655.0,
+  "h": 3.0,
+  "yaw": 1.7
+ },
+ {
+  "kind": "prop",
+  "model": "grass_large",
+  "x": 2950.0,
+  "y": 1700.0,
+  "h": 1.1,
+  "yaw": 3.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1650.0,
+  "y": 2200.0,
+  "h": 3.3,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 2450.0,
+  "y": 2180.0,
+  "h": 3.5,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 2950.0,
+  "y": 2140.0,
+  "h": 3.0,
+  "yaw": 3.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 455.0,
+  "y": 1520.0,
+  "h": 2.75,
+  "yaw": 2.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1800.0,
+  "y": 85.0,
+  "h": 3.4,
+  "yaw": 0.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 1810.0,
+  "y": 1160.0,
+  "h": 3.3,
+  "yaw": 2.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 1870.0,
+  "y": 1600.0,
+  "h": 3.0,
+  "yaw": 4.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 2350.0,
+  "y": 180.0,
+  "h": 3.5,
+  "yaw": 1.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2000.0,
+  "y": 1060.0,
+  "h": 3.0,
+  "yaw": 0.4
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1920.0,
+  "y": 1085.0,
+  "h": 2.75,
+  "yaw": 1.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 2190.0,
+  "y": 1080.0,
+  "h": 2.75,
+  "yaw": 3.2
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2245.0,
+  "y": 1215.0,
+  "h": 2.75,
+  "yaw": 4.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2540.0,
+  "y": 1140.0,
+  "h": 3.0,
+  "yaw": 0.2
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2620.0,
+  "y": 1400.0,
+  "h": 3.0,
+  "yaw": 1.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 700.0,
+  "y": 1620.0,
+  "h": 2.75,
+  "yaw": 3.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 600.0,
+  "y": 1800.0,
+  "h": 2.75,
+  "yaw": 4.4
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1060.0,
+  "y": 1420.0,
+  "h": 2.75,
+  "yaw": 5.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1700.0,
+  "y": 1580.0,
+  "h": 2.75,
+  "yaw": 0.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 900.0,
+  "y": 540.0,
+  "h": 2.75,
+  "yaw": 2.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 1000.0,
+  "y": 640.0,
+  "h": 2.75,
+  "yaw": 3.5
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 282.0,
+  "y": 958.0,
+  "h": 2.75,
+  "yaw": 5.0
+ },
+ {
+  "kind": "prop",
+  "model": "stone_largeB",
+  "x": 300.0,
+  "y": 1558.0,
+  "h": 2.75,
+  "yaw": 0.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 352.0,
+  "y": 1618.0,
+  "h": 2.5,
+  "yaw": 1.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 180.0,
+  "y": 1560.0,
+  "h": 2.5,
+  "yaw": 3.1
+ },
+ {
+  "kind": "prop",
+  "model": "tree_default",
+  "x": 140.0,
+  "y": 190.0,
+  "h": 3.3,
+  "yaw": 4.5
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 155.0,
+  "y": 2330.0,
+  "h": 3.0,
+  "yaw": 5.9
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 3150.0,
+  "y": 760.0,
+  "h": 3.0,
+  "yaw": 0.6
+ },
+ {
+  "kind": "prop",
+  "model": "tree_thin",
+  "x": 3145.0,
+  "y": 1980.0,
+  "h": 3.1,
+  "yaw": 2.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2600.0,
+  "y": 1660.0,
+  "h": 2.75,
+  "yaw": 0.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2860.0,
+  "y": 2000.0,
+  "h": 2.75,
+  "yaw": 2.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2150.0,
+  "y": 1700.0,
+  "h": 2.75,
+  "yaw": 3.7
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 960.0,
+  "y": 1140.0,
+  "h": 2.75,
+  "yaw": 5.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 900.0,
+  "y": 1200.0,
+  "h": 2.75,
+  "yaw": 0.5
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 700.0,
+  "y": 1320.0,
+  "h": 2.5,
+  "yaw": 1.9
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 1150.0,
+  "y": 1450.0,
+  "h": 2.75,
+  "yaw": 3.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2500.0,
+  "y": 1340.0,
+  "h": 2.75,
+  "yaw": 4.8
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2900.0,
+  "y": 1380.0,
+  "h": 2.75,
+  "yaw": 0.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2300.0,
+  "y": 1760.0,
+  "h": 2.75,
+  "yaw": 1.1
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 2660.0,
+  "y": 1160.0,
+  "h": 3.0,
+  "yaw": 2.6
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeA",
+  "x": 1560.0,
+  "y": 1100.0,
+  "h": 2.75,
+  "yaw": 4.0
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 1750.0,
+  "y": 1930.0,
+  "h": 2.5,
+  "yaw": 5.4
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeC",
+  "x": 620.0,
+  "y": 1100.0,
+  "h": 2.75,
+  "yaw": 0.3
+ },
+ {
+  "kind": "prop",
+  "model": "rock_largeE",
+  "x": 2400.0,
+  "y": 940.0,
+  "h": 2.75,
+  "yaw": 2.9
+ }
+]
