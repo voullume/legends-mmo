@@ -223,10 +223,12 @@ func _run() -> void:
 		ok(barr is Array and (barr as Array).size() > 0, "backdrops: %s.json parses as a non-empty array" % mp)
 	# the DEPTH-pass decal files: each const-backed zone's JSON must reproduce World.DECALS as an
 	# exact ordered prefix (the file SHADOWS the const — it IS the collision source), and stay under
-	# the §10 density cap. (Guarded on existence so the suite also passes pre-dressing.)
+	# the §10 density cap. (The depth pass SHIPPED these files: a missing one is a FAILURE now — the
+	# old silent pre-dressing skip let the collision source vanish with the suite still green.)
 	for mp in L1MAPS:
 		var dpath := "res://data/decals/%s.json" % mp
 		if not FileAccess.file_exists(dpath):
+			ok(false, "decals: %s.json MISSING (it IS the collision source)" % mp)
 			continue
 		var darr = JSON.parse_string(FileAccess.get_file_as_string(dpath))
 		ok(darr is Array and (darr as Array).size() <= 300, "decals: %s.json parses, ≤300 records (got %s)" % [mp, str((darr as Array).size() if darr is Array else "-")])
