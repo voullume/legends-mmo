@@ -20,11 +20,20 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
-### Official Maps — Phase 4.1 look/feel checkpoint (2026-08-05, PR #10)
-The Base is built (tier-1 services + quest chain + two residents) and the loc1 zones now wear their
-own palette/ground. **Checkpoint: `./play.sh dev` → F1 → L1B** — does the Base read as somewhere to
-come back to, and does the mossy-olive look sell the gradient? Answer unblocks 4.2 (your
-elevation/density/checkpoint-disguise feedback becomes the next batch).
+### Official Maps — the Locale 1 DEPTH pass checkpoint (2026-08-06, PR #10)
+The 4.1 look/feel checkpoint got the owner's verdict — *"just another blank rectangle map"* — so the
+follow-up dressed **all five loc1 zones at once** instead of checkpointing skeletons: ~1,000 decal
+records total (fields 299, pitch 300, lane 142, base 179, culvert 76) — rock ridgelines + tallC
+spires that break sightlines, tree walls, fence corridors, POI clusters, and the Base rebuilt as a
+**fenced compound entered through one gate** (topology-proven single entrance). Self-verified before
+this checkpoint: per-zone adversarial critics, a walkable-connectivity proof against the engine's
+own collision dump (every POI reachable in every zone), 36-suite battery + `bal_identity`
+byte-identical, screenshots reviewed zone by zone (`docs/locale1-shots/`, before/ vs after).
+**Checkpoint: look at the shots (or `./play.sh dev` → F1 → the loc1 zones) — do these read as
+places now?** Three accepted look-calls to confirm or overturn whenever you look: (1) 15 decorative
+rings kept as painted field markings; (2) loc1 props sit at ~40–50% of home/basecamp prop scale —
+declare it the locale's own compressed language, or lift the Base service props toward hub parity;
+(3) the pitch ships at exactly 300/300 records — the density cap has zero headroom there.
 
 ### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
 The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at
