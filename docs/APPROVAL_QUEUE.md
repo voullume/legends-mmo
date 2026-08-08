@@ -29,11 +29,15 @@ spires that break sightlines, tree walls, fence corridors, POI clusters, and the
 this checkpoint: per-zone adversarial critics, a walkable-connectivity proof against the engine's
 own collision dump (every POI reachable in every zone), 36-suite battery + `bal_identity`
 byte-identical, screenshots reviewed zone by zone (`docs/locale1-shots/`, before/ vs after).
-**Checkpoint: look at the shots (or `./play.sh dev` → F1 → the loc1 zones) — do these read as
-places now?** Three accepted look-calls to confirm or overturn whenever you look: (1) 15 decorative
-rings kept as painted field markings; (2) loc1 props sit at ~40–50% of home/basecamp prop scale —
-declare it the locale's own compressed language, or lift the Base service props toward hub parity;
-(3) the pitch ships at exactly 300/300 records — the density cap has zero headroom there.
+**Round 2 (2026-08-08):** the owner's round-1 verdict — *"all the same small sizing … still looks
+like a flat map"* — drove the **scale-hierarchy pass** (`a0613c5`): every zone re-tiered to the
+established scale language (landmark trees h 6.5–8.5 vs the old 3.8 max, canopy at away_1's median,
+spires doubled into monoliths, 176 rocks half-sunk into continuous berms via negative `oy`,
+buildings at parity, chest-high fences). Grown collision re-proven byte-exact vs the engine dump;
+all POIs reachable; all 41 camps ≥50% LOS; base gate 52.7 su. `stab_locale1` 466/466.
+**Checkpoint: look at the round-2 shots — varied and vertical now?** Two look-calls remain:
+(1) 15 decorative rings kept as painted field markings; (2) the pitch ships at exactly 300/300
+records — the density cap has zero headroom there.
 
 ### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
 The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at

@@ -1,7 +1,29 @@
 # Locale 1 — the Depth Pass (report)
 
-**Date:** 2026-08-06 · **Branch/PR:** `locale1-p4` / PR #10 · **Commits:** `95566cd`, `492a29a`, `d6f6131`
+**Date:** 2026-08-06, round 2 2026-08-08 · **Branch/PR:** `locale1-p4` / PR #10 ·
+**Commits:** `95566cd`, `492a29a`, `d6f6131` + round 2 `a0613c5`
 **Status:** built, verified, dev-locked — waiting on the owner's look checkpoint (see APPROVAL_QUEUE).
+
+## Round 2 — the scale-hierarchy pass (2026-08-08)
+
+Owner's round-1 verdict: *"alot of the objects on the map are all the same small sizing and it
+still feels and looks like a flat map."* Measured and confirmed: loc1 trees sat at median h 3.3 in
+a 0.9-wide band (away_1: 4.0–8.0, median 5.5); buildings 2–3.6 vs home's 11. The fix, applied by
+five per-zone composers (positions preserved; capture-and-look rounds each) + one geometry critic:
+
+- **Tiers with jitter:** landmarks h 6.5–8.5 (fields 13 / pitch 11 / base 3 / lane 2; the culvert's
+  landmarks are its six ≥5.8 spires), canopy 4.2–6.0, deliberate scrub below; deterministic
+  position-hash jitter ±8–12% so no two neighbors match.
+- **Verticals:** rock_tallC spires 2.6–3.4 → 4.3–6.5; buildings to parity (sheds 6.3–7.4,
+  bunkhouse 5.6, stall/forge ~4.5); fences to away_1's 2.2–2.6.
+- **Berms:** 176 rocks half-sunk via negative `oy` (render-only; server collision ignores `oy`) so
+  ridgelines read as continuous earthen banks.
+- **Re-proof:** collision replica proven byte-exact vs the engine dump (worst delta 3.6e-12);
+  const prefixes frozen; keep-clears hold; all 41 camps ≥50% firing-ring LOS; per-zone flood-fill —
+  five newly-sealed pockets reopened by minimum nudges; the base gate re-proven the only opening
+  (plug test), 52.7 su walkable. `stab_locale1` 466/466; no `shared/` changes, so the round-1
+  `bal_identity` proof stands. The prop-scale look-call from round 1 is hereby resolved by owner
+  feedback; rings-as-paint and the pitch 300/300 cap remain open below.
 
 ## Why this exists
 
