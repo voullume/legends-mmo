@@ -42,7 +42,7 @@
   "y": 484.0
  },
  {
-  "h": 1.8,
+  "h": 2.51,
   "kind": "prop",
   "model": "fence_corner",
   "x": 58.0,
@@ -50,7 +50,7 @@
   "yaw": 1.57
  },
  {
-  "h": 1.8,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_corner",
   "x": 850.0,
@@ -58,7 +58,7 @@
   "yaw": 0.0
  },
  {
-  "h": 1.8,
+  "h": 2.46,
   "kind": "prop",
   "model": "fence_corner",
   "x": 850.0,
@@ -66,7 +66,7 @@
   "yaw": 4.71
  },
  {
-  "h": 1.8,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_corner",
   "x": 58.0,
@@ -74,7 +74,7 @@
   "yaw": 3.14
  },
  {
-  "h": 1.82,
+  "h": 2.27,
   "kind": "prop",
   "model": "fence_planks",
   "x": 91.6,
@@ -82,7 +82,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.84,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 123.4,
@@ -90,7 +90,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.85,
+  "h": 2.51,
   "kind": "prop",
   "model": "fence_planks",
   "x": 154.8,
@@ -98,7 +98,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.86,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 186.2,
@@ -106,7 +106,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.85,
+  "h": 2.59,
   "kind": "prop",
   "model": "fence_planks",
   "x": 217.6,
@@ -114,7 +114,7 @@
   "yaw": 0.0
  },
  {
-  "h": 1.79,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 249.4,
@@ -122,7 +122,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.86,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 280.6,
@@ -130,7 +130,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.79,
+  "h": 2.26,
   "kind": "prop",
   "model": "fence_planks",
   "x": 312.4,
@@ -138,7 +138,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.85,
+  "h": 2.46,
   "kind": "prop",
   "model": "fence_planks",
   "x": 344.0,
@@ -146,7 +146,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.84,
+  "h": 2.23,
   "kind": "prop",
   "model": "fence_planks",
   "x": 375.3,
@@ -154,7 +154,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.86,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 406.6,
@@ -162,7 +162,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.82,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 438.3,
@@ -170,7 +170,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.78,
+  "h": 2.31,
   "kind": "prop",
   "model": "fence_planks",
   "x": 469.5,
@@ -178,7 +178,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.82,
+  "h": 2.36,
   "kind": "prop",
   "model": "fence_planks",
   "x": 501.4,
@@ -186,7 +186,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.85,
+  "h": 2.38,
   "kind": "prop",
   "model": "fence_planks",
   "x": 532.6,
@@ -194,7 +194,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.78,
+  "h": 2.43,
   "kind": "prop",
   "model": "fence_planks",
   "x": 564.5,
@@ -202,7 +202,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.79,
+  "h": 2.59,
   "kind": "prop",
   "model": "fence_planks",
   "x": 595.8,
@@ -210,7 +210,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.85,
+  "h": 2.28,
   "kind": "prop",
   "model": "fence_planks",
   "x": 627.4,
@@ -218,7 +218,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.86,
+  "h": 2.56,
   "kind": "prop",
   "model": "fence_planks",
   "x": 659.0,
@@ -226,7 +226,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.85,
+  "h": 2.47,
   "kind": "prop",
   "model": "fence_planks",
   "x": 690.4,
@@ -234,7 +234,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.88,
+  "h": 2.56,
   "kind": "prop",
   "model": "fence_planks",
   "x": 721.6,
@@ -242,7 +242,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.81,
+  "h": 2.45,
   "kind": "prop",
   "model": "fence_planks",
   "x": 753.5,
@@ -250,7 +250,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.82,
+  "h": 2.34,
   "kind": "prop",
   "model": "fence_planks",
   "x": 785.0,
@@ -258,7 +258,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.8,
+  "h": 2.58,
   "kind": "prop",
   "model": "fence_planks",
   "x": 816.0,
@@ -266,7 +266,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.85,
+  "h": 2.3,
   "kind": "prop",
   "model": "fence_planks",
   "x": 91.5,
@@ -274,7 +274,7 @@
   "yaw": 0.0
  },
  {
-  "h": 1.8,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 123.1,
@@ -282,7 +282,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.79,
+  "h": 2.27,
   "kind": "prop",
   "model": "fence_planks",
   "x": 155.0,
@@ -290,7 +290,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.84,
+  "h": 2.56,
   "kind": "prop",
   "model": "fence_planks",
   "x": 186.2,
@@ -298,7 +298,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.86,
+  "h": 2.54,
   "kind": "prop",
   "model": "fence_planks",
   "x": 217.5,
@@ -306,7 +306,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.84,
+  "h": 2.47,
   "kind": "prop",
   "model": "fence_planks",
   "x": 249.3,
@@ -314,7 +314,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.85,
+  "h": 2.39,
   "kind": "prop",
   "model": "fence_planks",
   "x": 280.9,
@@ -322,7 +322,7 @@
   "yaw": 0.0
  },
  {
-  "h": 1.84,
+  "h": 2.47,
   "kind": "prop",
   "model": "fence_planks",
   "x": 312.2,
@@ -330,7 +330,7 @@
   "yaw": 0.02
  },
  {
-  "h": 1.87,
+  "h": 2.51,
   "kind": "prop",
   "model": "fence_planks",
   "x": 343.6,
@@ -338,7 +338,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.84,
+  "h": 2.58,
   "kind": "prop",
   "model": "fence_planks",
   "x": 375.4,
@@ -346,7 +346,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.84,
+  "h": 2.4,
   "kind": "prop",
   "model": "fence_planks",
   "x": 406.6,
@@ -354,7 +354,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.8,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 438.3,
@@ -362,7 +362,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.8,
+  "h": 2.46,
   "kind": "prop",
   "model": "fence_planks",
   "x": 469.7,
@@ -370,7 +370,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.87,
+  "h": 2.42,
   "kind": "prop",
   "model": "fence_planks",
   "x": 501.4,
@@ -378,7 +378,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.85,
+  "h": 2.37,
   "kind": "prop",
   "model": "fence_planks",
   "x": 532.9,
@@ -386,7 +386,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.8,
+  "h": 2.56,
   "kind": "prop",
   "model": "fence_planks",
   "x": 564.4,
@@ -394,7 +394,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.8,
+  "h": 2.49,
   "kind": "prop",
   "model": "fence_planks",
   "x": 596.0,
@@ -402,7 +402,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.83,
+  "h": 2.57,
   "kind": "prop",
   "model": "fence_planks",
   "x": 627.0,
@@ -410,7 +410,7 @@
   "yaw": 0.0
  },
  {
-  "h": 1.78,
+  "h": 2.43,
   "kind": "prop",
   "model": "fence_planks",
   "x": 658.9,
@@ -418,7 +418,7 @@
   "yaw": 6.26
  },
  {
-  "h": 1.86,
+  "h": 2.39,
   "kind": "prop",
   "model": "fence_planks",
   "x": 690.4,
@@ -426,7 +426,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.83,
+  "h": 2.59,
   "kind": "prop",
   "model": "fence_planks",
   "x": 721.8,
@@ -434,7 +434,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.84,
+  "h": 2.31,
   "kind": "prop",
   "model": "fence_planks",
   "x": 753.4,
@@ -442,7 +442,7 @@
   "yaw": 6.27
  },
  {
-  "h": 1.83,
+  "h": 2.37,
   "kind": "prop",
   "model": "fence_planks",
   "x": 784.9,
@@ -450,7 +450,7 @@
   "yaw": 0.01
  },
  {
-  "h": 1.82,
+  "h": 2.45,
   "kind": "prop",
   "model": "fence_planks",
   "x": 816.4,
@@ -458,7 +458,7 @@
   "yaw": 6.28
  },
  {
-  "h": 1.79,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.4,
@@ -466,7 +466,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.86,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.2,
@@ -474,7 +474,7 @@
   "yaw": 1.55
  },
  {
-  "h": 1.82,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.3,
@@ -482,7 +482,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.8,
+  "h": 2.51,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.3,
@@ -490,7 +490,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.87,
+  "h": 2.35,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.3,
@@ -498,7 +498,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.87,
+  "h": 2.43,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.3,
@@ -506,7 +506,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.87,
+  "h": 2.24,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.4,
@@ -514,7 +514,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.86,
+  "h": 2.55,
   "kind": "prop",
   "model": "fence_planks",
   "x": 39.9,
@@ -522,7 +522,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.87,
+  "h": 2.27,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.0,
@@ -530,7 +530,7 @@
   "yaw": 1.59
  },
  {
-  "h": 1.83,
+  "h": 2.29,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.1,
@@ -538,7 +538,7 @@
   "yaw": 1.57
  },
  {
-  "h": 1.81,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.3,
@@ -546,7 +546,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.86,
+  "h": 2.53,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.0,
@@ -554,7 +554,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.85,
+  "h": 2.49,
   "kind": "prop",
   "model": "fence_planks",
   "x": 39.8,
@@ -562,7 +562,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.81,
+  "h": 2.22,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.3,
@@ -570,7 +570,7 @@
   "yaw": 1.59
  },
  {
-  "h": 1.81,
+  "h": 2.49,
   "kind": "prop",
   "model": "fence_planks",
   "x": 40.0,
@@ -578,7 +578,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.78,
+  "h": 2.23,
   "kind": "prop",
   "model": "fence_planks",
   "x": 39.8,
@@ -586,7 +586,7 @@
   "yaw": 1.59
  },
  {
-  "h": 1.82,
+  "h": 2.32,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.0,
@@ -594,7 +594,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.78,
+  "h": 2.45,
   "kind": "prop",
   "model": "fence_planks",
   "x": 867.8,
@@ -602,7 +602,7 @@
   "yaw": 1.57
  },
  {
-  "h": 1.8,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 867.7,
@@ -610,7 +610,7 @@
   "yaw": 1.57
  },
  {
-  "h": 1.88,
+  "h": 2.47,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.1,
@@ -618,7 +618,7 @@
   "yaw": 1.59
  },
  {
-  "h": 1.85,
+  "h": 2.4,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.0,
@@ -626,7 +626,7 @@
   "yaw": 1.55
  },
  {
-  "h": 1.87,
+  "h": 2.52,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.2,
@@ -634,7 +634,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.86,
+  "h": 2.59,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.4,
@@ -642,7 +642,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.78,
+  "h": 2.6,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.1,
@@ -650,7 +650,7 @@
   "yaw": 1.57
  },
  {
-  "h": 1.82,
+  "h": 2.49,
   "kind": "prop",
   "model": "fence_planks",
   "x": 867.6,
@@ -658,7 +658,7 @@
   "yaw": 1.58
  },
  {
-  "h": 1.84,
+  "h": 2.44,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.3,
@@ -666,23 +666,23 @@
   "yaw": 1.59
  },
  {
-  "h": 1.87,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 867.9,
-  "y": 384.3,
+  "y": 381.0,
   "yaw": 1.57
  },
  {
-  "h": 1.82,
+  "h": 2.2,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.3,
-  "y": 502.6,
+  "y": 506.0,
   "yaw": 1.59
  },
  {
-  "h": 1.83,
+  "h": 2.21,
   "kind": "prop",
   "model": "fence_planks",
   "x": 868.1,
@@ -690,7 +690,7 @@
   "yaw": 1.56
  },
  {
-  "h": 1.8,
+  "h": 2.22,
   "kind": "prop",
   "model": "fence_planks",
   "x": 867.8,
@@ -698,7 +698,7 @@
   "yaw": 1.56
  },
  {
-  "h": 2.2,
+  "h": 3.0,
   "kind": "prop",
   "model": "plaza_light_column",
   "x": 868.0,
@@ -706,7 +706,7 @@
   "yaw": 0.4
  },
  {
-  "h": 2.2,
+  "h": 2.79,
   "kind": "prop",
   "model": "plaza_light_column",
   "x": 868.0,
@@ -714,27 +714,27 @@
   "yaw": 5.9
  },
  {
-  "h": 2.0,
+  "h": 4.4,
   "kind": "prop",
   "model": "gear_forge",
   "x": 298.1,
-  "y": 140.7,
+  "y": 100.0,
   "yaw": 3.14
  },
  {
-  "h": 2.1,
+  "h": 4.5,
   "kind": "prop",
   "model": "covered_market_stall",
   "x": 700.0,
-  "y": 145.0,
+  "y": 112.0,
   "yaw": 3.14
  },
  {
-  "h": 2.0,
+  "h": 2.9,
   "kind": "prop",
   "model": "quest_board",
   "x": 499.6,
-  "y": 94.1,
+  "y": 86.0,
   "yaw": 3.14
  },
  {
@@ -850,11 +850,11 @@
   "yaw": 1.3
  },
  {
-  "h": 3.4,
+  "h": 5.6,
   "kind": "prop",
   "model": "building-k",
   "x": 200.0,
-  "y": 522.0,
+  "y": 508.0,
   "yaw": 0.35
  },
  {
@@ -866,7 +866,7 @@
   "yaw": 1.1
  },
  {
-  "h": 1.9,
+  "h": 2.55,
   "kind": "prop",
   "model": "plaza_light_column",
   "x": 270.0,
@@ -874,11 +874,11 @@
   "yaw": 2.2
  },
  {
-  "h": 1.3,
+  "h": 2.0,
   "kind": "prop",
   "model": "stone_largeB",
-  "x": 126.0,
-  "y": 498.0,
+  "x": 116.0,
+  "y": 486.0,
   "yaw": 1.9
  },
  {
@@ -930,7 +930,7 @@
   "yaw": 2.2
  },
  {
-  "h": 1.2,
+  "h": 2.41,
   "kind": "prop",
   "model": "stone_largeB",
   "x": 385.7,
@@ -1018,7 +1018,7 @@
   "yaw": 0.5
  },
  {
-  "h": 2.1,
+  "h": 2.86,
   "kind": "prop",
   "model": "plaza_light_column",
   "x": 1080.0,
@@ -1058,7 +1058,7 @@
   "yaw": 2.2
  },
  {
-  "h": 3.1,
+  "h": 7.43,
   "kind": "prop",
   "model": "tree_default",
   "x": 1102.0,
@@ -1066,7 +1066,7 @@
   "yaw": 2.7
  },
  {
-  "h": 3.3,
+  "h": 5.22,
   "kind": "prop",
   "model": "tree_oak",
   "x": 1108.0,
@@ -1074,7 +1074,7 @@
   "yaw": 5.5
  },
  {
-  "h": 3.2,
+  "h": 5.26,
   "kind": "prop",
   "model": "tree_oak",
   "x": 108.0,
@@ -1082,7 +1082,7 @@
   "yaw": 0.9
  },
  {
-  "h": 3.0,
+  "h": 3.01,
   "kind": "prop",
   "model": "tree_thin",
   "x": 252.0,
@@ -1090,7 +1090,7 @@
   "yaw": 3.6
  },
  {
-  "h": 2.5,
+  "h": 4.93,
   "kind": "prop",
   "model": "tree_default",
   "x": 420.0,
@@ -1098,7 +1098,7 @@
   "yaw": 1.4
  },
  {
-  "h": 2.7,
+  "h": 5.77,
   "kind": "prop",
   "model": "tree_oak",
   "x": 588.0,
@@ -1106,7 +1106,7 @@
   "yaw": 2.3
  },
  {
-  "h": 2.4,
+  "h": 2.82,
   "kind": "prop",
   "model": "tree_thin",
   "x": 758.0,
@@ -1114,7 +1114,7 @@
   "yaw": 4.4
  },
  {
-  "h": 3.2,
+  "h": 5.05,
   "kind": "prop",
   "model": "tree_default",
   "x": 840.0,
@@ -1122,7 +1122,7 @@
   "yaw": 1.4
  },
  {
-  "h": 2.4,
+  "h": 3.3,
   "kind": "prop",
   "model": "tree_default",
   "x": 830.0,
@@ -1130,7 +1130,7 @@
   "yaw": 0.8
  },
  {
-  "h": 2.7,
+  "h": 4.9,
   "kind": "prop",
   "model": "tree_oak",
   "x": 828.0,
@@ -1138,7 +1138,7 @@
   "yaw": 1.8
  },
  {
-  "h": 3.1,
+  "h": 3.8,
   "kind": "prop",
   "model": "tree_pineRoundC",
   "x": 846.7,
@@ -1146,7 +1146,7 @@
   "yaw": 2.3
  },
  {
-  "h": 3.4,
+  "h": 6.74,
   "kind": "prop",
   "model": "tree_pineRoundC",
   "x": 102.0,
@@ -1154,7 +1154,7 @@
   "yaw": 4.2
  },
  {
-  "h": 2.4,
+  "h": 3.42,
   "kind": "prop",
   "model": "tree_default",
   "x": 300.0,
@@ -1162,7 +1162,7 @@
   "yaw": 3.9
  },
  {
-  "h": 2.3,
+  "h": 2.81,
   "kind": "prop",
   "model": "tree_thin",
   "x": 460.0,
@@ -1170,7 +1170,7 @@
   "yaw": 1.7
  },
  {
-  "h": 2.6,
+  "h": 5.49,
   "kind": "prop",
   "model": "tree_oak",
   "x": 576.0,
@@ -1178,7 +1178,7 @@
   "yaw": 2.6
  },
  {
-  "h": 2.4,
+  "h": 3.19,
   "kind": "prop",
   "model": "tree_default",
   "x": 688.0,
@@ -1186,7 +1186,7 @@
   "yaw": 0.3
  },
  {
-  "h": 2.9,
+  "h": 4.94,
   "kind": "prop",
   "model": "tree_thin",
   "x": 110.0,
@@ -1194,7 +1194,7 @@
   "yaw": 2.4
  },
  {
-  "h": 2.4,
+  "h": 3.44,
   "kind": "prop",
   "model": "tree_default",
   "x": 82.0,
@@ -1202,7 +1202,7 @@
   "yaw": 5.0
  },
  {
-  "h": 1.1,
+  "h": 2.38,
   "kind": "prop",
   "model": "rock_largeA",
   "x": 662.0,
@@ -1210,7 +1210,7 @@
   "yaw": 2.6
  },
  {
-  "h": 0.9,
+  "h": 2.5,
   "kind": "prop",
   "model": "rock_largeC",
   "x": 562.0,
@@ -1408,5 +1408,90 @@
   "x": 352.0,
   "y": 300.0,
   "yaw": 1.9
+ },
+ {
+  "h": 8.42,
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 622.0,
+  "y": 616.0,
+  "yaw": 2.1
+ },
+ {
+  "h": 5.39,
+  "kind": "prop",
+  "model": "tree_pineRoundC",
+  "x": 1150.0,
+  "y": 240.0,
+  "yaw": 0.8
+ },
+ {
+  "h": 3.35,
+  "kind": "prop",
+  "model": "tree_oak",
+  "x": 1015.0,
+  "y": 570.0,
+  "yaw": 4.7
+ },
+ {
+  "h": 5.42,
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 1145.0,
+  "y": 300.0,
+  "yaw": 1.2
+ },
+ {
+  "h": 4.84,
+  "kind": "prop",
+  "model": "rock_tallC",
+  "x": 895.0,
+  "y": 585.0,
+  "yaw": 3.9
+ },
+ {
+  "h": 3.6,
+  "kind": "prop",
+  "model": "rock_largeA",
+  "oy": -0.8,
+  "x": 935.0,
+  "y": 150.0,
+  "yaw": 0.4
+ },
+ {
+  "h": 4.2,
+  "kind": "prop",
+  "model": "rock_largeE",
+  "oy": -1.0,
+  "x": 978.0,
+  "y": 139.0,
+  "yaw": 2.8
+ },
+ {
+  "h": 4.0,
+  "kind": "prop",
+  "model": "rock_largeC",
+  "oy": -0.9,
+  "x": 1022.0,
+  "y": 133.0,
+  "yaw": 1.6
+ },
+ {
+  "h": 4.4,
+  "kind": "prop",
+  "model": "rock_largeE",
+  "oy": -1.0,
+  "x": 1066.0,
+  "y": 141.0,
+  "yaw": 5.2
+ },
+ {
+  "h": 3.4,
+  "kind": "prop",
+  "model": "rock_largeA",
+  "oy": -0.8,
+  "x": 1096.0,
+  "y": 151.0,
+  "yaw": 3.1
  }
 ]
