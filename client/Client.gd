@@ -768,6 +768,10 @@ func _make_field_material(map: String) -> StandardMaterial3D:
 		tex = "stadium_deck_albedo.png"; tint = Color(1.0, 0.98, 0.94); tile = 4.5
 	elif map.begins_with("away"):
 		tex = "wildrange_albedo.png"; tint = Color(0.94, 0.92, 0.82); tile = 7.0
+	elif map == World.LOC1B:                              # the Base: cleared settlement ground, like Base Camp
+		tex = "basecamp_albedo.png"; tint = Color(0.92, 0.90, 0.84); tile = 6.0
+	elif map.begins_with("loc1"):                         # Official Maps: grass-through-hardpan — the range
+		tex = "wildrange_albedo.png"; tint = Color(0.84, 0.90, 0.72); tile = 6.5  # texture cooled toward moss
 	elif map == World.BASECAMP:
 		tex = "basecamp_albedo.png"; tint = Color(0.95, 0.90, 0.82); tile = 6.0
 	elif finals:
@@ -827,6 +831,10 @@ func _depth_palette(map: String) -> Array:
 	if map.begins_with("glitchyard") or map.begins_with("camp") or map == World.DRILL:
 		return [Color(0.085, 0.08, 0.075), Color(0.13, 0.125, 0.115), Color(0.19, 0.18, 0.16), Color(0.075, 0.075, 0.085),
 			Color(0.06, 0.065, 0.085), Color(0.35, 0.30, 0.24)]  # smoggy slate + sodium-amber industrial haze
+	if map.begins_with("loc1"):                           # Official Maps: decay-into-reclamation — mossy olive
+		# hills between the Glitchyard's slate and the wilds' gold; the dusk glow is a colder moss-amber
+		return [Color(0.085, 0.09, 0.06), Color(0.12, 0.125, 0.085), Color(0.19, 0.21, 0.11), Color(0.07, 0.078, 0.058),
+			Color(0.06, 0.075, 0.10), Color(0.40, 0.38, 0.20)]
 	# default green family — deliberately kept for BASECAMP too: earth floor inside green hills reads
 	# as "a clearing in the wilds", and the safe-zone horizon stays in HOME's visual language.
 	return [Color(0.07, 0.10, 0.07), Color(0.10, 0.13, 0.10), Color(0.16, 0.24, 0.13), Color(0.06, 0.085, 0.075),

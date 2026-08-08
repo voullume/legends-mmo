@@ -19,7 +19,8 @@ extends "res://tools/stab/stab_base.gd"
 ## Run: godot --headless --path . --script res://tools/stab_locale1.gd
 
 const GeomLib := preload("res://shared/Geom.gd")
-const L1MAPS := ["loc1_fields", "loc1_pitch", "loc1_lane", "loc1_culvert"]
+const Quests := preload("res://shared/Quests.gd")
+const L1MAPS := ["loc1_fields", "loc1_pitch", "loc1_lane", "loc1_culvert", "loc1_base"]
 const CACHE_XY := Vector2(1700.0, 260.0)
 
 func _init() -> void:
@@ -63,6 +64,16 @@ func _quiet_pitch() -> void:
 		m["hp"] = 0.0
 		srv._respawn.erase(m["id"])
 
+func _rec_eq(a, b) -> bool:                     # order-insensitive KEY compare, exact per-value
+	if not (a is Dictionary and b is Dictionary):
+		return false
+	if (a as Dictionary).size() != (b as Dictionary).size():
+		return false
+	for k in a:
+		if not (b as Dictionary).has(k) or JSON.stringify(a[k]) != JSON.stringify((b as Dictionary)[k]):
+			return false
+	return true
+
 func _clears_collision(p: Vector2, circles: Array) -> bool:
 	for c in circles:
 		if p.distance_to(Vector2(float(c["x"]), float(c["y"]))) < float(c["r"]) + 16.0:
@@ -79,6 +90,10 @@ func _run() -> void:
 	ok(_mobs_in("loc1_pitch").size() == 15, "pitch: 15 spawns incl. the 5-guard cache pack (got %d)" % _mobs_in("loc1_pitch").size())
 	ok(_mobs_in("loc1_lane").size() == 6, "lane: 6 spawns (got %d)" % _mobs_in("loc1_lane").size())
 	ok(_mobs_in("loc1_culvert").size() == 2, "culvert: 2 spawns — the telegraphed tube guard pair (got %d)" % _mobs_in("loc1_culvert").size())
+	ok(_mobs_in("loc1_base").size() == 0, "base: ZERO mobs (a safe hub — residents would attack a dummy)")
+	var bcfg: Dictionary = World.cfg("loc1_base")
+	ok(str(bcfg["type"]) == "safe" and not bool(bcfg["aggro"]) and float(bcfg["regen"]) > 0.1,
+		"base: safe type, no aggro, strong regen (the basecamp pattern)")
 	var pe := 0
 	for f in _mobs_in("loc1_pitch"):
 		if str(f.get("mobTier", "")) == "elite":
@@ -133,6 +148,11 @@ func _run() -> void:
 		"walk: the intra-map checkpoint collapses the return walk (far side → entry)")
 	_walk(2, 120.0, 1400.0)
 	ok(str(srv._session[2]["map"]) == "glitchyard_5", "walk: fields → GY5 back out of the locale")
+	_walk(2, 700.0, 1000.0)                        # back in for the base round-trip
+	_walk(2, 1500.0, 2680.0)
+	ok(str(srv._session[2]["map"]) == "loc1_base", "walk: fields → the Base (service pads, explicit)")
+	_walk(2, 1080.0, 450.0)
+	ok(str(srv._session[2]["map"]) == "loc1_fields", "walk: the Base → fields")
 
 	# ---- 4. no dangling pads ----
 	for mp in L1MAPS:
@@ -201,6 +221,25 @@ func _run() -> void:
 		var btxt := FileAccess.get_file_as_string("res://data/backdrops/%s.json" % mp)
 		var barr = JSON.parse_string(btxt)
 		ok(barr is Array and (barr as Array).size() > 0, "backdrops: %s.json parses as a non-empty array" % mp)
+	# the DEPTH-pass decal files: each const-backed zone's JSON must reproduce World.DECALS as an
+	# exact ordered prefix (the file SHADOWS the const — it IS the collision source), and stay under
+	# the §10 density cap. (The depth pass SHIPPED these files: a missing one is a FAILURE now — the
+	# old silent pre-dressing skip let the collision source vanish with the suite still green.)
+	for mp in L1MAPS:
+		var dpath := "res://data/decals/%s.json" % mp
+		if not FileAccess.file_exists(dpath):
+			ok(false, "decals: %s.json MISSING (it IS the collision source)" % mp)
+			continue
+		var darr = JSON.parse_string(FileAccess.get_file_as_string(dpath))
+		ok(darr is Array and (darr as Array).size() <= 300, "decals: %s.json parses, ≤300 records (got %s)" % [mp, str((darr as Array).size() if darr is Array else "-")])
+		var cst: Array = World.DECALS.get(mp, [])
+		var okp: bool = darr is Array and (darr as Array).size() >= cst.size()
+		if okp:
+			for i in range(cst.size()):
+				if not _rec_eq(cst[i], (darr as Array)[i]):
+					okp = false
+					break
+		ok(okp, "decals: %s.json reproduces the DECALS const as an exact ordered prefix" % mp)
 	# camp engageability: 24 firing positions on the 250 ranged ring, ≥50% must hold LOS
 	for mp in L1MAPS:
 		var ocirc := _collision_for(mp)
@@ -400,5 +439,47 @@ func _run() -> void:
 	var lk: Array = fnet.calls("recv_cache_state", 2)
 	ok(lk.size() == 1 and str(lk[0]["args"][0]) == "locked" and int(lk[0]["args"][1]) > 100000 and int(lk[0]["args"][1]) <= 120000,
 		"locked: the remaining ms is the actual lockout remainder (not a timestamp)")
+
+	# ---- 9. Phase 4.1: the Base hub — services, the quest chain, resident life ----
+	var frm: Dictionary = await login("Foreman", 3, {"admin": true, "level": 9})
+	var ff = srv._find(srv._session[3]["fid"])
+	srv._relocate(ff, srv._session[3], "loc1_base", Vector2(500.0, 160.0))   # at the quest giver pad
+	ff = srv._find(srv._session[3]["fid"])
+	ok(srv._svc_zone(3, "shop") and srv._svc_zone(3, "forge") and srv._svc_zone(3, "questgiver"),
+		"base: the SERVICE_PADS registry fields shop + forge + quest giver")
+	ok(not srv._shop_t2(3), "base: the shop sells TIER-1 (the L5-12 band; T2 stays Base Camp's)")
+	ok(srv._at_questgiver(3), "base: standing at the giver pad passes the server guard")
+	# the chain: wired into display_order, never into the secret-gate ORDER
+	ok(Quests.ORDER.size() == 9, "quests: the secret-boss gate list is untouched (9)")
+	for qid in Quests.LOC1_ORDER:
+		ok(Quests.get_quest(qid) != null and Quests.display_order().has(qid), "quests: %s exists + displays" % qid)
+	await srv._do_quest_accept(3, "loc1_fields_sweep")
+	await settle()
+	ok((srv._session[3]["quests"] as Dictionary).has("loc1_fields_sweep"), "quests: accepted at the Base's giver")
+	srv._relocate(ff, srv._session[3], "loc1_fields", Vector2(300.0, 1400.0))
+	var vic = null
+	for f in _mobs_in("loc1_fields"):
+		if bool(f.get("alive", false)):
+			vic = f
+			break
+	srv._worlds["loc1_fields"]["events"].append({"type": "kill", "victim": vic["id"], "killer": srv._session[3]["fid"]})
+	srv._award_kills()
+	srv._worlds["loc1_fields"]["events"].clear()
+	await settle()
+	ok(int((srv._session[3]["quests"]["loc1_fields_sweep"] as Dictionary).get("progress", 0)) == 1,
+		"quests: a fields kill advances the objective through the REAL award path")
+	# resident life: the two Locale 1 rows, in-band, actually spawned
+	var l1res := 0
+	for r in srv.RESIDENTS:
+		if str(r.get("home", "")).begins_with("loc1"):
+			l1res += 1
+			ok(int(r["level"]) >= 5 and int(r["level"]) <= 12, "residents: %s sits in the provisional L5-12 band" % r["id"])
+	ok(l1res == 2, "residents: 2 Locale 1 rows declared (the router + the tethered support)")
+	for mp3 in ["loc1_fields", "loc1_pitch"]:
+		var has_res := false
+		for f in srv._worlds[mp3]["fighters"]:
+			if f.get("resident", false):
+				has_res = true
+		ok(has_res, "residents: one actually spawned in %s" % mp3)
 
 	finish("stab_locale1")

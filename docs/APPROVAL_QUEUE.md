@@ -20,6 +20,25 @@ jump-verticality gate (`docs/jump-verticality-phase1-decision.md`). See `CLAUDE.
 
 ## Waiting on you
 
+### Official Maps — the Locale 1 DEPTH pass checkpoint (2026-08-06, PR #10)
+The 4.1 look/feel checkpoint got the owner's verdict — *"just another blank rectangle map"* — so the
+follow-up dressed **all five loc1 zones at once** instead of checkpointing skeletons: ~1,000 decal
+records total (fields 299, pitch 300, lane 142, base 179, culvert 76) — rock ridgelines + tallC
+spires that break sightlines, tree walls, fence corridors, POI clusters, and the Base rebuilt as a
+**fenced compound entered through one gate** (topology-proven single entrance). Self-verified before
+this checkpoint: per-zone adversarial critics, a walkable-connectivity proof against the engine's
+own collision dump (every POI reachable in every zone), 36-suite battery + `bal_identity`
+byte-identical, screenshots reviewed zone by zone (`docs/locale1-shots/`, before/ vs after).
+**Round 2 (2026-08-08):** the owner's round-1 verdict — *"all the same small sizing … still looks
+like a flat map"* — drove the **scale-hierarchy pass** (`a0613c5`): every zone re-tiered to the
+established scale language (landmark trees h 6.5–8.5 vs the old 3.8 max, canopy at away_1's median,
+spires doubled into monoliths, 176 rocks half-sunk into continuous berms via negative `oy`,
+buildings at parity, chest-high fences). Grown collision re-proven byte-exact vs the engine dump;
+all POIs reachable; all 41 camps ≥50% LOS; base gate 52.7 su. `stab_locale1` 466/466.
+**Checkpoint: look at the round-2 shots — varied and vertical now?** Two look-calls remain:
+(1) 15 decorative rings kept as painted field markings; (2) the pitch ships at exactly 300/300
+records — the density cap has zero headroom there.
+
 ### Official Maps — global mob-respawn slowdown? (2026-08-05, from the Phase 2 playtest)
 The owner's playtest note: *"we need to slow down the respawn timer on mobs all together, or at
 least more for the packs."* The packs half is DONE (cache guards 6→40 s, per-row `respawnS`).

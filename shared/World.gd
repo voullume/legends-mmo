@@ -45,6 +45,8 @@ const LOC1F := "loc1_fields"                # Overgrown Practice Fields — broa
 const LOC1P := "loc1_pitch"                 # Flooded Pitches — broad hub #2 (tower landmark + the major cache)
 const LOC1L := "loc1_lane"                  # Service Lane — bent long-reveal alternate route
 const LOC1C := "loc1_culvert"               # The Culvert — pocket + the cross-zone return shortcut
+const LOC1B := "loc1_base"                  # Phase 4.1: the locale's BASE (safe service hub off the fields
+                                            # loop junction; the §9.3 respawn anchor once Phase 7A lands)
 const INSTANCE_MAPS := ["camp", "camp_b", "camp_c", "drill", "locker_room"]    # templates that are instance-only (skipped by static-world boot)
 
 static func is_instance_template(map: String) -> bool:
@@ -78,6 +80,8 @@ const LOC1F_SPAWN := Vector2(300, 1400)      # fields: the GY5 pad drops you at 
 const LOC1P_SPAWN := Vector2(250, 1200)      # pitch: west-mid arrival band, clear of the route camps and the cache pack
 const LOC1L_SPAWN := Vector2(150, 350)       # lane: west mouth
 const LOC1C_SPAWN := Vector2(180, 550)       # culvert: the fields-side (west) mouth
+const LOC1B_SPAWN := Vector2(400, 450)       # base: south-center — resident global-index offsets (+≤600 east)
+                                             # stay inside the 1200 width (the basecamp-scout trap)
 
 # Per-map config. type drives spawn (safe = fixed spawn, else resume-at-logout); w/h = arena size;
 # regen = max-HP fraction healed per second; regen_delay = seconds after a hit before regen resumes
@@ -125,6 +129,9 @@ const MAPS := {
 	LOC1P: {"type": "combat", "w": 3200, "h": 2400, "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1P_SPAWN},
 	LOC1L: {"type": "combat", "w": 2600, "h": 700,  "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1L_SPAWN},
 	LOC1C: {"type": "combat", "w": 1000, "h": 700,  "regen": 0.012, "regen_delay": 6.0, "aggro": true, "pvp": false, "spawn": LOC1C_SPAWN},
+	# Phase 4.1: the Locale 1 base — the basecamp pattern verbatim (safe, strong regen, zero mobs;
+	# 1200 wide so global resident spawn offsets stay in-bounds)
+	LOC1B: {"type": "safe", "w": 1200, "h": 640, "regen": 0.12, "regen_delay": 0.0, "aggro": false, "pvp": false, "spawn": LOC1B_SPAWN},
 }
 
 const DUMMY_POS := Vector2(1240, 790)         # the training dummy (home only)
@@ -150,6 +157,9 @@ const SERVICE_PADS := {
 	HOME: {"shop": SHOP_POS, "forge": FORGE_POS, "questgiver": QUESTGIVER_POS,
 		"practice": PRACTICE_POS, "build_shop": BUILD_SHOP_POS},
 	BASECAMP: {"shop": Vector2(700.0, 220.0), "forge": Vector2(300.0, 220.0), "questgiver": Vector2(500.0, 160.0)},
+	# Phase 4.1: the Locale 1 base fields the SAME hub subset, at TIER-1 shop pricing (the L5-12 band —
+	# _shop_t2 only special-cases BASECAMP, so this registry row alone wires shop/forge/giver + bounties)
+	LOC1B: {"shop": Vector2(700.0, 220.0), "forge": Vector2(300.0, 220.0), "questgiver": Vector2(500.0, 160.0)},
 }
 static func service_pad(map: String, key: String):
 	return (SERVICE_PADS.get(map, {}) as Dictionary).get(key, null)
@@ -358,6 +368,12 @@ const PORTALS := {
 		{"x": 600.0,  "y": 1900.0, "to": LOC1C, "tx": 220.0,  "ty": 550.0,  "gate": "loc1_gate", "label": "▶ Culvert Mouth"},
 		# intra-map checkpoint collapsing the hub's return walk (the away_1 Field-Entrance precedent)
 		{"x": 3350.0, "y": 2600.0, "to": LOC1F, "tx": 400.0,  "ty": 1500.0, "gate": "loc1_gate", "label": "▲ Entry Plaza"},
+		# Phase 4.1: the Base — explicit service pads at the loop junction (service transitions stay
+		# honest per §8). Pad clears every camp (>450) and the checkpoint/culvert pads.
+		{"x": 1500.0, "y": 2680.0, "to": LOC1B, "tx": 950.0,  "ty": 450.0,  "gate": "loc1_gate", "label": "▶ The Base"},
+	],
+	LOC1B: [
+		{"x": 1080.0, "y": 450.0,  "to": LOC1F, "tx": 1500.0, "ty": 2550.0, "gate": "loc1_gate", "label": "◀ Practice Fields"},
 	],
 	LOC1P: [
 		{"x": 120.0,  "y": 700.0,  "to": LOC1F, "tx": 3300.0, "ty": 700.0,  "gate": "loc1_gate", "label": "◀ Treeline Break"},

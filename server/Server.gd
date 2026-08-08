@@ -94,6 +94,12 @@ const RESIDENTS := [
 	# (400,540) = x≤920, inside the 1200-wide map and clear of every pad — the scout-flagged trap).
 	{"id": "warden",  "name": "Warden Brook", "class": "linebacker", "persona": "fighter", "home": "basecamp", "level": 15, "tier": "mid", "polite": true, "route": ["basecamp", "away_1", "away_2", "away_3"]},
 	{"id": "fen",     "name": "Naturalist Fen", "class": "setter",   "persona": "support", "home": "basecamp", "level": 14, "tier": "mid", "polite": true},
+	# Official Maps Phase 4.1: Locale 1 gets resident life from day one (§9 — residents are the
+	# population). Levels sit inside the provisional L5-12 band; the router makes the locale feel
+	# traveled, the tethered support anchors the pitch. (Both zones are 3200+ wide — the global-index
+	# spawn offsets are safely in-bounds.)
+	{"id": "patch",   "name": "Groundskeeper Patch", "class": "goalkeeper", "persona": "wanderer", "home": "loc1_fields", "level": 6, "tier": "mid", "polite": true, "route": ["loc1_fields", "loc1_lane", "loc1_pitch"]},
+	{"id": "marsh",   "name": "Marsh", "class": "setter", "persona": "support", "home": "loc1_pitch", "level": 9, "tier": "mid", "polite": true},
 ]
 const ROUTE_DWELL_MS := 75000         # a routing resident spends this long in each zone before moving on
 const RESIDENT_TIERS := {"low": {"hp": 1.0, "dmg": 1.0}, "mid": {"hp": 1.3, "dmg": 1.1}, "high": {"hp": 1.8, "dmg": 1.25}}   # difficulty-pass v1: bots are helpers, not carries (was mid 1.6/1.25, high 2.6/1.55) — tunable
